@@ -1,0 +1,45 @@
+{
+  "name": "modly-cli-mcp",
+  "version": "0.1.0",
+  "description": "Installable Modly CLI and MCP server package for stdio-based consumers.",
+  "type": "module",
+  "bin": {
+    "modly": "src/cli/index.mjs",
+    "modly-mcp": "src/mcp/server.mjs"
+  },
+  "files": [
+    "src/**",
+    "README.md",
+    "docs/install/**",
+    "templates/opencode/**"
+  ],
+  "scripts": {
+    "cli": "node ./src/cli/index.mjs",
+    "start:cli": "node ./src/cli/index.mjs",
+    "mcp": "node ./src/mcp/server.mjs",
+    "start:mcp": "node ./src/mcp/server.mjs",
+    "test:mcp": "node --test test/mcp/*.test.mjs",
+    "test:packaging": "node --test test/packaging/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "modly",
+    "cli",
+    "mcp",
+    "opencode"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "devDependencies": {},
+  "author": ""
+}
