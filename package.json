@@ -10,6 +10,7 @@
   "files": [
     "src/**",
     "README.md",
+    "LICENSE",
     "docs/install/**",
     "templates/opencode/**"
   ],
@@ -30,7 +31,7 @@
     "mcp",
     "opencode"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
