@@ -44,6 +44,10 @@ function sanitizeValue({ schema, value, path }) {
     const trimmed = value.trim();
 
     if (trimmed === '') {
+      if (path === 'input.outputPath') {
+        return '';
+      }
+
       throw toValidationError(`${path} must be a non-empty string.`, { path, reason: 'empty_string' });
     }
 

@@ -1176,6 +1176,96 @@ test('modly.processRun.create validates canonical process_id and workspace_path 
       'GET /automation/capabilities',
     ],
   );
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      'http://127.0.0.1:8765/health',
+      'http://127.0.0.1:8766/automation/capabilities',
+      'http://127.0.0.1:8766/process-runs',
+      'http://127.0.0.1:8765/health',
+      'http://127.0.0.1:8766/automation/capabilities',
+      'http://127.0.0.1:8765/health',
+      'http://127.0.0.1:8766/automation/capabilities',
+    ],
+  );
+});
+
+test('modly.processRun.create omits params.output_path when outputPath is missing or blank', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const bodies = [];
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({ processes: [{ id: 'mesh-simplify' }] });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(method, 'POST');
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      assert.equal('output_path' in body.params, false);
+      return jsonResponse({
+        run_id: `process-run-${bodies.length}`,
+        process_id: body.process_id,
+        status: 'accepted',
+        params: body.params,
+        workspace_path: body.workspace_path,
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+
+  const omittedResult = await registry.invoke('modly.processRun.create', {
+    process_id: 'mesh-simplify',
+    params: { mesh_path: 'meshes/in.glb' },
+  });
+
+  const blankResult = await registry.invoke('modly.processRun.create', {
+    process_id: 'mesh-simplify',
+    params: { mesh_path: 'meshes/in.glb' },
+    outputPath: '   ',
+  });
+
+  assert.equal(omittedResult.isError, undefined);
+  assert.deepEqual(omittedResult.structuredContent.data.run.params, {
+    mesh_path: 'meshes/in.glb',
+  });
+  assert.equal(blankResult.isError, undefined);
+  assert.deepEqual(blankResult.structuredContent.data.run.params, {
+    mesh_path: 'meshes/in.glb',
+  });
+  assert.deepEqual(bodies, [
+    {
+      process_id: 'mesh-simplify',
+      params: {
+        mesh_path: 'meshes/in.glb',
+      },
+    },
+    {
+      process_id: 'mesh-simplify',
+      params: {
+        mesh_path: 'meshes/in.glb',
+      },
+    },
+  ]);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    [
+      'GET /health',
+      'GET /automation/capabilities',
+      'POST /process-runs',
+      'GET /health',
+      'GET /automation/capabilities',
+      'POST /process-runs',
+    ],
+  );
 });
 
 test('modly.processRun.create surfaces backend PROCESS_UNSUPPORTED unchanged', { concurrency: false }, async (t) => {
@@ -1221,6 +1311,14 @@ test('modly.processRun.create surfaces backend PROCESS_UNSUPPORTED unchanged', {
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /automation/capabilities', 'POST /process-runs'],
   );
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      'http://127.0.0.1:8765/health',
+      'http://127.0.0.1:8766/automation/capabilities',
+      'http://127.0.0.1:8766/process-runs',
+    ],
+  );
 });
 
 test('modly.processRun.status and cancel return stable process-run payloads', { concurrency: false }, async (t) => {
@@ -1264,6 +1362,15 @@ test('modly.processRun.status and cancel return stable process-run payloads', { 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /process-runs/run-123', 'GET /health', 'POST /process-runs/run-123/cancel'],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      'http://127.0.0.1:8765/health',
+      'http://127.0.0.1:8766/process-runs/run-123',
+      'http://127.0.0.1:8765/health',
+      'http://127.0.0.1:8766/process-runs/run-123/cancel',
+    ],
   );
 });
 
@@ -1336,6 +1443,17 @@ test('modly.processRun.wait returns terminal state and supports timeout passthro
   assert.equal(timeoutResult.structuredContent.error.message, 'Polling timed out before reaching a terminal state.');
   assert.ok(timeoutFetches >= 1);
   assert.equal(calls[0].path, '/health');
+  assert.equal(calls[0].url, 'http://127.0.0.1:8765/health');
+  assert.deepEqual(
+    calls
+      .filter((call) => call.path.startsWith('/process-runs/'))
+      .map((call) => call.url),
+    [
+      'http://127.0.0.1:8766/process-runs/run-123',
+      'http://127.0.0.1:8766/process-runs/run-123',
+      ...Array.from({ length: timeoutFetches }, () => 'http://127.0.0.1:8766/process-runs/run-timeout'),
+    ],
+  );
 });
 
 test('registry rejects non MVP operations with UNSUPPORTED_OPERATION', { concurrency: false }, async (t) => {

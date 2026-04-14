@@ -92,7 +92,7 @@ test('getAutomationCapabilities routes only capabilities to bridge and preserves
   });
 });
 
-test('getAutomationCapabilities uses bridge while workflow process and model remain on FastAPI', async () => {
+test('process-runs route to bridge while workflow, health and models remain on FastAPI', async () => {
   const requests = [];
 
   const client = createModlyApiClient({
@@ -110,9 +110,11 @@ test('getAutomationCapabilities uses bridge while workflow process and model rem
             models: [{ id: 'model-a' }],
             processes: [{ id: 'process-a' }],
           });
+        case 'http://127.0.0.1:8765/health':
+          return jsonResponse({ status: 'ok' });
         case 'http://127.0.0.1:8765/workflow-runs/run-123':
           return jsonResponse({ run_id: 'run-123', status: 'running' });
-        case 'http://127.0.0.1:8765/process-runs/process-run-1':
+        case 'http://127.0.0.1:8766/process-runs/process-run-1':
           return jsonResponse({ run_id: 'process-run-1', process_id: 'mesh-simplify', status: 'running' });
         case 'http://127.0.0.1:8765/model/all':
           return jsonResponse({ models: [] });
@@ -123,17 +125,20 @@ test('getAutomationCapabilities uses bridge while workflow process and model rem
   });
 
   const capabilities = await client.getAutomationCapabilities();
+  const health = await client.health();
   const workflowRun = await client.getWorkflowRun('run-123');
   const processRun = await client.getProcessRun('process-run-1');
   const models = await client.listModels();
 
   assert.deepEqual(requests, [
     { url: 'http://127.0.0.1:8766/automation/capabilities', method: 'GET' },
+    { url: 'http://127.0.0.1:8765/health', method: 'GET' },
     { url: 'http://127.0.0.1:8765/workflow-runs/run-123', method: 'GET' },
-    { url: 'http://127.0.0.1:8765/process-runs/process-run-1', method: 'GET' },
+    { url: 'http://127.0.0.1:8766/process-runs/process-run-1', method: 'GET' },
     { url: 'http://127.0.0.1:8765/model/all', method: 'GET' },
   ]);
   assert.equal(capabilities.source, 'bridge');
+  assert.deepEqual(health, { status: 'ok' });
   assert.deepEqual(workflowRun, { run_id: 'run-123', status: 'running' });
   assert.deepEqual(processRun, { run_id: 'process-run-1', process_id: 'mesh-simplify', status: 'running' });
   assert.deepEqual(models, { models: [] });
@@ -685,7 +690,7 @@ test('createProcessRun maps POST /process-runs with JSON body', async () => {
 
   const result = await client.createProcessRun(payload);
 
-  assert.equal(requestUrl, 'http://127.0.0.1:8765/process-runs');
+  assert.equal(requestUrl, 'http://127.0.0.1:8766/process-runs');
   assert.equal(requestMethod, 'POST');
   assert.equal(requestHeaders['content-type'], 'application/json');
   assert.equal(requestHeaders.accept, 'application/json');
@@ -708,7 +713,7 @@ test('getProcessRun maps GET /process-runs/{run_id}', async () => {
 
   const result = await client.getProcessRun('process-run-1');
 
-  assert.equal(requestUrl, 'http://127.0.0.1:8765/process-runs/process-run-1');
+  assert.equal(requestUrl, 'http://127.0.0.1:8766/process-runs/process-run-1');
   assert.equal(requestMethod, 'GET');
   assert.deepEqual(result, { run_id: 'process-run-1', process_id: 'mesh-simplify', status: 'running' });
 });
@@ -728,9 +733,35 @@ test('cancelProcessRun maps POST /process-runs/{run_id}/cancel', async () => {
 
   const result = await client.cancelProcessRun('process-run-1');
 
-  assert.equal(requestUrl, 'http://127.0.0.1:8765/process-runs/process-run-1/cancel');
+  assert.equal(requestUrl, 'http://127.0.0.1:8766/process-runs/process-run-1/cancel');
   assert.equal(requestMethod, 'POST');
   assert.deepEqual(result, { run_id: 'process-run-1', process_id: 'mesh-simplify', status: 'cancelled' });
+});
+
+test('process-runs fail explicitly on bridge outages without FastAPI fallback', async () => {
+  const requests = [];
+
+  const client = createModlyApiClient({
+    apiUrl: 'http://127.0.0.1:8765',
+    fetchImpl: async (url, init = {}) => {
+      requests.push({ url: String(url), method: init.method ?? 'GET' });
+      throw new Error('connect ECONNREFUSED 127.0.0.1:8766');
+    },
+  });
+
+  await assert.rejects(
+    () => client.getProcessRun('process-run-1'),
+    (error) => {
+      assert.ok(error instanceof ModlyError);
+      assert.equal(error.code, 'BACKEND_UNAVAILABLE');
+      assert.equal(error.message, 'GET /process-runs/process-run-1 failed');
+      assert.equal(error.details, undefined);
+      assert.equal(error.cause?.message, 'connect ECONNREFUSED 127.0.0.1:8766');
+      return true;
+    },
+  );
+
+  assert.deepEqual(requests, [{ url: 'http://127.0.0.1:8766/process-runs/process-run-1', method: 'GET' }]);
 });
 
 test('toWorkflowRun normalizes accepted and status payloads with stable run identity', () => {
@@ -869,15 +900,69 @@ test('prepareProcessRunCreateInput validates canonical process_id and maps outpu
   });
 });
 
-test('prepareProcessRunCreateInput rejects invalid params, traversal paths and conflicting output paths', () => {
-  assert.throws(
-    () => prepareProcessRunCreateInput({ process_id: 'mesh-simplify', params: [] }),
-    /params must be a JSON object/,
+test('prepareProcessRunCreateInput omits params.output_path for omitted and blank output paths', () => {
+  const capabilities = { processes: [{ id: 'mesh-simplify' }] };
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-simplify',
+        params: { mesh_path: 'meshes/in.glb' },
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-simplify',
+      params: { mesh_path: 'meshes/in.glb' },
+    },
   );
 
-  assert.throws(
-    () => prepareProcessRunCreateInput({ process_id: 'mesh-simplify', params: {}, workspace_path: '../escape' }),
-    /workspace-relative and must not contain traversal/,
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-simplify',
+        params: { mesh_path: 'meshes/in.glb', output_path: '   ' },
+        outputPath: '',
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-simplify',
+      params: { mesh_path: 'meshes/in.glb' },
+    },
+  );
+});
+
+test('prepareProcessRunCreateInput preserves explicit normalized output paths and only rejects explicit conflicts', () => {
+  const capabilities = { processes: [{ id: 'mesh-simplify' }] };
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-simplify',
+        params: { mesh_path: 'meshes/in.glb', output_path: '   ' },
+        outputPath: ' exports/from-sugar.glb ',
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-simplify',
+      params: { mesh_path: 'meshes/in.glb', output_path: 'exports/from-sugar.glb' },
+    },
+  );
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-simplify',
+        params: { mesh_path: 'meshes/in.glb', output_path: ' exports/out.glb ' },
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-simplify',
+      params: { mesh_path: 'meshes/in.glb', output_path: 'exports/out.glb' },
+    },
   );
 
   assert.throws(
@@ -888,9 +973,21 @@ test('prepareProcessRunCreateInput rejects invalid params, traversal paths and c
           params: { output_path: 'meshes/one.glb' },
           outputPath: 'meshes/two.glb',
         },
-        { capabilities: { processes: [{ id: 'mesh-simplify' }] } },
+        { capabilities },
       ),
     /outputPath conflicts with params.output_path/,
+  );
+});
+
+test('prepareProcessRunCreateInput rejects invalid params, traversal paths and conflicting output paths', () => {
+  assert.throws(
+    () => prepareProcessRunCreateInput({ process_id: 'mesh-simplify', params: [] }),
+    /params must be a JSON object/,
+  );
+
+  assert.throws(
+    () => prepareProcessRunCreateInput({ process_id: 'mesh-simplify', params: {}, workspace_path: '../escape' }),
+    /workspace-relative and must not contain traversal/,
   );
 
   assert.throws(

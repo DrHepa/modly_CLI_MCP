@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import path from 'node:path';
+import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import { renderHelp, renderProcessRunHelp } from '../../src/cli/help.mjs';
 import { runProcessRunCommand } from '../../src/cli/commands/process-run.mjs';
+import { createModlyApiClient } from '../../src/core/modly-api.mjs';
 import { ModlyError, NotFoundError } from '../../src/core/errors.mjs';
 
 async function captureStderr(fn) {
@@ -28,6 +31,59 @@ async function captureStderr(fn) {
   } finally {
     process.stderr.write = originalWrite;
   }
+}
+
+async function startJsonServer(t, handler) {
+  const requests = [];
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const chunks = [];
+
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+
+    const request = {
+      method: req.method ?? 'GET',
+      path: url.pathname,
+      search: url.search,
+      headers: req.headers,
+      body: Buffer.concat(chunks).toString('utf8'),
+    };
+
+    requests.push(request);
+
+    const response = (await handler(request, requests)) ?? {};
+    const status = response.status ?? 200;
+    const headers = { 'content-type': 'application/json', ...(response.headers ?? {}) };
+
+    res.writeHead(status, headers);
+    res.end(JSON.stringify(response.body ?? {}));
+  });
+
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+
+  t.after(
+    () =>
+      new Promise((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      }),
+  );
+
+  const address = server.address();
+
+  return {
+    requests,
+    url: `http://127.0.0.1:${address.port}`,
+  };
 }
 
 test('global and process-run help advertise process-run MVP commands', () => {
@@ -116,6 +172,197 @@ test('process-run create checks health then capabilities and maps outputPath sug
     output_path: 'meshes/out.glb',
   });
   assert.equal(result.data.run.workspacePath, 'workspace');
+});
+
+test('process-run create omits params.output_path when --output-path is missing or blank', async () => {
+  const omittedCalls = [];
+
+  const omittedResult = await runProcessRunCommand({
+    args: ['create', '--process-id', 'mesh-simplify', '--params-json', '{"mesh_path":"meshes/in.glb"}'],
+    client: {
+      async health() {
+        omittedCalls.push('health');
+        return { status: 'ok' };
+      },
+      async getAutomationCapabilities() {
+        omittedCalls.push('getAutomationCapabilities');
+        return { processes: [{ id: 'mesh-simplify' }] };
+      },
+      async createProcessRun(payload) {
+        omittedCalls.push(['createProcessRun', payload]);
+        return {
+          run_id: 'process-run-omitted',
+          process_id: payload.process_id,
+          status: 'accepted',
+          params: payload.params,
+          workspace_path: payload.workspace_path,
+        };
+      },
+    },
+  });
+
+  assert.equal(omittedCalls[0], 'health');
+  assert.equal(omittedCalls[1], 'getAutomationCapabilities');
+  assert.equal(omittedCalls[2][0], 'createProcessRun');
+  assert.equal(omittedCalls[2][1].process_id, 'mesh-simplify');
+  assert.deepEqual(omittedCalls[2][1].params, {
+    mesh_path: 'meshes/in.glb',
+  });
+  assert.equal(Object.hasOwn(omittedCalls[2][1].params, 'output_path'), false);
+  assert.deepEqual(omittedResult.data.run.params, {
+    mesh_path: 'meshes/in.glb',
+  });
+
+  const blankCalls = [];
+
+  const blankResult = await runProcessRunCommand({
+    args: [
+      'create',
+      '--process-id',
+      'mesh-simplify',
+      '--output-path',
+      '   ',
+      '--params-json',
+      '{"mesh_path":"meshes/in.glb"}',
+    ],
+    client: {
+      async health() {
+        blankCalls.push('health');
+        return { status: 'ok' };
+      },
+      async getAutomationCapabilities() {
+        blankCalls.push('getAutomationCapabilities');
+        return { processes: [{ id: 'mesh-simplify' }] };
+      },
+      async createProcessRun(payload) {
+        blankCalls.push(['createProcessRun', payload]);
+        return {
+          run_id: 'process-run-blank',
+          process_id: payload.process_id,
+          status: 'accepted',
+          params: payload.params,
+          workspace_path: payload.workspace_path,
+        };
+      },
+    },
+  });
+
+  assert.equal(blankCalls[0], 'health');
+  assert.equal(blankCalls[1], 'getAutomationCapabilities');
+  assert.equal(blankCalls[2][0], 'createProcessRun');
+  assert.equal(blankCalls[2][1].process_id, 'mesh-simplify');
+  assert.deepEqual(blankCalls[2][1].params, {
+    mesh_path: 'meshes/in.glb',
+  });
+  assert.equal(Object.hasOwn(blankCalls[2][1].params, 'output_path'), false);
+  assert.deepEqual(blankResult.data.run.params, {
+    mesh_path: 'meshes/in.glb',
+  });
+});
+
+test('process-run create without --output-path reaches default export flow over HTTP harness', async (t) => {
+  const fastApi = await startJsonServer(t, ({ method, path: requestPath }) => {
+    assert.equal(method, 'GET');
+    assert.equal(requestPath, '/health');
+    return { body: { status: 'ok' } };
+  });
+
+  let pollCount = 0;
+  const bridge = await startJsonServer(t, ({ method, path: requestPath, body }) => {
+    if (method === 'GET' && requestPath === '/automation/capabilities') {
+      return { body: { processes: [{ id: 'mesh-simplify' }] } };
+    }
+
+    if (method === 'POST' && requestPath === '/process-runs') {
+      const payload = JSON.parse(body);
+
+      assert.deepEqual(payload, {
+        process_id: 'mesh-simplify',
+        params: { mesh_path: 'meshes/in.glb' },
+      });
+      assert.equal(Object.hasOwn(payload.params, 'output_path'), false);
+
+      return {
+        body: {
+          run_id: 'process-run-default-output',
+          process_id: payload.process_id,
+          status: 'accepted',
+          params: payload.params,
+        },
+      };
+    }
+
+    if (method === 'GET' && requestPath === '/process-runs/process-run-default-output') {
+      pollCount += 1;
+
+      if (pollCount === 1) {
+        return {
+          body: {
+            run_id: 'process-run-default-output',
+            process_id: 'mesh-simplify',
+            status: 'running',
+            params: { mesh_path: 'meshes/in.glb' },
+          },
+        };
+      }
+
+      return {
+        body: {
+          run_id: 'process-run-default-output',
+          process_id: 'mesh-simplify',
+          status: 'succeeded',
+          params: { mesh_path: 'meshes/in.glb' },
+          output_url: 'file:///workspace/Exports/process-run-default-output.glb',
+        },
+      };
+    }
+
+    throw new Error(`Unexpected ${method} ${requestPath}`);
+  });
+
+  const client = createModlyApiClient({
+    apiUrl: fastApi.url,
+    automationUrl: bridge.url,
+    processUrl: bridge.url,
+  });
+
+  const createResult = await runProcessRunCommand({
+    args: ['create', '--process-id', 'mesh-simplify', '--params-json', '{"mesh_path":"meshes/in.glb"}'],
+    client,
+  });
+
+  const waitCaptured = await captureStderr(() =>
+    runProcessRunCommand({
+      args: ['wait', 'process-run-default-output', '--interval-ms', '1', '--timeout-ms', '1000'],
+      client,
+    }),
+  );
+
+  assert.equal(createResult.data.run.run_id, 'process-run-default-output');
+  assert.equal(createResult.data.run.outputUrl, undefined);
+  assert.equal(waitCaptured.result.data.run.run_id, 'process-run-default-output');
+  assert.equal(waitCaptured.result.data.run.status, 'succeeded');
+  assert.equal(
+    waitCaptured.result.data.run.outputUrl,
+    'file:///workspace/Exports/process-run-default-output.glb',
+  );
+  assert.match(waitCaptured.stderr, /Process run process-run-default-output: running/u);
+  assert.match(waitCaptured.stderr, /Process run process-run-default-output: succeeded/u);
+  assert.deepEqual(
+    fastApi.requests.map((request) => `${request.method} ${request.path}${request.search}`),
+    ['GET /health', 'GET /health'],
+  );
+  assert.deepEqual(
+    bridge.requests.map((request) => `${request.method} ${request.path}${request.search}`),
+    [
+      'GET /automation/capabilities',
+      'POST /process-runs',
+      'GET /process-runs/process-run-default-output',
+      'GET /process-runs/process-run-default-output',
+    ],
+  );
+  assert.equal(bridge.requests.some((request) => request.path.includes('/workflow-runs')), false);
+  assert.equal(bridge.requests.some((request) => request.path === '/model/all'), false);
 });
 
 test('process-run create rejects non-canonical process_id before HTTP create', async () => {

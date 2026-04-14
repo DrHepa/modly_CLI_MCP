@@ -15,6 +15,23 @@ export function resolveAutomationCapabilitiesUrl({ apiUrl = DEFAULT_API_URL, aut
   return url.toString();
 }
 
+export function resolveProcessRunsUrl({
+  apiUrl = DEFAULT_API_URL,
+  processUrl = process.env.MODLY_PROCESS_URL,
+} = {}) {
+  const url = new URL(processUrl ?? apiUrl);
+
+  if (!processUrl) {
+    url.port = '8766';
+  }
+
+  url.pathname = '/';
+  url.search = '';
+  url.hash = '';
+
+  return url.toString();
+}
+
 export function parseGlobalOptions(argv = []) {
   const options = {
     apiUrl: undefined,

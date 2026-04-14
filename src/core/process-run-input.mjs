@@ -6,12 +6,22 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeOptionalRelativePath(inputPath, field) {
+function normalizeOptionalRelativePath(inputPath, field, { omitIfEmpty = false } = {}) {
   if (inputPath === undefined) {
     return undefined;
   }
 
-  if (typeof inputPath !== 'string' || inputPath.trim() === '') {
+  if (typeof inputPath !== 'string') {
+    throw new ValidationError(`${field} must be a non-empty string.`, {
+      details: { field, reason: 'invalid_path' },
+    });
+  }
+
+  if (inputPath.trim() === '') {
+    if (omitIfEmpty) {
+      return undefined;
+    }
+
     throw new ValidationError(`${field} must be a non-empty string.`, {
       details: { field, reason: 'invalid_path' },
     });
@@ -76,8 +86,10 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
 
   const workspacePath = normalizeOptionalRelativePath(input.workspace_path, 'workspace_path');
   const params = { ...input.params };
-  const explicitOutputPath = normalizeOptionalRelativePath(params.output_path, 'params.output_path');
-  const outputPath = normalizeOptionalRelativePath(input.outputPath, 'outputPath');
+  const explicitOutputPath = normalizeOptionalRelativePath(params.output_path, 'params.output_path', {
+    omitIfEmpty: true,
+  });
+  const outputPath = normalizeOptionalRelativePath(input.outputPath, 'outputPath', { omitIfEmpty: true });
 
   if (outputPath !== undefined && explicitOutputPath !== undefined && outputPath !== explicitOutputPath) {
     throw new ValidationError('outputPath conflicts with params.output_path.', {
@@ -94,6 +106,8 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
     params.output_path = explicitOutputPath;
   } else if (outputPath !== undefined) {
     params.output_path = outputPath;
+  } else {
+    delete params.output_path;
   }
 
   const payload = {

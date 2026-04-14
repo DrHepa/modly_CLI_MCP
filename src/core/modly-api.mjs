@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { resolveAutomationCapabilitiesUrl } from './config.mjs';
+import { resolveAutomationCapabilitiesUrl, resolveProcessRunsUrl } from './config.mjs';
 import { MODLY_API_CONTRACT } from './contracts.mjs';
 import { ModlyError } from './errors.mjs';
 import { requestBinary, requestJson, requestJsonRuntime, requestStream } from './http.mjs';
@@ -147,10 +147,13 @@ function toInvalidCapabilitiesPayloadError({ result, reason, payload, rawBody, c
 export function createModlyApiClient({
   apiUrl,
   automationUrl = process.env.MODLY_AUTOMATION_URL,
+  processUrl = process.env.MODLY_PROCESS_URL,
   fetchImpl = globalThis.fetch,
 } = {}) {
   const automationCapabilitiesUrl = resolveAutomationCapabilitiesUrl({ apiUrl, automationUrl });
+  const processRunsUrl = resolveProcessRunsUrl({ apiUrl, processUrl });
   const context = { baseUrl: apiUrl, fetchImpl };
+  const processRunsContext = { ...context, baseUrl: processRunsUrl };
 
   return {
     apiUrl,
@@ -271,7 +274,7 @@ export function createModlyApiClient({
 
     async createProcessRun(payload) {
       return requestJson({
-        ...context,
+        ...processRunsContext,
         ...MODLY_API_CONTRACT.createProcessRun,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
@@ -312,7 +315,7 @@ export function createModlyApiClient({
 
     async getProcessRun(runId) {
       return requestJson({
-        ...context,
+        ...processRunsContext,
         method: MODLY_API_CONTRACT.getProcessRun.method,
         path: resolvePath(MODLY_API_CONTRACT.getProcessRun.path, { runId }),
       });
@@ -320,7 +323,7 @@ export function createModlyApiClient({
 
     async cancelProcessRun(runId) {
       return requestJson({
-        ...context,
+        ...processRunsContext,
         method: MODLY_API_CONTRACT.cancelProcessRun.method,
         path: resolvePath(MODLY_API_CONTRACT.cancelProcessRun.path, { runId }),
       });
