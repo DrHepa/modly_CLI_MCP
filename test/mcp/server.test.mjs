@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const EXPECTED_TOOLS = [
+  'modly.capabilities.get',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -14,6 +15,11 @@ const EXPECTED_TOOLS = [
   'modly.workflowRun.createFromImage',
   'modly.workflowRun.status',
   'modly.workflowRun.cancel',
+  'modly.workflowRun.wait',
+  'modly.processRun.create',
+  'modly.processRun.status',
+  'modly.processRun.wait',
+  'modly.processRun.cancel',
 ];
 
 test('stdio server advertises exactly the MVP tool catalog', async () => {

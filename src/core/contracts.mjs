@@ -12,10 +12,12 @@ export const EXIT_CODES = Object.freeze({
 });
 
 export const COMMAND_GROUPS = Object.freeze([
+  'capabilities',
   'health',
   'model',
   'generate',
   'job',
+  'process-run',
   'mesh',
   'ext',
   'config',
@@ -23,6 +25,7 @@ export const COMMAND_GROUPS = Object.freeze([
 
 export const MODLY_API_CONTRACT = Object.freeze({
   health: { method: 'GET', path: '/health' },
+  getAutomationCapabilities: { method: 'GET', path: '/automation/capabilities' },
   listModels: { method: 'GET', path: '/model/all' },
   getCurrentModel: { method: 'GET', path: '/model/status' },
   getModelParams: { method: 'GET', path: '/model/params' },
@@ -35,6 +38,9 @@ export const MODLY_API_CONTRACT = Object.freeze({
   createWorkflowRunFromImage: { method: 'POST', path: '/workflow-runs/from-image' },
   getWorkflowRun: { method: 'GET', path: '/workflow-runs/:runId' },
   cancelWorkflowRun: { method: 'POST', path: '/workflow-runs/:runId/cancel' },
+  createProcessRun: { method: 'POST', path: '/process-runs' },
+  getProcessRun: { method: 'GET', path: '/process-runs/:runId' },
+  cancelProcessRun: { method: 'POST', path: '/process-runs/:runId/cancel' },
   optimizeMesh: { method: 'POST', path: '/optimize/mesh' },
   smoothMesh: { method: 'POST', path: '/optimize/smooth' },
   exportMesh: { method: 'GET', path: '/export/:format' },
@@ -45,6 +51,7 @@ export const MODLY_API_CONTRACT = Object.freeze({
 });
 
 export const MCP_TOOL_IDS = Object.freeze([
+  'modly.capabilities.get',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -59,6 +66,10 @@ export const MCP_TOOL_IDS = Object.freeze([
   'modly.workflowRun.createFromImage',
   'modly.workflowRun.status',
   'modly.workflowRun.cancel',
+  'modly.processRun.create',
+  'modly.processRun.status',
+  'modly.processRun.wait',
+  'modly.processRun.cancel',
   'modly.mesh.optimize',
   'modly.mesh.smooth',
   'modly.mesh.export',
@@ -66,4 +77,5 @@ export const MCP_TOOL_IDS = Object.freeze([
   'modly.ext.errors',
   'modly.config.paths.get',
   'modly.config.paths.set',
+  'modly.workflowRun.wait',
 ]);

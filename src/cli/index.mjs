@@ -4,6 +4,7 @@ import { resolveRuntimeConfig } from '../core/config.mjs';
 import { EXIT_CODES } from '../core/contracts.mjs';
 import { NotFoundError, UsageError, normalizeError } from '../core/errors.mjs';
 import { createModlyApiClient } from '../core/modly-api.mjs';
+import { runCapabilitiesCommand } from './commands/capabilities.mjs';
 import { runConfigCommand } from './commands/config.mjs';
 import { runExtCommand } from './commands/ext.mjs';
 import { runGenerateCommand } from './commands/generate.mjs';
@@ -11,8 +12,10 @@ import { runHealthCommand } from './commands/health.mjs';
 import { runJobCommand } from './commands/job.mjs';
 import { runMeshCommand } from './commands/mesh.mjs';
 import { runModelCommand } from './commands/model.mjs';
+import { runProcessRunCommand } from './commands/process-run.mjs';
 import { runWorkflowRunCommand } from './commands/workflow-run.mjs';
 import {
+  renderCapabilitiesHelp,
   renderConfigHelp,
   renderExtHelp,
   renderGenerateHelp,
@@ -20,14 +23,17 @@ import {
   renderJobHelp,
   renderMeshHelp,
   renderModelHelp,
+  renderProcessRunHelp,
   renderWorkflowRunHelp,
 } from './help.mjs';
 
 const commandHandlers = {
+  capabilities: runCapabilitiesCommand,
   health: runHealthCommand,
   model: runModelCommand,
   generate: runGenerateCommand,
   job: runJobCommand,
+  'process-run': runProcessRunCommand,
   'workflow-run': runWorkflowRunCommand,
   mesh: runMeshCommand,
   ext: runExtCommand,
@@ -35,9 +41,11 @@ const commandHandlers = {
 };
 
 const commandHelpRenderers = {
+  capabilities: renderCapabilitiesHelp,
   model: renderModelHelp,
   generate: renderGenerateHelp,
   job: renderJobHelp,
+  'process-run': renderProcessRunHelp,
   'workflow-run': renderWorkflowRunHelp,
   mesh: renderMeshHelp,
   ext: renderExtHelp,

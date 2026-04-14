@@ -3,11 +3,16 @@ import { ValidationError } from '../../core/errors.mjs';
 import {
   normalizeErrors,
   normalizePaths,
+  toAutomationCapabilities,
   toCurrentModel,
   toJob,
   toModelList,
+  toProcessRun,
   toWorkflowRun,
 } from '../../core/modly-normalizers.mjs';
+import { prepareProcessRunCreateInput } from '../../core/process-run-input.mjs';
+import { waitForProcessRun } from '../../core/process-run-wait.mjs';
+import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
 
 function getModelId(model) {
   return model?.id ?? model?.model_id ?? model?.modelId ?? 'unknown';
@@ -30,6 +35,15 @@ function assertCanonicalModelId(modelId, models) {
 function summarizeHealth(payload) {
   const status = payload?.status ?? payload?.state ?? 'unknown';
   return `Backend health: ${status}.`;
+}
+
+function summarizeCapabilities(capabilities) {
+  const backendReady = capabilities?.backend_ready === true;
+  const models = Array.isArray(capabilities?.models) ? capabilities.models.length : 0;
+  const processes = Array.isArray(capabilities?.processes) ? capabilities.processes.length : 0;
+  const errors = Array.isArray(capabilities?.errors) ? capabilities.errors.length : 0;
+
+  return `Automation capabilities: backend_ready=${backendReady}, models=${models}, processes=${processes}, errors=${errors}.`;
 }
 
 function summarizeModelList(models) {
@@ -68,10 +82,30 @@ function summarizeWorkflowRun(runId, run, action = 'status') {
   }
 }
 
+function summarizeProcessRun(runId, run, action = 'status') {
+  const resolvedRunId = run?.run_id ?? run?.runId ?? runId;
+  const status = typeof run?.status === 'string' ? run.status : 'unknown';
+
+  switch (action) {
+    case 'created':
+      return `Process run ${resolvedRunId} created (${status}).`;
+    case 'cancelled':
+      return `Process run ${resolvedRunId} cancel requested (${status}).`;
+    default:
+      return `Process run ${resolvedRunId}: ${status}.`;
+  }
+}
+
 export function createToolHandlers({ client, apiUrl } = {}) {
   const modlyClient = client ?? createModlyApiClient({ apiUrl });
 
   return {
+    async 'modly.capabilities.get'() {
+      const response = await modlyClient.getAutomationCapabilities();
+      const capabilities = toAutomationCapabilities(response);
+      return { data: capabilities, text: summarizeCapabilities(capabilities) };
+    },
+
     async 'modly.health'() {
       const data = await modlyClient.health();
       return { data, text: summarizeHealth(data) };
@@ -142,6 +176,58 @@ export function createToolHandlers({ client, apiUrl } = {}) {
       const response = await modlyClient.cancelWorkflowRun(runId);
       const run = toWorkflowRun(runId, response);
       return { data: { run }, text: summarizeWorkflowRun(runId, run, 'cancelled') };
+    },
+
+    async 'modly.workflowRun.wait'({ runId, intervalMs, timeoutMs }) {
+      const { run } = await waitForWorkflowRun({
+        client: modlyClient,
+        runId,
+        intervalMs,
+        timeoutMs,
+      });
+
+      return { data: { run }, text: summarizeWorkflowRun(runId, run) };
+    },
+
+    async 'modly.processRun.create'({ process_id, params, workspace_path, outputPath }) {
+      const capabilities = await modlyClient.getAutomationCapabilities();
+      const payload = prepareProcessRunCreateInput(
+        {
+          process_id,
+          params,
+          workspace_path,
+          outputPath,
+        },
+        { capabilities },
+      );
+
+      const response = await modlyClient.createProcessRun(payload);
+      const run = toProcessRun(undefined, response);
+
+      return { data: { run }, text: summarizeProcessRun(undefined, run, 'created') };
+    },
+
+    async 'modly.processRun.status'({ runId }) {
+      const response = await modlyClient.getProcessRun(runId);
+      const run = toProcessRun(runId, response);
+      return { data: { run }, text: summarizeProcessRun(runId, run) };
+    },
+
+    async 'modly.processRun.wait'({ runId, intervalMs, timeoutMs }) {
+      const { run } = await waitForProcessRun({
+        client: modlyClient,
+        runId,
+        intervalMs,
+        timeoutMs,
+      });
+
+      return { data: { run }, text: summarizeProcessRun(runId, run) };
+    },
+
+    async 'modly.processRun.cancel'({ runId }) {
+      const response = await modlyClient.cancelProcessRun(runId);
+      const run = toProcessRun(runId, response);
+      return { data: { run }, text: summarizeProcessRun(runId, run, 'cancelled') };
     },
   };
 }

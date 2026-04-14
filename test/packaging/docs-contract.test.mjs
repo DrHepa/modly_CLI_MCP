@@ -29,6 +29,7 @@ test('package bins and published assets stay aligned with the packaging contract
   assert.deepEqual(packageJson.files, [
     'src/**',
     'README.md',
+    'LICENSE',
     'docs/install/**',
     'templates/opencode/**',
   ]);
@@ -63,7 +64,10 @@ test('docs and README stay aligned with supported global and repo-local flows', 
   assert.match(readme, /"enabled": true/u);
   assert.match(readme, /"timeout": 30000/u);
   assert.match(readme, /\["\.\.\."\]/u);
-  assert.match(readme, /tools\/modly_mcp\/run_server\.mjs/u);
+  assert.match(readme, /templates\/opencode\/run_server\.mjs/u);
+  assert.match(readme, /`workflow-run wait`/u);
+  assert.match(readme, /`modly\.workflowRun\.wait`/u);
+  assert.match(readme, /do \*\*not\*\* imply workflow management, \*\*Add to Scene\*\*, or blocking `from-image` behavior/u);
 
   assert.match(globalDoc, /`modly` y `modly-mcp`/u);
   assert.match(globalDoc, /npm install -g modly-cli-mcp/u);

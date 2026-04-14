@@ -11,6 +11,7 @@ import { createToolHandlers } from './handlers.mjs';
 
 const MAX_INPUT_PROPERTIES = 8;
 const MAX_TEXT_LENGTH = 180;
+const PREFLIGHT_EXEMPT_TOOLS = new Set(['modly.capabilities.get', 'modly.health']);
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -47,6 +48,22 @@ function sanitizeValue({ schema, value, path }) {
     }
 
     return trimmed;
+  }
+
+  if (schema?.type === 'integer') {
+    if (!Number.isInteger(value)) {
+      throw toValidationError(`${path} must be an integer.`, { path, expected: 'integer' });
+    }
+
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      throw toValidationError(`${path} must be >= ${schema.minimum}.`, {
+        path,
+        minimum: schema.minimum,
+        received: value,
+      });
+    }
+
+    return value;
   }
 
   if (schema?.type === 'object') {
@@ -159,6 +176,10 @@ function toErrorCode(error) {
     return 'UNSUPPORTED_OPERATION';
   }
 
+  if (typeof error?.details?.error?.code === 'string' && error.details.error.code.trim() !== '') {
+    return error.details.error.code.trim();
+  }
+
   return error.code ?? 'MODLY_ERROR';
 }
 
@@ -215,7 +236,7 @@ export function createToolRegistry({ apiUrl }) {
           });
         }
 
-        if (name !== 'modly.health') {
+        if (!PREFLIGHT_EXEMPT_TOOLS.has(name)) {
           await assertBackendReady({ client, toolName: name });
         }
 

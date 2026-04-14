@@ -2,15 +2,18 @@ export function renderHelp() {
   return `modly — CLI headless para Modly
 
 Uso:
-  modly [--api-url <url>] [--json] <grupo> <subcomando>
+  modly [--api-url <url>] [--json] <grupo> [subcomando]
   modly health [--api-url <url>] [--json]
+  modly capabilities [--api-url <url>] [--json]
 
 Grupos disponibles:
+  capabilities              Descubre capabilities de automatización
   health                    Verifica GET /health
   model <subcomando>        list | current | params | switch | unload-all | download
   generate <subcomando>     from-image
   job <subcomando>          status | wait | cancel
-  workflow-run <subcomando> from-image | status | cancel
+  process-run <subcomando>  create | status | wait | cancel
+  workflow-run <subcomando> from-image | status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
   ext <subcomando>          reload | errors
   config <subcomando>       paths get | paths set
@@ -21,8 +24,21 @@ Flags globales:
   -h, --help                Muestra esta ayuda
 
 Estado del bootstrap:
-  - health, model, job, workflow-run, generate from-image, mesh, ext y config ya son funcionales
+  - capabilities, health, model, job, process-run, workflow-run, generate from-image, mesh, ext y config ya son funcionales
   - MCP real sigue diferido
+`;
+}
+
+export function renderCapabilitiesHelp() {
+  return `modly capabilities — discovery canónico para automatización
+
+Uso:
+  modly capabilities [--api-url <url>] [--json]
+
+Descripción:
+  Consulta GET /automation/capabilities sin preflight /health separado.
+  En JSON preserva el payload canónico dentro de data.
+  En modo humano resume readiness, conteos y parcialidad si aplica.
 `;
 }
 
@@ -62,6 +78,28 @@ Subcomandos disponibles:
 `;
 }
 
+export function renderProcessRunHelp() {
+  return `modly process-run — process runs mesh-only
+
+Uso:
+  modly process-run create --process-id <id> --params-json '{...}' [--workspace-path <path>] [--output-path <path>] [--api-url <url>] [--json]
+  modly process-run status <run-id> [--api-url <url>] [--json]
+  modly process-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
+  modly process-run cancel <run-id> [--api-url <url>] [--json]
+
+Subcomandos disponibles:
+  create                    Crea un process run con process_id canónico y params objeto
+  status <run-id>           Muestra el estado actual del process run
+  wait <run-id>             Hace polling hasta succeeded, failed o canceled
+  cancel <run-id>           Solicita la cancelación del process run
+
+Notas:
+  - Hace preflight GET /health antes de operaciones de negocio
+  - Solo soporta procesos mesh-only ya publicados por capabilities.processes
+  - --workspace-path y --output-path deben ser workspace-relative
+`;
+}
+
 export function renderGenerateHelp() {
   return `modly generate — generación headless
 
@@ -79,11 +117,13 @@ export function renderWorkflowRunHelp() {
 Uso:
   modly workflow-run from-image --image <path> --model <id> [--params-json '{...}'] [--api-url <url>] [--json]
   modly workflow-run status <run-id> [--api-url <url>] [--json]
+  modly workflow-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
   modly workflow-run cancel <run-id> [--api-url <url>] [--json]
 
 Subcomandos disponibles:
   from-image                Crea un workflow run desde una imagen
   status <run-id>           Muestra el estado actual del run
+  wait <run-id>             Hace polling hasta done, error o cancelled
   cancel <run-id>           Solicita la cancelación del run
 `;
 }

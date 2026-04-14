@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { resolveAutomationCapabilitiesUrl } from './config.mjs';
 import { MODLY_API_CONTRACT } from './contracts.mjs';
-import { requestBinary, requestJson, requestStream } from './http.mjs';
+import { ModlyError } from './errors.mjs';
+import { requestBinary, requestJson, requestJsonRuntime, requestStream } from './http.mjs';
+import { toAutomationCapabilities } from './modly-normalizers.mjs';
 
 function resolvePath(template, replacements = {}) {
   return Object.entries(replacements).reduce(
@@ -44,7 +47,109 @@ function inferImageMimeType(fileName) {
   }
 }
 
-export function createModlyApiClient({ apiUrl, fetchImpl = globalThis.fetch } = {}) {
+function toCapabilitiesResponseDetails(result) {
+  return {
+    responseReceived: result.responseReceived,
+    status: result.status,
+    statusText: result.statusText,
+    url: result.url,
+    contentType: result.contentType,
+  };
+}
+
+function toCapabilitiesDiagnosticDetails({ runtimeEvidence, classificationBranch, reason, payload }) {
+  const details = { classificationBranch };
+
+  if (runtimeEvidence?.requestedUrl !== undefined) {
+    details.requestedUrl = runtimeEvidence.requestedUrl;
+  }
+
+  if (runtimeEvidence?.response !== undefined) {
+    details.response = runtimeEvidence.response;
+  }
+
+  if (runtimeEvidence?.body !== undefined) {
+    details.body = runtimeEvidence.body;
+  }
+
+  if (runtimeEvidence?.rawBody !== undefined) {
+    details.rawBody = runtimeEvidence.rawBody;
+  }
+
+  if (runtimeEvidence?.cause !== undefined) {
+    details.cause = runtimeEvidence.cause;
+  }
+
+  if (reason !== undefined) {
+    details.reason = reason;
+  }
+
+  if (payload !== undefined) {
+    details.payload = payload;
+  }
+
+  return details;
+}
+
+function toCapabilitiesFailureBranch({ error, runtimeEvidence, parseError }) {
+  if (parseError?.code === 'INVALID_CONTENT_TYPE') {
+    return 'invalid_content_type';
+  }
+
+  if (parseError?.code === 'INVALID_JSON_RESPONSE') {
+    return 'invalid_json';
+  }
+
+  if (runtimeEvidence?.response?.status >= 500) {
+    return 'http_5xx';
+  }
+
+  if (
+    error?.code === 'TIMEOUT'
+    || error?.details?.reason === 'TIMEOUT'
+    || error?.cause?.code === 'TIMEOUT'
+    || error?.cause?.name === 'TimeoutError'
+    || runtimeEvidence?.cause?.name === 'AbortError'
+    || runtimeEvidence?.cause?.code === 'ABORT_ERR'
+  ) {
+    return 'timeout';
+  }
+
+  if (runtimeEvidence?.response === undefined) {
+    return 'transport_error';
+  }
+
+  return 'invalid_capabilities_payload';
+}
+
+function toInvalidCapabilitiesPayloadError({ result, reason, payload, rawBody, cause }) {
+  const details = toCapabilitiesDiagnosticDetails({
+    runtimeEvidence: result.runtimeEvidence ?? {
+      requestedUrl: result.url,
+      response: toCapabilitiesResponseDetails(result),
+      rawBody,
+    },
+    classificationBranch: toCapabilitiesFailureBranch({
+      runtimeEvidence: result.runtimeEvidence,
+      parseError: result.parseError,
+    }),
+    reason,
+    payload,
+  });
+
+  return new ModlyError('Invalid automation capabilities payload.', {
+    code: 'INVALID_CAPABILITIES_PAYLOAD',
+    details,
+    cause,
+  });
+}
+
+export function createModlyApiClient({
+  apiUrl,
+  automationUrl = process.env.MODLY_AUTOMATION_URL,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const automationCapabilitiesUrl = resolveAutomationCapabilitiesUrl({ apiUrl, automationUrl });
   const context = { baseUrl: apiUrl, fetchImpl };
 
   return {
@@ -52,6 +157,56 @@ export function createModlyApiClient({ apiUrl, fetchImpl = globalThis.fetch } = 
 
     async health() {
       return requestJson({ ...context, ...MODLY_API_CONTRACT.health });
+    },
+
+    async getAutomationCapabilities() {
+      let result;
+
+      try {
+        result = await requestJsonRuntime({
+          ...context,
+          baseUrl: automationCapabilitiesUrl,
+          ...MODLY_API_CONTRACT.getAutomationCapabilities,
+        });
+      } catch (error) {
+        if (error instanceof ModlyError && error.code === 'BACKEND_UNAVAILABLE') {
+          throw new ModlyError(error.message, {
+            code: error.code,
+            cause: error.cause,
+            details: toCapabilitiesDiagnosticDetails({
+              runtimeEvidence: error.details?.runtimeEvidence,
+              classificationBranch: toCapabilitiesFailureBranch({
+                error,
+                runtimeEvidence: error.details?.runtimeEvidence,
+              }),
+            }),
+          });
+        }
+
+        throw error;
+      }
+
+      if (result.parseError) {
+        throw toInvalidCapabilitiesPayloadError({
+          result,
+          reason: result.parseError.code,
+          rawBody: result.rawBody,
+          cause: result.parseError,
+        });
+      }
+
+      const payload = result.payload;
+
+      try {
+        return toAutomationCapabilities(payload);
+      } catch (error) {
+        throw toInvalidCapabilitiesPayloadError({
+          result,
+          reason: error?.message,
+          payload,
+          cause: error,
+        });
+      }
     },
 
     async listModels() {
@@ -114,6 +269,15 @@ export function createModlyApiClient({ apiUrl, fetchImpl = globalThis.fetch } = 
       });
     },
 
+    async createProcessRun(payload) {
+      return requestJson({
+        ...context,
+        ...MODLY_API_CONTRACT.createProcessRun,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    },
+
     async getJobStatus(jobId) {
       return requestJson({
         ...context,
@@ -143,6 +307,22 @@ export function createModlyApiClient({ apiUrl, fetchImpl = globalThis.fetch } = 
         ...context,
         method: MODLY_API_CONTRACT.cancelWorkflowRun.method,
         path: resolvePath(MODLY_API_CONTRACT.cancelWorkflowRun.path, { runId }),
+      });
+    },
+
+    async getProcessRun(runId) {
+      return requestJson({
+        ...context,
+        method: MODLY_API_CONTRACT.getProcessRun.method,
+        path: resolvePath(MODLY_API_CONTRACT.getProcessRun.path, { runId }),
+      });
+    },
+
+    async cancelProcessRun(runId) {
+      return requestJson({
+        ...context,
+        method: MODLY_API_CONTRACT.cancelProcessRun.method,
+        path: resolvePath(MODLY_API_CONTRACT.cancelProcessRun.path, { runId }),
       });
     },
 

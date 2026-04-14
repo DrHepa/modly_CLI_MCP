@@ -25,10 +25,12 @@ This repository keeps the operational automation layer **outside** the upstream 
 - `workflow-run from-image`
 - `workflow-run status`
 - `workflow-run cancel`
+- `workflow-run wait`
 - MCP tools:
   - `modly.workflowRun.createFromImage`
   - `modly.workflowRun.status`
   - `modly.workflowRun.cancel`
+  - `modly.workflowRun.wait`
 
 ## Explicitly out of scope
 
@@ -38,7 +40,9 @@ This repository does **not** pretend to support:
 - Electron IPC automation
 - real **Add to Scene** execution
 - generic DAG workflow orchestration
-- a `wait` operation for workflow-runs in the current MVP
+- automatic wait during `workflow-run from-image`
+
+`workflow-run wait` / `modly.workflowRun.wait` only wait on an already-created `workflow run` via the existing status surface. They do **not** imply workflow management, **Add to Scene**, or blocking `from-image` behavior.
 
 `scene_candidate` is treated as **descriptive output only**, not as a scene mutation.
 
@@ -117,6 +121,13 @@ See:
 - [`templates/opencode/opencode.json`](templates/opencode/opencode.json)
 - [`templates/opencode/run_server.mjs`](templates/opencode/run_server.mjs)
 
+## Wait capability boundaries
+
+- `workflow-run wait <run-id>` waits for `done`, `error`, or `cancelled` on an existing run.
+- `modly.workflowRun.wait({ runId, intervalMs?, timeoutMs? })` exposes the same capability over MCP.
+- Both surfaces rely on the existing workflow-run status endpoint plus the required `GET /health` readiness check before business operations.
+- This does **not** add workflow CRUD/management, real scene mutation, or `--wait` support to `workflow-run from-image`.
+
 ## Architectural notes
 
 - `src/core/modly-api.mjs` is the single HTTP source of truth for CLI and MCP.
@@ -130,6 +141,6 @@ This repository is now beyond a read-only MCP.
 
 It already supports a practical execution path for:
 
-`image -> workflow run create -> status -> cancel`
+`image -> workflow run create -> status -> wait -> cancel`
 
 against the backend `workflow-runs` surface implemented in Modly.

@@ -1,6 +1,20 @@
 import { DEFAULT_API_URL } from './contracts.mjs';
 import { UsageError } from './errors.mjs';
 
+export function resolveAutomationCapabilitiesUrl({ apiUrl = DEFAULT_API_URL, automationUrl } = {}) {
+  const url = new URL(automationUrl ?? apiUrl);
+
+  if (!automationUrl) {
+    url.port = '8766';
+  }
+
+  url.pathname = '/automation/capabilities';
+  url.search = '';
+  url.hash = '';
+
+  return url.toString();
+}
+
 export function parseGlobalOptions(argv = []) {
   const options = {
     apiUrl: undefined,

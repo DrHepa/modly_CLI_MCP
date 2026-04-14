@@ -1,20 +1,26 @@
 import path from 'node:path';
 import { toModelList, toWorkflowRun } from '../../core/modly-normalizers.mjs';
+import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
 import { BackendUnavailableError, UsageError, ValidationError } from '../../core/errors.mjs';
 import {
   assertExactPositionals,
   assertFileExists,
   assertNonEmptyString,
   parseCommandArgs,
+  parseInteger,
   parseJsonObject,
 } from './shared.mjs';
 
-const WORKFLOW_RUN_SUBCOMMANDS = ['from-image', 'status', 'cancel'];
+const WORKFLOW_RUN_SUBCOMMANDS = ['from-image', 'status', 'wait', 'cancel'];
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const DEFAULT_WAIT_INTERVAL_MS = 1000;
+const DEFAULT_WAIT_TIMEOUT_MS = 600000;
 
 const FROM_IMAGE_USAGE =
   "Usage: modly workflow-run from-image --image <path> --model <id> [--params-json '{...}'] [--api-url <url>] [--json]";
 const STATUS_USAGE = 'Usage: modly workflow-run status <run-id> [--api-url <url>] [--json]';
+const WAIT_USAGE =
+  'Usage: modly workflow-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]';
 const CANCEL_USAGE = 'Usage: modly workflow-run cancel <run-id> [--api-url <url>] [--json]';
 
 function getModelId(model) {
@@ -76,6 +82,44 @@ function summarizeRun(run, fallbackRunId, action) {
     default:
       return `Workflow run ${runId}: ${status}.`;
   }
+}
+
+function formatWaitProgressLine(runId, run) {
+  const status = typeof run?.status === 'string' ? run.status : 'unknown';
+  const suffix = [];
+
+  if (typeof run?.progress === 'number') {
+    suffix.push(`progress=${run.progress}`);
+  }
+
+  if (typeof run?.step === 'string' && run.step.trim() !== '') {
+    suffix.push(`step=${run.step.trim()}`);
+  }
+
+  if (typeof run?.error === 'string' && run.error.trim() !== '') {
+    suffix.push(`error=${run.error.trim()}`);
+  }
+
+  return suffix.length > 0 ? `Workflow run ${runId}: ${status} (${suffix.join(', ')})` : `Workflow run ${runId}: ${status}`;
+}
+
+function parseWaitOptions(args) {
+  const { positionals, options } = parseCommandArgs(args, {
+    usage: WAIT_USAGE,
+    valueFlags: ['--interval-ms', '--timeout-ms'],
+  });
+
+  assertExactPositionals(positionals, 1, WAIT_USAGE);
+
+  return {
+    runId: assertNonEmptyString(positionals[0], '<run-id>'),
+    intervalMs: options['--interval-ms']
+      ? parseInteger(options['--interval-ms'], '--interval-ms', { min: 1 })
+      : DEFAULT_WAIT_INTERVAL_MS,
+    timeoutMs: options['--timeout-ms']
+      ? parseInteger(options['--timeout-ms'], '--timeout-ms', { min: 1 })
+      : DEFAULT_WAIT_TIMEOUT_MS,
+  };
 }
 
 async function runFromImage(context, args) {
@@ -141,6 +185,38 @@ async function runCancel(context, args) {
   };
 }
 
+async function runWait(context, args) {
+  const { runId, intervalMs, timeoutMs } = parseWaitOptions(args);
+
+  await assertBackendReady(context.client);
+
+  let lastProgressLine;
+  const result = await waitForWorkflowRun({
+    client: context.client,
+    runId,
+    intervalMs,
+    timeoutMs,
+    onProgress: (run) => {
+      const progressLine = formatWaitProgressLine(runId, run);
+
+      if (progressLine !== lastProgressLine) {
+        process.stderr.write(`${progressLine}\n`);
+        lastProgressLine = progressLine;
+      }
+    },
+  });
+
+  return {
+    data: {
+      runId,
+      intervalMs,
+      timeoutMs,
+      run: result.run,
+    },
+    humanMessage: summarizeRun(result.run, runId, 'status'),
+  };
+}
+
 export async function runWorkflowRunCommand(context) {
   const [subcommand = 'from-image', ...args] = context.args;
 
@@ -149,6 +225,8 @@ export async function runWorkflowRunCommand(context) {
       return runFromImage(context, args);
     case 'status':
       return runStatus(context, args);
+    case 'wait':
+      return runWait(context, args);
     case 'cancel':
       return runCancel(context, args);
     default:
