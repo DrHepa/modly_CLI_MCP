@@ -1,50 +1,50 @@
-# Instalación global para OpenCode
+# Global installation for OpenCode
 
-Usa esta guía cuando quieras que OpenCode invoque `modly-mcp` desde `PATH`.
+Use this guide when you want OpenCode to invoke `modly-mcp` directly from `PATH`.
 
-## Qué sí está soportado
+## Supported contract
 
-- `modly` y `modly-mcp` como bins instalados del paquete `modly-cli-mcp`.
-- Un `opencode.json` que invoque directamente `modly-mcp`.
+- `modly` and `modly-mcp` installed as package binaries from `modly-cli-mcp`
+- an `opencode.json` that invokes `modly-mcp` directly
 
-## Qué NO está soportado
+## Not supported
 
-- Apuntar OpenCode al checkout fuente de `modly_CLI_MCP`.
-- Configurar comandos tipo `node /ruta/al/checkout/src/mcp/server.mjs`.
-- Inventar soporte headless adicional fuera de los bins reales del paquete.
+- pointing OpenCode at the source checkout of `modly_CLI_MCP`
+- configuring commands such as `node /path/to/checkout/src/mcp/server.mjs`
+- inventing additional headless support outside the real package binaries
 
-## Instalar el paquete
+## Install the package
 
-Instálalo globalmente desde TU canal de distribución válido del paquete (por ejemplo, registry privada o artefacto `.tgz`). El nombre del paquete es `modly-cli-mcp` y los bins publicados son `modly` y `modly-mcp`.
+Install it globally from your valid distribution channel for this package (for example a private registry or a `.tgz` artifact). The package name is `modly-cli-mcp`, and the published binaries are `modly` and `modly-mcp`.
 
-Ejemplo con npm:
+Example with npm:
 
 ```bash
 npm install -g modly-cli-mcp
 ```
 
-Si tu equipo distribuye un tarball del paquete, usa el archivo `.tgz` correspondiente en lugar del nombre de registry.
+If your team distributes a tarball, use the corresponding `.tgz` file instead of the registry package name.
 
-## Verificar bins instalados
+## Verify installed binaries
 
 ```bash
 modly --help
 modly-mcp --help
 ```
 
-## Verificar backend antes de operar
+## Verify the backend before business operations
 
-Antes de ejecutar operaciones de negocio desde CLI/MCP, valida que el backend responde en `GET /health`. No asumas readiness.
+Before running business operations from CLI/MCP, verify that FastAPI responds on `GET /health`. Do not assume readiness.
 
-Ejemplo:
+Example:
 
 ```bash
 modly health --json --api-url http://127.0.0.1:8765
 ```
 
-## `opencode.json` canónico
+## Canonical `opencode.json`
 
-Copia el template canónico o replica este contenido:
+Copy the canonical template or replicate this content:
 
 ```json
 {
@@ -60,15 +60,17 @@ Copia el template canónico o replica este contenido:
 }
 ```
 
-Template incluido en el paquete:
+Template shipped in this package:
 
 - [`templates/opencode/opencode.json`](../../templates/opencode/opencode.json)
 
-## Notas operativas
+## Runtime notes
 
-- `modly-mcp` es el bin soportado para stdio MCP.
-- OpenCode usa la clave raíz `mcp`, NO `mcpServers`.
-- El campo `command` debe ser un array JSON, incluso cuando sólo hay un bin.
-- Si necesitas configuración adicional del sistema, resuélvela en el entorno donde vive el bin global.
-- El repo consumidor NO debe apuntar al checkout fuente de `modly_CLI_MCP`; debe usar un paquete instalado disponible en `PATH`.
-- Si prefieres que cada repo controle su propia instalación, usa la guía repo-local en [`docs/install/repo-local.md`](./repo-local.md).
+- `modly-mcp` is the supported MCP stdio binary.
+- OpenCode uses the top-level `mcp` key, **not** `mcpServers`.
+- `command` must be a JSON array, even when it contains only one binary.
+- FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`).
+- capabilities and process-runs use the Electron automation bridge on `:8766`.
+- If you need additional system configuration, resolve it in the environment where the global binary lives.
+- Consumer repositories must **not** point to the source checkout of `modly_CLI_MCP`; they should use an installed package available in `PATH`.
+- If you want each repository to control its own installation, use the repo-local guide in [`docs/install/repo-local.md`](./repo-local.md).

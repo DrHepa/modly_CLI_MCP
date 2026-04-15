@@ -1,45 +1,45 @@
-# Instalación repo-local para OpenCode
+# Repo-local installation for OpenCode
 
-Usa esta guía cuando quieras que un repositorio consumidor controle su propia instalación de `modly-cli-mcp`.
+Use this guide when you want a consumer repository to control its own installation of `modly-cli-mcp`.
 
-## Contrato soportado
+## Supported contract
 
-El repo consumidor debe tener:
+The consumer repository should have:
 
-- un `opencode.json`
-- un wrapper local en `tools/modly_mcp/run_server.mjs`
-- opcionalmente `tools/_tmp/modly_mcp/local.env`
+- an `opencode.json`
+- a local wrapper in `tools/modly_mcp/run_server.mjs`
+- optionally `tools/_tmp/modly_mcp/local.env`
 
-El wrapper resuelve primero `node_modules/.bin/modly-mcp` del repo consumidor y, si no existe, cae a `modly-mcp` global en `PATH`.
+The wrapper resolves `node_modules/.bin/modly-mcp` in the consumer repository first and falls back to a global `modly-mcp` in `PATH` only if the local one is missing.
 
-## Qué NO está soportado
+## Not supported
 
-- Apuntar `opencode.json` al checkout fuente de `modly_CLI_MCP`.
-- Ejecutar `node /ruta/al/checkout/src/mcp/server.mjs` desde el repo consumidor.
-- Depender del `cwd` de OpenCode para encontrar bins o archivos de config.
+- pointing `opencode.json` to the source checkout of `modly_CLI_MCP`
+- executing `node /path/to/checkout/src/mcp/server.mjs` from the consumer repository
+- depending on OpenCode `cwd` to discover binaries or configuration files
 
-## 1) Instalar el paquete en el repo consumidor
+## 1) Install the package in the consumer repository
 
-Ejemplo con npm:
+Example with npm:
 
 ```bash
 npm install -D modly-cli-mcp
 ```
 
-Si tu distribución interna usa un tarball, instala ese `.tgz` en lugar del nombre del registry.
+If your internal distribution uses a tarball, install that `.tgz` instead of the registry package name.
 
-## 2) Copiar el wrapper canónico
+## 2) Copy the canonical wrapper
 
-Copia este archivo del paquete a tu repo consumidor:
+Copy this file from the package into your consumer repository:
 
-- origen: [`templates/opencode/run_server.mjs`](../../templates/opencode/run_server.mjs)
-- destino: `tools/modly_mcp/run_server.mjs`
+- source: [`templates/opencode/run_server.mjs`](../../templates/opencode/run_server.mjs)
+- destination: `tools/modly_mcp/run_server.mjs`
 
-El script calcula el repo root desde `import.meta.url`, NO desde `cwd`.
+The script computes the repository root from `import.meta.url`, **not** from `cwd`.
 
-## 3) Crear `opencode.json`
+## 3) Create `opencode.json`
 
-Configura OpenCode para invocar el wrapper local:
+Configure OpenCode to invoke the local wrapper:
 
 ```json
 {
@@ -58,41 +58,47 @@ Configura OpenCode para invocar el wrapper local:
 }
 ```
 
-Ese `opencode.json` vive en el repo consumidor. NO debe referenciar archivos dentro del checkout fuente de `modly_CLI_MCP`.
+That `opencode.json` lives in the consumer repository. It must **not** reference files inside the source checkout of `modly_CLI_MCP`.
 
-## 4) Configuración local opcional
+## 4) Optional local configuration
 
-Si el repo consumidor necesita variables sólo locales, crea este archivo opcional:
+If the consumer repository needs local-only variables, create this optional file:
 
 ```text
 tools/_tmp/modly_mcp/local.env
 ```
 
-Formato mínimo soportado:
+Minimum supported format:
 
 ```dotenv
-# comentarios y líneas vacías se ignoran
+# comments and blank lines are ignored
 MODLY_API_URL=http://127.0.0.1:8765
 ```
 
-Notas importantes:
+Important notes:
 
-- El wrapper usa parser mínimo propio; NO usa `dotenv`.
-- Sólo acepta líneas `KEY=VALUE`.
-- Mezcla esas variables sobre `process.env` únicamente para el child process.
-- El archivo es opcional y local al repo consumidor.
+- The wrapper uses a minimal built-in parser; it does **not** use `dotenv`.
+- It only accepts `KEY=VALUE` lines.
+- It merges those variables over `process.env` only for the child process.
+- The file is optional and local to the consumer repository.
 
-## 5) Verificar resolución sin arrancar MCP
+## 5) Verify resolution without starting MCP
 
 ```bash
 node tools/modly_mcp/run_server.mjs --check
 ```
 
-`--check` sólo valida resolución/configuración y reporta si usaría modo `local` o `global`. NO llama `/health`, NO arranca el servidor MCP, NO instala nada y NO muta archivos.
+`--check` only validates resolution/configuration and reports whether it would use `local` or `global` mode. It does **not** call `/health`, start the MCP server, install anything, or mutate files.
 
-## Cuándo usar global vs repo-local
+## Runtime notes
 
-- **Global**: más simple si un mismo entorno usa una única versión instalada en `PATH`.
-- **Repo-local**: mejor si cada repo necesita fijar su propia versión del paquete.
+- FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`).
+- capabilities and process-runs use the Electron automation bridge on `:8766`.
+- The installed package derives those bridge URLs automatically unless you override them explicitly.
 
-Si quieres el flujo global, usa [`docs/install/global.md`](./global.md).
+## When to choose global vs repo-local
+
+- **Global**: simpler if one environment uses a single installed version in `PATH`.
+- **Repo-local**: better when each repository needs to pin its own package version.
+
+If you want the global flow, use [`docs/install/global.md`](./global.md).

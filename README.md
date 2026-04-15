@@ -19,6 +19,8 @@ This repository keeps the operational automation layer **outside** the upstream 
 - extension errors
 - runtime paths
 - job status
+- capabilities discovery (`modly capabilities`, `modly.capabilities.get`)
+- read-only capability planning (`modly.capability.plan`)
 
 ### Executable surfaces
 
@@ -26,11 +28,20 @@ This repository keeps the operational automation layer **outside** the upstream 
 - `workflow-run status`
 - `workflow-run cancel`
 - `workflow-run wait`
+- `process-run create`
+- `process-run status`
+- `process-run cancel`
+- `process-run wait`
 - MCP tools:
   - `modly.workflowRun.createFromImage`
   - `modly.workflowRun.status`
   - `modly.workflowRun.cancel`
   - `modly.workflowRun.wait`
+  - `modly.processRun.create`
+  - `modly.processRun.status`
+  - `modly.processRun.cancel`
+  - `modly.processRun.wait`
+  - `modly.capability.execute`
 
 ## Explicitly out of scope
 
@@ -41,8 +52,16 @@ This repository does **not** pretend to support:
 - real **Add to Scene** execution
 - generic DAG workflow orchestration
 - automatic wait during `workflow-run from-image`
+- automatic multi-step chaining inside `modly.capability.execute`
 
 `workflow-run wait` / `modly.workflowRun.wait` only wait on an already-created `workflow run` via the existing status surface. They do **not** imply workflow management, **Add to Scene**, or blocking `from-image` behavior.
+
+`modly.capability.execute` is intentionally transparent and conservative. In the current cut it can execute:
+
+- image → mesh via `workflowRun.createFromImage`
+- mesh → mesh via `processRun.create` only for `mesh-optimizer/optimize`
+
+It does **not** execute unknown capabilities, UI-only nodes, `UniRig`, or generic process chains.
 
 `scene_candidate` is treated as **descriptive output only**, not as a scene mutation.
 
@@ -84,6 +103,13 @@ The installable contract of this package exposes two real binaries:
 
 - `modly`
 - `modly-mcp`
+
+Runtime note:
+
+- FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`)
+- capabilities and process-runs use the Electron automation bridge on `:8766`
+- by default the client derives those bridge URLs from `MODLY_API_URL`
+- you may override them explicitly with `MODLY_AUTOMATION_URL` and `MODLY_PROCESS_URL`
 
 Consumer repositories should use those installed binaries directly, or the documented repo-local wrapper.
 
@@ -142,8 +168,9 @@ See:
 
 - `src/core/modly-api.mjs` is the single HTTP source of truth for CLI and MCP.
 - `src/core/modly-normalizers.mjs` keeps payload shapes stable across layers.
+- `src/core/smart-capability-registry.mjs` and `src/core/smart-capability-planner.mjs` hold the read-only capability planner used by `modly.capability.plan` and `modly.capability.execute`.
 - `src/mcp/*` stays intentionally small and reuses the same core logic instead of shelling out to the CLI.
-- The CLI group is named **`workflow-run`** on purpose, to avoid implying full workflow management.
+- The CLI groups are named **`workflow-run`** and **`process-run`** on purpose, to avoid implying full workflow management.
 
 ## Status
 

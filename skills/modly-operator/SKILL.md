@@ -32,34 +32,46 @@ Use this skill when the user asks to:
    - Always check `GET /health` before calling business endpoints.
    - If the backend is unavailable, say so clearly. Do NOT guess.
 
-2. **Respect the architecture boundary**
-   - **FastAPI owns**: model status/list/params/switch/unload, model file download via HF SSE, generation jobs, mesh optimize/smooth/export, extension registry reload/errors, runtime path updates.
-   - **Electron IPC owns**: setup, logs, GitHub extension install/repair/uninstall, workflows, native dialogs, app orchestration, workspace UI metadata.
+2. **Exception: capabilities discovery is intentionally partial**
+   - `GET /automation/capabilities` can still be useful when `backend_ready=false`.
+   - Do NOT preflight `/health` separately before capabilities discovery.
+   - Treat partial discovery as useful information, not as a hard failure.
 
-3. **Never invent headless support**
+3. **Respect the architecture boundary**
+   - **FastAPI owns**: model status/list/params/switch/unload, model file download via HF SSE, workflow-runs, job polling, and legacy runtime path APIs.
+   - **Electron bridge owns**: capabilities discovery and process-runs.
+   - **Electron IPC/UI owns**: setup, logs, GitHub extension install/repair/uninstall, workflow editing, native dialogs, app orchestration, and workspace UI metadata.
+
+4. **Never invent headless support**
    - If an operation currently exists only in Electron IPC, do NOT present it as available through FastAPI or CLI MVP.
    - Examples: `extensions:installFromGitHub`, `extensions:repair`, `log:readAll`, `workflows:*`, `setup:*`.
 
-4. **Use canonical IDs**
+5. **Use canonical IDs**
    - Model IDs come from `/model/all`.
+   - Process IDs come from `/automation/capabilities` as `{extension_id}/{node_id}`.
    - Treat them as canonical API inputs.
    - Do NOT fabricate IDs from labels.
 
-5. **Treat workspace paths as a contract**
+6. **Treat workspace paths as a contract**
    - Mesh operations use workspace-relative paths such as `Default/chair.glb`.
    - Validate paths before sending them.
    - Never allow traversal-like inputs.
 
-6. **Prefer machine-readable output**
+7. **Prefer machine-readable output**
    - For automation, prefer JSON.
    - For human output, keep summaries short and factual.
 
-7. **Handle long-running operations correctly**
-   - Generation is job-based: create job, then poll status.
-   - HF model downloads are SSE/progress-based.
-   - Do not block blindly without progress or timeout handling.
+8. **Handle long-running operations correctly**
+   - Prefer `create -> status -> status -> ...` for agents.
+   - Treat `wait` as a bounded convenience helper, not as the primary orchestration primitive.
+   - Preserve `run` payloads and use `meta.operationState`, `meta.nextAction`, and polling metadata for recovery.
 
-8. **Be honest about persistence**
+9. **Use planner-gated execution for known capabilities**
+   - Use `modly.capability.plan` to inspect what is really supported.
+   - `modly.capability.execute` must only execute when the planner result is `supported`.
+   - If the planner says `known_but_unavailable` or `unknown`, stop and explain; do not execute optimistically.
+
+10. **Be honest about persistence**
    - FastAPI `settings/paths` updates runtime registry paths only.
    - It does not persist Electron desktop settings.
 
@@ -73,6 +85,11 @@ Use this skill when the user asks to:
 - Download model files through the HF download endpoint
 - Generate from image
 - Poll or cancel jobs
+- Create / poll / cancel workflow-runs
+- Create / poll / cancel process-runs
+- Discover capabilities
+- Plan capabilities
+- Execute supported capabilities transparently
 - Optimize or smooth workspace meshes
 - Export meshes
 - Reload extension registry
@@ -83,10 +100,12 @@ Use this skill when the user asks to:
 ## Forbidden
 
 - Claiming GitHub extension install works through FastAPI
-- Claiming full workflow management exists in the CLI MVP
+- Claiming full workflow management exists in the CLI/MCP MVP
 - Claiming desktop setup/logs are headless today
 - Performing unsafe arbitrary filesystem mutation
 - Pretending native dialogs exist in CLI/MCP flows
+- Treating every discovered capability as executable
+- Hiding planner decisions or backend rejections from the user
 - Treating runtime path updates as persistent app configuration
 
 ## Operating Guide
@@ -107,6 +126,19 @@ Use this skill when the user asks to:
 - `GET /generate/status/{job_id}`
 - `POST /generate/cancel/{job_id}`
 
+### Workflow runs
+- `POST /workflow-runs/from-image`
+- `GET /workflow-runs/{run_id}`
+- `POST /workflow-runs/{run_id}/cancel`
+
+### Capabilities discovery
+- `GET http://127.0.0.1:8766/automation/capabilities`
+
+### Process runs
+- `POST http://127.0.0.1:8766/process-runs`
+- `GET http://127.0.0.1:8766/process-runs/{run_id}`
+- `POST http://127.0.0.1:8766/process-runs/{run_id}/cancel`
+
 ### Mesh operations
 - `POST /optimize/mesh`
 - `POST /optimize/smooth`
@@ -122,7 +154,7 @@ Use this skill when the user asks to:
 
 ## Decision Rules
 
-If the requested operation touches any of these, assume it is **Electron/IPC-bound** unless the repo has been explicitly refactored:
+If the requested operation touches any of these, assume it is **Electron/IPC-bound or UI-only** unless the repo has been explicitly refactored:
 
 - setup
 - logs
@@ -132,7 +164,15 @@ If the requested operation touches any of these, assume it is **Electron/IPC-bou
 - workspace UI metadata
 - app updater/window controls
 
-If the requested operation is about models, jobs, or mesh processing, prefer **FastAPI first**.
+If the requested operation is about capabilities discovery or process-runs, prefer the **Electron bridge**.
+
+If the requested operation is about workflow-runs, model status, or legacy model APIs, prefer **FastAPI**.
+
+If the requested operation is about selecting what to execute, prefer:
+
+1. `capabilities.get`
+2. `capability.plan`
+3. execute only if `supported`
 
 ## Commands
 
@@ -160,6 +200,12 @@ curl -X POST "http://127.0.0.1:8765/extensions/reload"
 
 # Extension load errors
 curl -s http://127.0.0.1:8765/extensions/errors
+
+# Capabilities discovery via bridge
+curl -s http://127.0.0.1:8766/automation/capabilities
+
+# Process run status via bridge
+curl -s http://127.0.0.1:8766/process-runs/<run-id>
 ```
 
 ## Resources
