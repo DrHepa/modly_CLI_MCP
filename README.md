@@ -131,8 +131,11 @@ See:
 ## Recommended long-running pattern
 
 - For agents, prefer `create -> status -> status -> ...` instead of blocking on `wait`.
+- MCP long-running tools keep `data.run` intact and add recovery hints in `data.meta` only.
+- `modly.workflowRun.{createFromImage,status,wait}` and `modly.processRun.{create,status,wait}` expose `data.meta.operation`, `data.meta.operationState`, `data.meta.nextAction`, and non-terminal `data.meta.suggestedPollIntervalMs`.
 - `workflow-run status` / `modly.workflowRun.status` expose `data.meta.terminal` so polling clients can stop without mutating `data.run`.
 - `workflow-run wait` / `modly.workflowRun.wait` remain available as a bounded convenience wrapper over status polling; use short timeout windows when you cannot drive polling yourself.
+- `data.meta.nextAction` always points back to the canonical status tool with the same `runId`; recovery MUST resume polling an existing run, not recreate it.
 - Wait timeouts include bounded polling diagnostics in `error.details` (`timeoutMs`, `intervalMs`, `elapsedMs`, `attempts`, `lastObservedRun`).
 
 ## Architectural notes

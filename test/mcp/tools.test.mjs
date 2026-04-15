@@ -11,6 +11,19 @@ function notFoundResponse(message) {
 
 const originalFetch = globalThis.fetch;
 
+const WORKFLOW_CREATE_DESCRIPTION =
+  'Creates a workflow run from an input image and returns recovery metadata so clients can continue polling the same runId via modly.workflowRun.status.';
+const WORKFLOW_STATUS_DESCRIPTION =
+  'Gets the latest workflow run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
+const WORKFLOW_WAIT_DESCRIPTION =
+  'Bounded convenience wrapper around workflow status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.';
+const PROCESS_CREATE_DESCRIPTION =
+  'Creates a process run and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.';
+const PROCESS_STATUS_DESCRIPTION =
+  'Gets the latest process run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
+const PROCESS_WAIT_DESCRIPTION =
+  'Bounded convenience wrapper around process status polling; prefer modly.processRun.status for recovery and use short timeout windows when you cannot poll yourself.';
+
 function jsonResponse(payload, init = {}) {
   return new Response(JSON.stringify(payload), {
     status: init.status ?? 200,
@@ -77,16 +90,70 @@ test('registry catalog exposes modly.capabilities.get with empty input schema', 
   });
 });
 
-test('registry catalog exposes strict process-run MCP schemas', () => {
+test('registry catalog exposes strict long-running MCP schemas and recovery wording', () => {
   const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
 
   assert.deepEqual(
-    registry.catalog.filter((entry) => entry.name.startsWith('modly.processRun.')),
+    registry.catalog.filter(
+      (entry) => entry.name.startsWith('modly.workflowRun.') || entry.name.startsWith('modly.processRun.'),
+    ),
     [
+      {
+        name: 'modly.workflowRun.createFromImage',
+        title: 'Create Workflow Run From Image',
+        description: WORKFLOW_CREATE_DESCRIPTION,
+        inputSchema: {
+          type: 'object',
+          required: ['imagePath', 'modelId'],
+          properties: {
+            imagePath: { type: 'string' },
+            modelId: { type: 'string' },
+            params: { type: 'object' },
+          },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'modly.workflowRun.status',
+        title: 'Workflow Run Status',
+        description: WORKFLOW_STATUS_DESCRIPTION,
+        inputSchema: {
+          type: 'object',
+          required: ['runId'],
+          properties: { runId: { type: 'string' } },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'modly.workflowRun.cancel',
+        title: 'Cancel Workflow Run',
+        description: 'Requests workflow run cancellation.',
+        inputSchema: {
+          type: 'object',
+          required: ['runId'],
+          properties: { runId: { type: 'string' } },
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'modly.workflowRun.wait',
+        title: 'Wait For Workflow Run',
+        description: WORKFLOW_WAIT_DESCRIPTION,
+        inputSchema: {
+          type: 'object',
+          required: ['runId'],
+          properties: {
+            runId: { type: 'string' },
+            intervalMs: { type: 'integer', minimum: 1 },
+            timeoutMs: { type: 'integer', minimum: 1 },
+          },
+          additionalProperties: false,
+        },
+      },
       {
         name: 'modly.processRun.create',
         title: 'Create Process Run',
-        description: 'Creates a process run. outputPath is optional sugar for params.output_path.',
+        description: PROCESS_CREATE_DESCRIPTION,
         inputSchema: {
           type: 'object',
           required: ['process_id', 'params'],
@@ -102,8 +169,7 @@ test('registry catalog exposes strict process-run MCP schemas', () => {
       {
         name: 'modly.processRun.status',
         title: 'Process Run Status',
-        description:
-          'Gets the latest process run state. Prefer polling this status for long-running agents; response metadata includes whether the run is terminal.',
+        description: PROCESS_STATUS_DESCRIPTION,
         inputSchema: {
           type: 'object',
           required: ['runId'],
@@ -114,8 +180,7 @@ test('registry catalog exposes strict process-run MCP schemas', () => {
       {
         name: 'modly.processRun.wait',
         title: 'Wait For Process Run',
-        description:
-          'Bounded convenience wrapper around status polling for process runs; use short timeout windows when you cannot poll status yourself.',
+        description: PROCESS_WAIT_DESCRIPTION,
         inputSchema: {
           type: 'object',
           required: ['runId'],
@@ -705,6 +770,9 @@ test('modly.workflowRun.createFromImage returns a stable run payload', { concurr
   });
 
   assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.run.runId, result.structuredContent.data.meta.operation.runId);
+  assert.equal(result.structuredContent.data.meta.nextAction.tool, 'modly.workflowRun.status');
+  assert.equal(result.structuredContent.data.meta.nextAction.input.runId, result.structuredContent.data.run.runId);
   assert.deepEqual(result.structuredContent, {
     ok: true,
     data: {
@@ -718,6 +786,20 @@ test('modly.workflowRun.createFromImage returns a stable run payload', { concurr
         sceneCandidate: { path: 'scene.glb' },
         run_id: 'run-123',
         scene_candidate: { path: 'scene.glb' },
+      },
+      meta: {
+        terminal: false,
+        operation: {
+          kind: 'workflowRun',
+          runId: 'run-123',
+        },
+        operationState: 'pending',
+        nextAction: {
+          kind: 'poll_status',
+          tool: 'modly.workflowRun.status',
+          input: { runId: 'run-123' },
+        },
+        suggestedPollIntervalMs: 1000,
       },
     },
   });
@@ -746,6 +828,9 @@ test('modly.workflowRun.status returns the latest run snapshot', { concurrency: 
   const result = await registry.invoke('modly.workflowRun.status', { runId: 'run-123' });
 
   assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.run.runId, result.structuredContent.data.meta.operation.runId);
+  assert.equal(result.structuredContent.data.meta.nextAction.tool, 'modly.workflowRun.status');
+  assert.equal(result.structuredContent.data.meta.nextAction.input.runId, result.structuredContent.data.run.runId);
   assert.deepEqual(result.structuredContent, {
     ok: true,
     data: {
@@ -759,7 +844,20 @@ test('modly.workflowRun.status returns the latest run snapshot', { concurrency: 
         error: undefined,
         sceneCandidate: undefined,
       },
-      meta: { terminal: false },
+      meta: {
+        terminal: false,
+        operation: {
+          kind: 'workflowRun',
+          runId: 'run-123',
+        },
+        operationState: 'in_progress',
+        nextAction: {
+          kind: 'poll_status',
+          tool: 'modly.workflowRun.status',
+          input: { runId: 'run-123' },
+        },
+        suggestedPollIntervalMs: 1000,
+      },
     },
   });
   assert.deepEqual(
@@ -945,6 +1043,9 @@ test('modly.workflowRun.wait returns the terminal done payload', { concurrency: 
   });
 
   assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.run.runId, result.structuredContent.data.meta.operation.runId);
+  assert.equal(result.structuredContent.data.meta.nextAction.tool, 'modly.workflowRun.status');
+  assert.equal(result.structuredContent.data.meta.nextAction.input.runId, result.structuredContent.data.run.runId);
   assert.deepEqual(result.structuredContent, {
     ok: true,
     data: {
@@ -961,6 +1062,16 @@ test('modly.workflowRun.wait returns the terminal done payload', { concurrency: 
       },
       meta: {
         terminal: true,
+        operation: {
+          kind: 'workflowRun',
+          runId: 'run-123',
+        },
+        operationState: 'succeeded',
+        nextAction: {
+          kind: 'observe_terminal',
+          tool: 'modly.workflowRun.status',
+          input: { runId: 'run-123' },
+        },
         polling: {
           intervalMs: 1,
           timeoutMs: 50,
@@ -1000,9 +1111,20 @@ test('modly.workflowRun.wait returns terminal error payload', { concurrency: fal
   assert.equal(result.structuredContent.data.run.status, 'error');
   assert.equal(result.structuredContent.data.run.error, 'mesh failed');
   assert.deepEqual(result.structuredContent.data.meta.terminal, true);
+  assert.deepEqual(result.structuredContent.data.meta.operation, {
+    kind: 'workflowRun',
+    runId: 'run-error',
+  });
+  assert.equal(result.structuredContent.data.meta.operationState, 'failed');
+  assert.deepEqual(result.structuredContent.data.meta.nextAction, {
+    kind: 'observe_terminal',
+    tool: 'modly.workflowRun.status',
+    input: { runId: 'run-error' },
+  });
   assert.equal(result.structuredContent.data.meta.polling.intervalMs, 1000);
   assert.equal(result.structuredContent.data.meta.polling.timeoutMs, 600000);
   assert.equal(result.structuredContent.data.meta.polling.attempts, 1);
+  assert.equal('suggestedPollIntervalMs' in result.structuredContent.data.meta, false);
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /workflow-runs/run-error'],
@@ -1031,9 +1153,20 @@ test('modly.workflowRun.wait returns terminal cancelled payload', { concurrency:
   assert.equal(result.structuredContent.data.run.status, 'cancelled');
   assert.equal(result.structuredContent.data.run.progress, 12);
   assert.deepEqual(result.structuredContent.data.meta.terminal, true);
+  assert.deepEqual(result.structuredContent.data.meta.operation, {
+    kind: 'workflowRun',
+    runId: 'run-cancelled',
+  });
+  assert.equal(result.structuredContent.data.meta.operationState, 'cancelled');
+  assert.deepEqual(result.structuredContent.data.meta.nextAction, {
+    kind: 'observe_terminal',
+    tool: 'modly.workflowRun.status',
+    input: { runId: 'run-cancelled' },
+  });
   assert.equal(result.structuredContent.data.meta.polling.intervalMs, 1000);
   assert.equal(result.structuredContent.data.meta.polling.timeoutMs, 600000);
   assert.equal(result.structuredContent.data.meta.polling.attempts, 1);
+  assert.equal('suggestedPollIntervalMs' in result.structuredContent.data.meta, false);
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /workflow-runs/run-cancelled'],
@@ -1082,6 +1215,103 @@ test('modly.workflowRun.wait times out when the run never reaches a terminal sta
   });
   assert.equal(calls[0].path, '/health');
   assert.ok(calls.filter((call) => call.path === '/workflow-runs/run-timeout').length >= 1);
+});
+
+test('modly.workflowRun recovers after timeout via status using the same runId without recreating', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path, method }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/workflow-runs/run-recover') {
+      assert.equal(method, 'GET');
+      return jsonResponse({ run_id: 'run-recover', status: 'running', progress: 90, step: 'meshing' });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const timeoutResult = await registry.invoke('modly.workflowRun.wait', {
+    runId: 'run-recover',
+    intervalMs: 1,
+    timeoutMs: 5,
+  });
+
+  assert.equal(timeoutResult.isError, true);
+  assert.equal(timeoutResult.structuredContent.error.code, 'TIMEOUT');
+  assert.equal(timeoutResult.structuredContent.error.details.lastObservedRun.runId, 'run-recover');
+
+  const statusResult = await registry.invoke('modly.workflowRun.status', { runId: 'run-recover' });
+
+  assert.equal(statusResult.isError, undefined);
+  assert.equal(statusResult.structuredContent.data.run.runId, 'run-recover');
+  assert.deepEqual(statusResult.structuredContent.data.meta, {
+    terminal: false,
+    operation: {
+      kind: 'workflowRun',
+      runId: 'run-recover',
+    },
+    operationState: 'in_progress',
+    nextAction: {
+      kind: 'poll_status',
+      tool: 'modly.workflowRun.status',
+      input: { runId: 'run-recover' },
+    },
+    suggestedPollIntervalMs: 1000,
+  });
+  assert.equal(
+    calls.some((call) => call.path === '/workflow-runs/from-image' || call.method === 'POST'),
+    false,
+  );
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    [
+      'GET /health',
+      ...Array.from(
+        { length: calls.filter((call) => call.path === '/workflow-runs/run-recover').length - 1 },
+        () => 'GET /workflow-runs/run-recover',
+      ),
+      'GET /health',
+      'GET /workflow-runs/run-recover',
+    ],
+  );
+});
+
+test('modly.workflowRun.status falls back to in_progress for unknown non-terminal states', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/workflow-runs/run-unknown') {
+      return jsonResponse({ run_id: 'run-unknown', status: 'stalled', progress: 42 });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.workflowRun.status', { runId: 'run-unknown' });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.run.status, 'stalled');
+  assert.equal(result.structuredContent.data.meta.terminal, false);
+  assert.equal(result.structuredContent.data.meta.operationState, 'in_progress');
+  assert.deepEqual(result.structuredContent.data.meta.nextAction, {
+    kind: 'poll_status',
+    tool: 'modly.workflowRun.status',
+    input: { runId: 'run-unknown' },
+  });
+  assert.equal(result.structuredContent.data.meta.suggestedPollIntervalMs, 1000);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /workflow-runs/run-unknown'],
+  );
 });
 
 test('modly.workflowRun.wait surfaces NOT_FOUND for unknown run id', { concurrency: false }, async (t) => {
@@ -1158,6 +1388,9 @@ test('modly.processRun.create validates canonical process_id and workspace_path 
   });
 
   assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.run.runId, result.structuredContent.data.meta.operation.runId);
+  assert.equal(result.structuredContent.data.meta.nextAction.tool, 'modly.processRun.status');
+  assert.equal(result.structuredContent.data.meta.nextAction.input.runId, result.structuredContent.data.run.runId);
   assert.deepEqual(result.structuredContent, {
     ok: true,
     data: {
@@ -1175,6 +1408,20 @@ test('modly.processRun.create validates canonical process_id and workspace_path 
         workspacePath: 'workspace',
         outputUrl: undefined,
         error: undefined,
+      },
+      meta: {
+        terminal: false,
+        operation: {
+          kind: 'processRun',
+          runId: 'process-run-123',
+        },
+        operationState: 'pending',
+        nextAction: {
+          kind: 'poll_status',
+          tool: 'modly.processRun.status',
+          input: { runId: 'process-run-123' },
+        },
+        suggestedPollIntervalMs: 1000,
       },
     },
   });
@@ -1387,10 +1634,26 @@ test('modly.processRun.status and cancel return stable process-run payloads', { 
   const cancelResult = await registry.invoke('modly.processRun.cancel', { runId: 'run-123' });
 
   assert.equal(statusResult.isError, undefined);
+  assert.equal(statusResult.structuredContent.data.run.runId, statusResult.structuredContent.data.meta.operation.runId);
+  assert.equal(statusResult.structuredContent.data.meta.nextAction.tool, 'modly.processRun.status');
+  assert.equal(statusResult.structuredContent.data.meta.nextAction.input.runId, statusResult.structuredContent.data.run.runId);
   assert.equal(statusResult.structuredContent.data.run.run_id, 'run-123');
   assert.equal(statusResult.structuredContent.data.run.processId, 'mesh-simplify');
   assert.equal(statusResult.structuredContent.data.run.status, 'running');
-  assert.deepEqual(statusResult.structuredContent.data.meta, { terminal: false });
+  assert.deepEqual(statusResult.structuredContent.data.meta, {
+    terminal: false,
+    operation: {
+      kind: 'processRun',
+      runId: 'run-123',
+    },
+    operationState: 'in_progress',
+    nextAction: {
+      kind: 'poll_status',
+      tool: 'modly.processRun.status',
+      input: { runId: 'run-123' },
+    },
+    suggestedPollIntervalMs: 1000,
+  });
 
   assert.equal(cancelResult.isError, undefined);
   assert.equal(cancelResult.structuredContent.data.run.runId, 'run-123');
@@ -1452,6 +1715,9 @@ test('modly.processRun.wait returns terminal state and supports timeout passthro
   });
 
   assert.equal(successResult.isError, undefined);
+  assert.equal(successResult.structuredContent.data.run.runId, successResult.structuredContent.data.meta.operation.runId);
+  assert.equal(successResult.structuredContent.data.meta.nextAction.tool, 'modly.processRun.status');
+  assert.equal(successResult.structuredContent.data.meta.nextAction.input.runId, successResult.structuredContent.data.run.runId);
   assert.deepEqual(successResult.structuredContent, {
     ok: true,
     data: {
@@ -1469,6 +1735,16 @@ test('modly.processRun.wait returns terminal state and supports timeout passthro
       },
       meta: {
         terminal: true,
+        operation: {
+          kind: 'processRun',
+          runId: 'run-123',
+        },
+        operationState: 'succeeded',
+        nextAction: {
+          kind: 'observe_terminal',
+          tool: 'modly.processRun.status',
+          input: { runId: 'run-123' },
+        },
         polling: {
           intervalMs: 1,
           timeoutMs: 50,

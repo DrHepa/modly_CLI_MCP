@@ -103,7 +103,11 @@ Error envelope:
 
 - Prefer `create -> status -> status -> ...` for agent-driven automation.
 - Treat `wait` as a bounded convenience wrapper for short windows or backwards compatibility, not as the primary coordination primitive.
-- Where long-running run surfaces expose JSON metadata, keep the resource payload stable and add polling hints alongside it (for example `data.meta.terminal` on `status`, `data.meta.polling` on `wait`, and bounded timeout diagnostics in `error.details`).
+- Keep the resource payload stable: long-running MCP run surfaces MUST leave `data.run` unchanged and expose recovery hints only in `data.meta`.
+- For `modly.workflowRun.{createFromImage,status,wait}` and `modly.processRun.{create,status,wait}`, `data.meta` MUST include `terminal`, `operation: { kind, runId }`, `operationState`, and `nextAction: { kind, tool, input: { runId } }`.
+- Non-terminal responses MUST include `data.meta.suggestedPollIntervalMs`; terminal responses MUST omit it; `data.meta.polling` remains specific to `wait`.
+- `nextAction.tool` MUST point to the corresponding status tool so recovery continues with the same `runId` instead of recreating work.
+- Wait timeouts still surface bounded diagnostics in `error.details`.
 
 ---
 
