@@ -10,6 +10,10 @@ function firstDefined(...values) {
   return values.find((value) => value !== undefined);
 }
 
+function normalizeCanonicalParamId(value) {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
 function normalizeProgress(payload) {
   const progress = firstDefined(payload?.progress, payload?.run?.progress, payload?.data?.progress);
   return typeof progress === 'number' ? progress : undefined;
@@ -176,6 +180,43 @@ export function getCanonicalProcessIds(capabilities) {
     if (typeof candidate === 'string' && candidate.trim() !== '') {
       canonicalIds.add(candidate.trim());
     }
+  }
+
+  return canonicalIds;
+}
+
+export function extractCanonicalParamIds(paramsSchema) {
+  const canonicalIds = new Set();
+
+  if (Array.isArray(paramsSchema)) {
+    for (const entry of paramsSchema) {
+      const canonicalId = normalizeCanonicalParamId(entry?.id);
+
+      if (canonicalId !== null) {
+        canonicalIds.add(canonicalId);
+      }
+    }
+
+    return canonicalIds;
+  }
+
+  if (!isObject(paramsSchema)) {
+    return canonicalIds;
+  }
+
+  const directId = normalizeCanonicalParamId(paramsSchema.id);
+
+  if (directId !== null) {
+    canonicalIds.add(directId);
+  }
+
+  for (const [key, value] of Object.entries(paramsSchema)) {
+    if (!isObject(value)) {
+      continue;
+    }
+
+    const nestedId = normalizeCanonicalParamId(value.id);
+    canonicalIds.add(nestedId ?? key);
   }
 
   return canonicalIds;

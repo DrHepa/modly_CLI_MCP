@@ -11,6 +11,7 @@ import {
   toWorkflowRun,
 } from '../../core/modly-normalizers.mjs';
 import { prepareProcessRunCreateInput } from '../../core/process-run-input.mjs';
+import { planSmartCapability } from '../../core/smart-capability-planner.mjs';
 import { waitForProcessRun } from '../../core/process-run-wait.mjs';
 import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
 
@@ -62,6 +63,10 @@ function summarizeCapabilities(capabilities) {
   const errors = Array.isArray(capabilities?.errors) ? capabilities.errors.length : 0;
 
   return `Automation capabilities: backend_ready=${backendReady}, models=${models}, processes=${processes}, errors=${errors}.`;
+}
+
+function summarizeCapabilityPlan(plan) {
+  return `Capability plan: ${plan.status}${plan.cap?.key ? ` (${plan.cap.key})` : ''}.`;
 }
 
 function summarizeModelList(models) {
@@ -177,6 +182,13 @@ export function createToolHandlers({ client, apiUrl } = {}) {
       const response = await modlyClient.getAutomationCapabilities();
       const capabilities = toAutomationCapabilities(response);
       return { data: capabilities, text: summarizeCapabilities(capabilities) };
+    },
+
+    async 'modly.capability.plan'({ capability, params }) {
+      await modlyClient.health();
+      const capabilities = await modlyClient.getAutomationCapabilities();
+      const plan = planSmartCapability({ capability, params }, capabilities);
+      return { data: plan, text: summarizeCapabilityPlan(plan) };
     },
 
     async 'modly.health'() {

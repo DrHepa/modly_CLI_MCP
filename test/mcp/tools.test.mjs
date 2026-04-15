@@ -68,6 +68,15 @@ function assertCapabilitiesCallsStayInBridge(calls) {
   assert.equal(calls.some((call) => call.path.includes('/process-runs')), false);
 }
 
+function assertCapabilityPlannerCallsStayReadOnly(calls) {
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assert.equal(calls.some((call) => call.path.includes('/workflow-runs')), false);
+  assert.equal(calls.some((call) => call.path.includes('/process-runs')), false);
+}
+
 async function createTempImage(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-mcp-workflow-run-'));
   const imagePath = path.join(directory, 'input.png');
@@ -88,6 +97,192 @@ test('registry catalog exposes modly.capabilities.get with empty input schema', 
     description: 'Returns canonical automation capabilities from GET /automation/capabilities.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   });
+});
+
+test('registry catalog exposes modly.capability.plan as strict read-only input', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.capability.plan');
+
+  assert.deepEqual(tool, {
+    name: 'modly.capability.plan',
+    title: 'Plan Smart Capability',
+    description: 'Plans a known capability against live discovery without executing workflows or process runs.',
+    inputSchema: {
+      type: 'object',
+      required: ['capability'],
+      properties: {
+        capability: { type: 'string' },
+        params: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+  });
+});
+
+test('modly.capability.plan does health preflight and returns planner output without execution', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [
+              { id: 'num_inference_steps', type: 'integer' },
+              { id: 'guidance_scale', type: 'number' },
+            ],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.plan', {
+    capability: 'TripoSG',
+    params: {
+      steps: 30,
+      ignored: true,
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      status: 'supported',
+      cap: {
+        key: 'triposg',
+        requested: 'TripoSG',
+        matchedId: 'triposg',
+        matchedName: 'TripoSG',
+      },
+      surface: 'workflowRun.createFromImage',
+      score: 105,
+      params: {
+        num_inference_steps: 30,
+      },
+      warnings: [
+        'Discarded param "ignored": it is not an allowed canonical id or alias for "triposg".',
+      ],
+      reasons: [
+        'Requested capability matched registry entry "triposg".',
+        'Matched discovered id "triposg" exactly. Discovery confirms 1 requested canonical param(s).',
+        'Mapped alias "steps" to canonical param "num_inference_steps".',
+      ],
+    },
+  });
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+});
+
+test('modly.capability.plan returns known_but_unavailable with factual reasons and warnings', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.plan', {
+    capability: 'Hunyuan3D',
+    params: { quality: 40 },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.ok, true);
+  assert.equal(result.structuredContent.data.status, 'known_but_unavailable');
+  assert.deepEqual(result.structuredContent.data.cap, {
+    key: 'hunyuan3d',
+    requested: 'Hunyuan3D',
+    matchedId: null,
+    matchedName: null,
+  });
+  assert.deepEqual(result.structuredContent.data.params, {});
+  assert.deepEqual(result.structuredContent.data.warnings, [
+    'Discarded param "quality": canonical param "num_inference_steps" is not available in discovery params_schema.',
+  ]);
+  assert.ok(result.structuredContent.data.reasons.some((reason) => reason.includes('matched registry entry "hunyuan3d"')));
+  assert.ok(result.structuredContent.data.reasons.some((reason) => reason.includes('Discovery did not expose an executable candidate')));
+  assert.equal(result.content[0].text, 'Capability plan: known_but_unavailable (hunyuan3d).');
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+});
+
+test('modly.capability.plan returns unknown for closed-registry misses without executing anything', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.plan', {
+    capability: 'mesh decimator pro',
+    params: { seed: 7 },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      status: 'unknown',
+      cap: {
+        key: null,
+        requested: 'mesh decimator pro',
+        matchedId: null,
+        matchedName: null,
+      },
+      surface: null,
+      score: null,
+      params: {},
+      warnings: ['Ignored params because the requested capability is outside the closed MVP registry.'],
+      reasons: ['Requested capability did not match the closed smart-capability registry.'],
+    },
+  });
+  assert.equal(result.content[0].text, 'Capability plan: unknown.');
+  assertCapabilityPlannerCallsStayReadOnly(calls);
 });
 
 test('registry catalog exposes strict long-running MCP schemas and recovery wording', () => {
