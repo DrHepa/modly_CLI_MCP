@@ -131,7 +131,7 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
   assert.deepEqual(tool, {
     name: 'modly.capability.execute',
     title: 'Execute Smart Capability',
-    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches only supported image input to modly.workflowRun.createFromImage while process targets remain known but unavailable.',
+    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize to modly.processRun.create.',
     inputSchema: {
       type: 'object',
       required: ['capability', 'input'],
@@ -143,6 +143,370 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
       additionalProperties: false,
     },
   });
+});
+
+test('modly.capability.execute dispatches optimizer input to processRun.create with transparent envelope', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          target_faces: 12000,
+          output_path: 'meshes/out.glb',
+        },
+        workspace_path: 'workspace',
+      });
+      return jsonResponse({
+        run_id: 'optimizer-run-123',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          target_faces: 12000,
+          output_path: 'meshes/out.glb',
+        },
+        workspace_path: 'workspace',
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh optimizer',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+      workspacePath: 'workspace',
+      outputPath: 'meshes/out.glb',
+    },
+    params: {
+      targetFaces: 12000,
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: supported via modly.processRun.create.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      plan: {
+        status: 'supported',
+        cap: {
+          key: 'mesh-optimizer',
+          requested: 'mesh optimizer',
+          matchedId: 'mesh-optimizer/optimize',
+          matchedName: 'Optimize Mesh',
+        },
+        surface: 'processRun.create',
+        target: {
+          kind: 'process',
+          id: 'mesh-optimizer/optimize',
+          name: 'Optimize Mesh',
+        },
+        score: 105,
+        params: {
+          target_faces: 12000,
+        },
+        warnings: [],
+        reasons: [
+          'Requested capability matched registry entry "mesh-optimizer".',
+          'Matched discovered id "mesh-optimizer/optimize" exactly. Discovery confirms 1 requested canonical param(s).',
+          'Mapped alias "targetFaces" to canonical param "target_faces".',
+        ],
+      },
+      execution: {
+        executed: true,
+        surface: 'modly.processRun.create',
+        arguments: {
+          process_id: 'mesh-optimizer/optimize',
+          params: {
+            mesh_path: 'meshes/in.glb',
+            target_faces: 12000,
+            output_path: 'meshes/out.glb',
+          },
+          workspace_path: 'workspace',
+        },
+      },
+      run: {
+        run_id: 'optimizer-run-123',
+        runId: 'optimizer-run-123',
+        process_id: 'mesh-optimizer/optimize',
+        processId: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          target_faces: 12000,
+          output_path: 'meshes/out.glb',
+        },
+        workspace_path: 'workspace',
+        workspacePath: 'workspace',
+        outputUrl: undefined,
+        error: undefined,
+      },
+      meta: {
+        polling: {
+          terminal: false,
+          operation: {
+            kind: 'processRun',
+            runId: 'optimizer-run-123',
+          },
+          operationState: 'pending',
+          nextAction: {
+            kind: 'poll_status',
+            tool: 'modly.processRun.status',
+            input: { runId: 'optimizer-run-123' },
+          },
+          suggestedPollIntervalMs: 1000,
+        },
+        source: {
+          tool: 'modly.capability.execute',
+          planner: 'planSmartCapability',
+        },
+        limits: {
+          singleStep: true,
+          chaining: false,
+          plannerGated: true,
+          unsupportedExec: false,
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'POST /process-runs'],
+  );
+});
+
+test('modly.capability.execute derives workspace_path from meshPath for optimizer process runs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'Default/assets/in.glb',
+          target_faces: 12000,
+        },
+        workspace_path: 'Default/assets/in.glb',
+      });
+      return jsonResponse({
+        run_id: 'optimizer-run-derived-workspace',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'Default/assets/in.glb',
+          target_faces: 12000,
+        },
+        workspace_path: 'Default/assets/in.glb',
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh optimizer',
+    input: {
+      kind: 'mesh',
+      meshPath: 'Default/assets/in.glb',
+    },
+    params: {
+      targetFaces: 12000,
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.execution.arguments.workspace_path, 'Default/assets/in.glb');
+  assert.equal(result.structuredContent.data.run.workspace_path, 'Default/assets/in.glb');
+  assert.equal(result.structuredContent.data.run.workspacePath, 'Default/assets/in.glb');
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'POST /process-runs'],
+  );
+});
+
+test('modly.capability.execute preserves transparent envelope when optimizer backend rejects execution', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          target_faces: 12000,
+          output_path: 'meshes/out.glb',
+        },
+        workspace_path: 'workspace',
+      });
+      return jsonResponse(
+        {
+          error: {
+            code: 'OPTIMIZER_REJECTED',
+            message: 'Optimizer rejected the mesh.',
+          },
+        },
+        { status: 422, statusText: 'Unprocessable Entity' },
+      );
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh optimizer',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+      workspacePath: 'workspace',
+      outputPath: 'meshes/out.glb',
+    },
+    params: {
+      targetFaces: 12000,
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: supported via modly.processRun.create; backend rejected execution.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      plan: {
+        status: 'supported',
+        cap: {
+          key: 'mesh-optimizer',
+          requested: 'mesh optimizer',
+          matchedId: 'mesh-optimizer/optimize',
+          matchedName: 'Optimize Mesh',
+        },
+        surface: 'processRun.create',
+        target: {
+          kind: 'process',
+          id: 'mesh-optimizer/optimize',
+          name: 'Optimize Mesh',
+        },
+        score: 105,
+        params: {
+          target_faces: 12000,
+        },
+        warnings: [],
+        reasons: [
+          'Requested capability matched registry entry "mesh-optimizer".',
+          'Matched discovered id "mesh-optimizer/optimize" exactly. Discovery confirms 1 requested canonical param(s).',
+          'Mapped alias "targetFaces" to canonical param "target_faces".',
+        ],
+      },
+      execution: {
+        executed: true,
+        surface: 'modly.processRun.create',
+        arguments: {
+          process_id: 'mesh-optimizer/optimize',
+          params: {
+            mesh_path: 'meshes/in.glb',
+            target_faces: 12000,
+            output_path: 'meshes/out.glb',
+          },
+          workspace_path: 'workspace',
+        },
+      },
+      run: null,
+      meta: {
+        polling: null,
+        source: {
+          tool: 'modly.capability.execute',
+          planner: 'planSmartCapability',
+        },
+        limits: {
+          singleStep: true,
+          chaining: false,
+          plannerGated: true,
+          unsupportedExec: false,
+        },
+      },
+      error: {
+        code: 'OPTIMIZER_REJECTED',
+        message: '422 Error for /process-runs',
+        details: {
+          error: {
+            code: 'OPTIMIZER_REJECTED',
+            message: 'Optimizer rejected the mesh.',
+          },
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'POST /process-runs'],
+  );
 });
 
 test('modly.capability.plan does health preflight and returns planner output without execution', { concurrency: false }, async (t) => {
@@ -536,7 +900,7 @@ test('modly.capability.execute stays image-first and never chains into process e
   assert.equal(calls.some((call) => call.method === 'POST' && call.path.includes('/process-runs')), false);
 });
 
-test('modly.capability.execute keeps process-oriented capabilities known_but_unavailable in the first cut', { concurrency: false }, async (t) => {
+test('modly.capability.execute keeps UniRig blocked even when discovery exposes it', { concurrency: false }, async (t) => {
   t.after(resetFetch);
 
   const calls = installFetchStub(({ path }) => {
@@ -597,6 +961,7 @@ test('modly.capability.execute keeps process-oriented capabilities known_but_una
           'Requested capability matched registry entry "unirig".',
           'Matched discovered id "unirig-process-extension/rig-mesh" exactly. Discovery confirms 1 requested canonical param(s).',
           'This capability is known but intentionally unavailable for the current MVP surface.',
+          'Discovery matched a candidate, but the closed capability-execute allowlist does not permit supported execution for this capability.',
         ],
       },
       execution: {
@@ -620,6 +985,54 @@ test('modly.capability.execute keeps process-oriented capabilities known_but_una
       },
     },
   });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute keeps exporter blocked even when discovery exposes it', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-exporter/export',
+            name: 'Mesh Exporter',
+            params_schema: [{ id: 'output_format', type: 'string' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh-exporter/export',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+    },
+    params: { output_format: 'glb' },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: unknown; not executed.');
+  assert.equal(result.structuredContent.data.plan.status, 'unknown');
+  assert.equal(result.structuredContent.data.execution.executed, false);
+  assert.equal(result.structuredContent.data.run, null);
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /automation/capabilities'],
@@ -836,6 +1249,57 @@ test('modly.capability.execute rejects invalid input shape before any execution 
       'GET /health',
       'GET /automation/capabilities',
     ],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute rejects optimizer input when meshPath is missing before POST', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh optimizer',
+    input: {
+      kind: 'mesh',
+      workspacePath: 'workspace',
+    },
+    params: {
+      targetFaces: 12000,
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(result.structuredContent.error.details, {
+    field: 'input.meshPath',
+    reason: 'required',
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
   );
   assertNoCapabilityExecutionPosts(calls);
 });

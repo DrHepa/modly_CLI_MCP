@@ -1,5 +1,5 @@
 import { createModlyApiClient } from '../../core/modly-api.mjs';
-import { ValidationError } from '../../core/errors.mjs';
+import { ModlyError, ValidationError, normalizeError } from '../../core/errors.mjs';
 import {
   normalizeErrors,
   normalizePaths,
@@ -11,6 +11,7 @@ import {
   toWorkflowRun,
 } from '../../core/modly-normalizers.mjs';
 import {
+  prepareCapabilityProcessInput,
   prepareProcessRunCreateInput,
 } from '../../core/process-run-input.mjs';
 import { planSmartCapability } from '../../core/smart-capability-planner.mjs';
@@ -34,6 +35,7 @@ const PROCESS_RUN_OPERATION_STATES = {
   canceled: 'cancelled',
 };
 const DEFAULT_POLL_INTERVAL_MS = 1000;
+const OPTIMIZER_PROCESS_ID = 'mesh-optimizer/optimize';
 
 function getModelId(model) {
   return model?.id ?? model?.model_id ?? model?.modelId ?? 'unknown';
@@ -196,12 +198,52 @@ function buildCapabilityExecuteMeta(polling = null) {
   };
 }
 
-function buildCapabilityExecuteEnvelope({ plan, execution, run, polling }) {
-  return {
+function buildCapabilityExecuteEnvelope({ plan, execution, run, polling, error = undefined }) {
+  const envelope = {
     plan,
     execution,
     run,
     meta: buildCapabilityExecuteMeta(polling),
+  };
+
+  if (error !== undefined) {
+    envelope.error = error;
+  }
+
+  return envelope;
+}
+
+function toCapabilityExecutionErrorCode(error) {
+  if (typeof error?.details?.error?.code === 'string' && error.details.error.code.trim() !== '') {
+    return error.details.error.code.trim();
+  };
+
+  return error.code ?? 'MODLY_ERROR';
+}
+
+function toCapabilityExecutionError(error) {
+  const normalized = normalizeError(error);
+  return {
+    code: toCapabilityExecutionErrorCode(normalized),
+    message: normalized.message,
+    details: normalized instanceof ModlyError && isObject(normalized.details) ? normalized.details : {},
+  };
+}
+
+function summarizeCapabilityExecutionFailure(plan, execution) {
+  return `Capability execution: ${plan.status} via ${execution.surface}; backend rejected execution.`;
+}
+
+function buildFailedCapabilityExecutionResult({ plan, execution, error }) {
+  return {
+    data: buildCapabilityExecuteEnvelope({
+      plan,
+      execution,
+      run: null,
+      polling: null,
+      error: toCapabilityExecutionError(error),
+    }),
+    text: summarizeCapabilityExecutionFailure(plan, execution),
   };
 }
 
@@ -224,13 +266,15 @@ function buildNonExecutedCapabilityResult(plan) {
 }
 
 function isFirstCutCapabilityExecutionSurface(planSurface) {
-  return planSurface === 'workflowRun.createFromImage';
+  return planSurface === 'workflowRun.createFromImage' || planSurface === 'processRun.create';
 }
 
 function toExecutionSurface(planSurface) {
   switch (planSurface) {
     case 'workflowRun.createFromImage':
       return 'modly.workflowRun.createFromImage';
+    case 'processRun.create':
+      return 'modly.processRun.create';
     default:
       return null;
   }
@@ -269,8 +313,8 @@ async function dispatchWorkflowRunFromImage(modlyClient, { imagePath, modelId, p
   };
 }
 
-async function dispatchProcessRun(modlyClient, capabilities, input) {
-  const payload = prepareProcessRunCreateInput(input, { capabilities });
+async function dispatchProcessRun(modlyClient, capabilities, input, { prepared = false } = {}) {
+  const payload = prepared ? input : prepareProcessRunCreateInput(input, { capabilities });
   const response = await modlyClient.createProcessRun(payload);
   const run = toProcessRun(undefined, response);
 
@@ -319,6 +363,33 @@ function resolveImageCapabilityExecutionInput(input) {
   return { kind, imagePath };
 }
 
+function resolveProcessCapabilityExecutionInput(input, plan) {
+  const processId = resolveCapabilityExecutionTarget(plan);
+
+  if (processId !== OPTIMIZER_PROCESS_ID) {
+    return null;
+  }
+
+  const resolvedInput = prepareCapabilityProcessInput(input);
+  const executionInput = {
+    process_id: processId,
+    params: {
+      mesh_path: resolvedInput.meshPath,
+      ...plan.params,
+    },
+  };
+
+  if (resolvedInput.workspacePath !== undefined) {
+    executionInput.workspace_path = resolvedInput.workspacePath;
+  }
+
+  if (resolvedInput.outputPath !== undefined) {
+    executionInput.outputPath = resolvedInput.outputPath;
+  }
+
+  return executionInput;
+}
+
 function summarizeCapabilityExecution(plan, execution) {
   if (execution.executed) {
     return `Capability execution: ${plan.status} via ${execution.surface}.`;
@@ -355,18 +426,48 @@ export function createToolHandlers({ client, apiUrl } = {}) {
         return buildNonExecutedCapabilityResult(plan);
       }
 
-      const resolvedInput = resolveImageCapabilityExecutionInput(input);
-      const modelId = resolveCapabilityExecutionTarget(plan);
-      const execution = {
-        executed: true,
-        surface: toExecutionSurface(plan.surface),
-        arguments: {
-          imagePath: resolvedInput.imagePath,
-          modelId,
-          params: plan.params,
-        },
-      };
-      const { run, polling } = await dispatchWorkflowRunFromImage(modlyClient, execution.arguments);
+      let execution;
+      let run;
+      let polling;
+
+      if (plan.surface === 'workflowRun.createFromImage') {
+        const resolvedInput = resolveImageCapabilityExecutionInput(input);
+        const modelId = resolveCapabilityExecutionTarget(plan);
+        execution = {
+          executed: true,
+          surface: toExecutionSurface(plan.surface),
+          arguments: {
+            imagePath: resolvedInput.imagePath,
+            modelId,
+            params: plan.params,
+          },
+        };
+        try {
+          ({ run, polling } = await dispatchWorkflowRunFromImage(modlyClient, execution.arguments));
+        } catch (error) {
+          return buildFailedCapabilityExecutionResult({ plan, execution, error });
+        }
+      } else if (plan.surface === 'processRun.create') {
+        const executionInput = resolveProcessCapabilityExecutionInput(input, plan);
+
+        if (executionInput === null) {
+          return buildNonExecutedCapabilityResult(plan);
+        }
+
+        const payload = prepareProcessRunCreateInput(executionInput, { capabilities });
+        execution = {
+          executed: true,
+          surface: toExecutionSurface(plan.surface),
+          arguments: payload,
+        };
+        try {
+          ({ run, polling } = await dispatchProcessRun(modlyClient, capabilities, payload, { prepared: true }));
+        } catch (error) {
+          return buildFailedCapabilityExecutionResult({ plan, execution, error });
+        }
+      } else {
+        return buildNonExecutedCapabilityResult(plan);
+      }
 
       return {
         data: buildCapabilityExecuteEnvelope({ plan, execution, run, polling }),

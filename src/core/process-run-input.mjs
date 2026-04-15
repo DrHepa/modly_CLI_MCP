@@ -134,22 +134,31 @@ export function prepareCapabilityProcessInput(input) {
 
   const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
 
-  if (kind !== 'mesh' && kind !== 'workspace') {
+  if (kind !== '' && kind !== 'mesh' && kind !== 'workspace') {
     throw new ValidationError('input.kind must be "mesh" or "workspace" for process execution.', {
       details: { field: 'input.kind', reason: 'invalid_process_input_kind', value: input.kind ?? null },
     });
   }
 
-  const meshPath = normalizeWorkspaceRelativePath(input.meshPath, 'input.meshPath');
-  const workspacePath = normalizeWorkspaceRelativePath(input.workspacePath, 'input.workspacePath', {
-    omitIfEmpty: kind !== 'workspace',
-  });
-  const outputPath = normalizeWorkspaceRelativePath(input.outputPath, 'input.outputPath', { omitIfEmpty: true });
+  if (input.meshPath === undefined) {
+    throw new ValidationError('input.meshPath is required for process execution.', {
+      details: { field: 'input.meshPath', reason: 'required' },
+    });
+  }
 
-  return {
-    kind,
+  const meshPath = normalizeWorkspaceRelativePath(input.meshPath, 'input.meshPath');
+  const workspacePath = normalizeWorkspaceRelativePath(input.workspacePath, 'input.workspacePath', { omitIfEmpty: true })
+    ?? meshPath;
+  const outputPath = normalizeWorkspaceRelativePath(input.outputPath, 'input.outputPath', { omitIfEmpty: true });
+  const preparedInput = {
     meshPath,
     workspacePath,
     outputPath,
   };
+
+  if (kind !== '') {
+    preparedInput.kind = kind;
+  }
+
+  return preparedInput;
 }

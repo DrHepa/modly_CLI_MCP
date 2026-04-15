@@ -184,6 +184,10 @@ function buildPlanTarget(capability, selectedCandidate) {
   };
 }
 
+function isCapabilityExecuteSupported(capability) {
+  return capability?.capabilityExecuteSupported === true;
+}
+
 export function planSmartCapability({ capability, params } = {}, discovery) {
   const requested = normalizeRequestedCapability(capability);
   const normalizedParams = normalizeInputParams(params);
@@ -225,8 +229,11 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
   const selectedCandidate = selectCandidate(knownCapability, discovery, requestedCanonicalIds);
   const availableParamIds = selectedCandidate?.availableParamIds ?? new Set();
   const mappedParams = mapSafeParams(knownCapability, normalizedParams, availableParamIds);
-  const isDiscoverySupported = knownCapability.availability === 'discovery_based' && selectedCandidate !== null;
-  const status = isDiscoverySupported ? 'supported' : 'known_but_unavailable';
+  const isCandidateDiscovered = selectedCandidate !== null;
+  const isCapabilitySupported = knownCapability.availability === 'discovery_based'
+    && isCandidateDiscovered
+    && isCapabilityExecuteSupported(knownCapability);
+  const status = isCapabilitySupported ? 'supported' : 'known_but_unavailable';
   const reasons = [
     `Requested capability matched registry entry "${knownCapability.key}".`,
   ];
@@ -239,6 +246,10 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
 
   if (knownCapability.availability === 'known_unavailable_mvp') {
     reasons.push('This capability is known but intentionally unavailable for the current MVP surface.');
+  }
+
+  if (isCandidateDiscovered && !isCapabilityExecuteSupported(knownCapability)) {
+    reasons.push('Discovery matched a candidate, but the closed capability-execute allowlist does not permit supported execution for this capability.');
   }
 
   return {

@@ -23,6 +23,7 @@ export const KNOWN_CAPABILITIES = deepFreeze([
       names: ['TripoSG'],
     },
     availability: 'discovery_based',
+    capabilityExecuteSupported: true,
     safeParams: {
       canonicalIds: [
         'num_inference_steps',
@@ -55,6 +56,7 @@ export const KNOWN_CAPABILITIES = deepFreeze([
       names: ['Hunyuan3D', 'Hunyuan3D 2 Mini'],
     },
     availability: 'discovery_based',
+    capabilityExecuteSupported: true,
     safeParams: {
       canonicalIds: [
         'num_inference_steps',
@@ -74,6 +76,24 @@ export const KNOWN_CAPABILITIES = deepFreeze([
     },
   },
   {
+    key: 'mesh-optimizer',
+    labels: ['mesh optimizer', 'optimize mesh', 'mesh optimize', 'mesh-optimizer/optimize'],
+    target: {
+      kind: 'process',
+      surface: 'processRun.create',
+      ids: ['mesh-optimizer/optimize'],
+      names: ['Optimize Mesh', 'Mesh Optimizer'],
+    },
+    availability: 'discovery_based',
+    capabilityExecuteSupported: true,
+    safeParams: {
+      canonicalIds: ['target_faces'],
+      aliases: {
+        targetFaces: 'target_faces',
+      },
+    },
+  },
+  {
     key: 'unirig',
     labels: ['unirig', 'uni rig', 'UniRig', 'Rig Mesh', 'rig mesh'],
     target: {
@@ -83,6 +103,7 @@ export const KNOWN_CAPABILITIES = deepFreeze([
       names: ['UniRig', 'Rig Mesh'],
     },
     availability: 'known_unavailable_mvp',
+    capabilityExecuteSupported: false,
     safeParams: {
       canonicalIds: ['seed'],
       aliases: {
