@@ -6,7 +6,7 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizeOptionalRelativePath(inputPath, field, { omitIfEmpty = false } = {}) {
+export function normalizeWorkspaceRelativePath(inputPath, field, { omitIfEmpty = false } = {}) {
   if (inputPath === undefined) {
     return undefined;
   }
@@ -84,12 +84,12 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
     });
   }
 
-  const workspacePath = normalizeOptionalRelativePath(input.workspace_path, 'workspace_path');
+  const workspacePath = normalizeWorkspaceRelativePath(input.workspace_path, 'workspace_path');
   const params = { ...input.params };
-  const explicitOutputPath = normalizeOptionalRelativePath(params.output_path, 'params.output_path', {
+  const explicitOutputPath = normalizeWorkspaceRelativePath(params.output_path, 'params.output_path', {
     omitIfEmpty: true,
   });
-  const outputPath = normalizeOptionalRelativePath(input.outputPath, 'outputPath', { omitIfEmpty: true });
+  const outputPath = normalizeWorkspaceRelativePath(input.outputPath, 'outputPath', { omitIfEmpty: true });
 
   if (outputPath !== undefined && explicitOutputPath !== undefined && outputPath !== explicitOutputPath) {
     throw new ValidationError('outputPath conflicts with params.output_path.', {
@@ -123,4 +123,33 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
   delete payload.outputPath;
 
   return payload;
+}
+
+export function prepareCapabilityProcessInput(input) {
+  if (!isObject(input)) {
+    throw new ValidationError('input must be a JSON object.', {
+      details: { field: 'input', reason: 'invalid_input_shape' },
+    });
+  }
+
+  const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
+
+  if (kind !== 'mesh' && kind !== 'workspace') {
+    throw new ValidationError('input.kind must be "mesh" or "workspace" for process execution.', {
+      details: { field: 'input.kind', reason: 'invalid_process_input_kind', value: input.kind ?? null },
+    });
+  }
+
+  const meshPath = normalizeWorkspaceRelativePath(input.meshPath, 'input.meshPath');
+  const workspacePath = normalizeWorkspaceRelativePath(input.workspacePath, 'input.workspacePath', {
+    omitIfEmpty: kind !== 'workspace',
+  });
+  const outputPath = normalizeWorkspaceRelativePath(input.outputPath, 'input.outputPath', { omitIfEmpty: true });
+
+  return {
+    kind,
+    meshPath,
+    workspacePath,
+    outputPath,
+  };
 }

@@ -10,7 +10,9 @@ import {
   toProcessRun,
   toWorkflowRun,
 } from '../../core/modly-normalizers.mjs';
-import { prepareProcessRunCreateInput } from '../../core/process-run-input.mjs';
+import {
+  prepareProcessRunCreateInput,
+} from '../../core/process-run-input.mjs';
 import { planSmartCapability } from '../../core/smart-capability-planner.mjs';
 import { waitForProcessRun } from '../../core/process-run-wait.mjs';
 import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
@@ -35,6 +37,10 @@ const DEFAULT_POLL_INTERVAL_MS = 1000;
 
 function getModelId(model) {
   return model?.id ?? model?.model_id ?? model?.modelId ?? 'unknown';
+}
+
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function assertCanonicalModelId(modelId, models) {
@@ -174,6 +180,153 @@ function buildRunMeta(kind, run, statusTool, opts = {}) {
   return meta;
 }
 
+function buildCapabilityExecuteMeta(polling = null) {
+  return {
+    polling,
+    source: {
+      tool: 'modly.capability.execute',
+      planner: 'planSmartCapability',
+    },
+    limits: {
+      singleStep: true,
+      chaining: false,
+      plannerGated: true,
+      unsupportedExec: false,
+    },
+  };
+}
+
+function buildCapabilityExecuteEnvelope({ plan, execution, run, polling }) {
+  return {
+    plan,
+    execution,
+    run,
+    meta: buildCapabilityExecuteMeta(polling),
+  };
+}
+
+function buildNonExecutedCapabilityResult(plan) {
+  const execution = {
+    executed: false,
+    surface: null,
+    arguments: null,
+  };
+
+  return {
+    data: buildCapabilityExecuteEnvelope({
+      plan,
+      execution,
+      run: null,
+      polling: null,
+    }),
+    text: summarizeCapabilityExecution(plan, execution),
+  };
+}
+
+function isFirstCutCapabilityExecutionSurface(planSurface) {
+  return planSurface === 'workflowRun.createFromImage';
+}
+
+function toExecutionSurface(planSurface) {
+  switch (planSurface) {
+    case 'workflowRun.createFromImage':
+      return 'modly.workflowRun.createFromImage';
+    default:
+      return null;
+  }
+}
+
+async function runHealthPreflight(modlyClient) {
+  await modlyClient.health();
+}
+
+async function loadAutomationCapabilities(modlyClient) {
+  return modlyClient.getAutomationCapabilities();
+}
+
+async function prepareAutomationContext(modlyClient) {
+  await runHealthPreflight(modlyClient);
+  const capabilities = await loadAutomationCapabilities(modlyClient);
+  return { capabilities };
+}
+
+async function dispatchWorkflowRunFromImage(modlyClient, { imagePath, modelId, params }) {
+  const modelsResponse = await modlyClient.listModels();
+  const models = toModelList(modelsResponse);
+
+  assertCanonicalModelId(modelId, models);
+
+  const response = await modlyClient.createWorkflowRunFromImage({
+    imagePath,
+    modelId,
+    paramsJson: params,
+  });
+  const run = toWorkflowRun(undefined, response);
+
+  return {
+    run,
+    polling: buildRunMeta('workflowRun', run, 'modly.workflowRun.status'),
+  };
+}
+
+async function dispatchProcessRun(modlyClient, capabilities, input) {
+  const payload = prepareProcessRunCreateInput(input, { capabilities });
+  const response = await modlyClient.createProcessRun(payload);
+  const run = toProcessRun(undefined, response);
+
+  return {
+    payload,
+    run,
+    polling: buildRunMeta('processRun', run, 'modly.processRun.status'),
+  };
+}
+
+function resolveCapabilityExecutionTarget(plan) {
+  const targetId = typeof plan?.target?.id === 'string' && plan.target.id.trim() !== '' ? plan.target.id.trim() : null;
+
+  if (targetId === null) {
+    throw new ValidationError('Supported capability plan is missing a dispatch target.', {
+      details: { field: 'plan.target.id', reason: 'missing_dispatch_target', planSurface: plan?.surface ?? null },
+    });
+  }
+
+  return targetId;
+}
+
+function resolveImageCapabilityExecutionInput(input) {
+  if (!isObject(input)) {
+    throw new ValidationError('input must be a JSON object.', {
+      details: { field: 'input', reason: 'invalid_input_shape' },
+    });
+  }
+
+  const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
+
+  if (kind !== 'image') {
+    throw new ValidationError('input.kind must be "image" for workflow execution.', {
+      details: { field: 'input.kind', reason: 'invalid_workflow_input_kind', value: input.kind ?? null },
+    });
+  }
+
+  const imagePath = typeof input.imagePath === 'string' ? input.imagePath.trim() : '';
+
+  if (imagePath === '') {
+    throw new ValidationError('input.imagePath must be a non-empty string.', {
+      details: { field: 'input.imagePath', reason: 'invalid_image_path' },
+    });
+  }
+
+  return { kind, imagePath };
+}
+
+function summarizeCapabilityExecution(plan, execution) {
+  if (execution.executed) {
+    return `Capability execution: ${plan.status} via ${execution.surface}.`;
+  }
+
+  return `Capability execution: ${plan.status}; not executed.`;
+}
+
 export function createToolHandlers({ client, apiUrl } = {}) {
   const modlyClient = client ?? createModlyApiClient({ apiUrl });
 
@@ -185,10 +338,40 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     },
 
     async 'modly.capability.plan'({ capability, params }) {
-      await modlyClient.health();
-      const capabilities = await modlyClient.getAutomationCapabilities();
+      const { capabilities } = await prepareAutomationContext(modlyClient);
       const plan = planSmartCapability({ capability, params }, capabilities);
       return { data: plan, text: summarizeCapabilityPlan(plan) };
+    },
+
+    async 'modly.capability.execute'({ capability, input, params }) {
+      const { capabilities } = await prepareAutomationContext(modlyClient);
+      const plan = planSmartCapability({ capability, params }, capabilities);
+
+      if (plan.status !== 'supported') {
+        return buildNonExecutedCapabilityResult(plan);
+      }
+
+      if (!isFirstCutCapabilityExecutionSurface(plan.surface)) {
+        return buildNonExecutedCapabilityResult(plan);
+      }
+
+      const resolvedInput = resolveImageCapabilityExecutionInput(input);
+      const modelId = resolveCapabilityExecutionTarget(plan);
+      const execution = {
+        executed: true,
+        surface: toExecutionSurface(plan.surface),
+        arguments: {
+          imagePath: resolvedInput.imagePath,
+          modelId,
+          params: plan.params,
+        },
+      };
+      const { run, polling } = await dispatchWorkflowRunFromImage(modlyClient, execution.arguments);
+
+      return {
+        data: buildCapabilityExecuteEnvelope({ plan, execution, run, polling }),
+        text: summarizeCapabilityExecution(plan, execution),
+      };
     },
 
     async 'modly.health'() {
@@ -237,21 +420,11 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     },
 
     async 'modly.workflowRun.createFromImage'({ imagePath, modelId, params }) {
-      const modelsResponse = await modlyClient.listModels();
-      const models = toModelList(modelsResponse);
-
-      assertCanonicalModelId(modelId, models);
-
-      const response = await modlyClient.createWorkflowRunFromImage({
-        imagePath,
-        modelId,
-        paramsJson: params,
-      });
-      const run = toWorkflowRun(undefined, response);
+      const { run, polling } = await dispatchWorkflowRunFromImage(modlyClient, { imagePath, modelId, params });
       return {
         data: {
           run,
-          meta: buildRunMeta('workflowRun', run, 'modly.workflowRun.status'),
+          meta: polling,
         },
         text: summarizeWorkflowRun(undefined, run, 'created'),
       };
@@ -293,24 +466,18 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     },
 
     async 'modly.processRun.create'({ process_id, params, workspace_path, outputPath }) {
-      const capabilities = await modlyClient.getAutomationCapabilities();
-      const payload = prepareProcessRunCreateInput(
-        {
-          process_id,
-          params,
-          workspace_path,
-          outputPath,
-        },
-        { capabilities },
-      );
-
-      const response = await modlyClient.createProcessRun(payload);
-      const run = toProcessRun(undefined, response);
+      const capabilities = await loadAutomationCapabilities(modlyClient);
+      const { run, polling } = await dispatchProcessRun(modlyClient, capabilities, {
+        process_id,
+        params,
+        workspace_path,
+        outputPath,
+      });
 
       return {
         data: {
           run,
-          meta: buildRunMeta('processRun', run, 'modly.processRun.status'),
+          meta: polling,
         },
         text: summarizeProcessRun(undefined, run, 'created'),
       };

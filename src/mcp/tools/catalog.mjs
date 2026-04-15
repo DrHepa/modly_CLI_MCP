@@ -22,6 +22,21 @@ export const MCP_TOOL_CATALOG = [
     },
   },
   {
+    name: MCP_TOOL_IDS[28],
+    title: 'Execute Smart Capability',
+    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches only supported image input to modly.workflowRun.createFromImage while process targets remain known but unavailable.',
+    inputSchema: {
+      type: 'object',
+      required: ['capability', 'input'],
+      properties: {
+        capability: { type: 'string' },
+        input: { type: 'object' },
+        params: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: MCP_TOOL_IDS[2],
     title: 'Modly Health',
     description: 'Checks whether the Modly FastAPI backend is reachable.',

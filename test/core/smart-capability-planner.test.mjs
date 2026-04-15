@@ -35,6 +35,11 @@ test('planner returns supported result with safe alias mapping and dropped unkno
     matchedId: 'triposg',
     matchedName: 'TripoSG',
   });
+  assert.deepEqual(result.target, {
+    kind: 'model',
+    id: 'triposg',
+    name: 'TripoSG',
+  });
   assert.deepEqual(result.params, {
     num_inference_steps: 30,
     guidance_scale: 7.5,
@@ -66,6 +71,7 @@ test('planner keeps UniRig as known_but_unavailable while reusing discovered par
 
   assert.equal(result.status, 'known_but_unavailable');
   assert.equal(result.surface, 'processRun.create');
+  assert.equal(result.target, null);
   assert.equal(result.score, 105);
   assert.deepEqual(result.cap, {
     key: 'unirig',
@@ -92,6 +98,7 @@ test('planner returns unknown for requests outside the closed registry', () => {
       matchedName: null,
     },
     surface: null,
+    target: null,
     score: null,
     params: {},
     warnings: ['Ignored params because the requested capability is outside the closed MVP registry.'],
@@ -124,6 +131,11 @@ test('planner ranks exact discovered matches above family matches deterministica
   assert.equal(result.status, 'supported');
   assert.equal(result.cap.matchedId, 'hunyuan3d-mini');
   assert.equal(result.cap.matchedName, 'Hunyuan3D 2 Mini');
+  assert.deepEqual(result.target, {
+    kind: 'model',
+    id: 'hunyuan3d-mini',
+    name: 'Hunyuan3D 2 Mini',
+  });
   assert.equal(result.score, 105);
 });
 
@@ -145,6 +157,7 @@ test('planner keeps known capability unavailable when discovery lacks an executa
   assert.equal(result.status, 'known_but_unavailable');
   assert.equal(result.cap.key, 'hunyuan3d');
   assert.equal(result.cap.matchedId, null);
+  assert.equal(result.target, null);
   assert.equal(result.score, null);
   assert.deepEqual(result.params, {});
   assert.deepEqual(result.warnings, [
@@ -180,6 +193,11 @@ test('planner accepts canonical params directly and keeps alias mapping limited 
   }, discovery);
 
   assert.equal(result.status, 'supported');
+  assert.deepEqual(result.target, {
+    kind: 'model',
+    id: 'hunyuan3d',
+    name: 'Hunyuan3D',
+  });
   assert.deepEqual(result.params, {
     num_inference_steps: 40,
     seed: 7,

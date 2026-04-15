@@ -172,6 +172,18 @@ function mapSafeParams(capability, rawParams, availableParamIds) {
   return { params, warnings, reasons };
 }
 
+function buildPlanTarget(capability, selectedCandidate) {
+  if (selectedCandidate === null) {
+    return null;
+  }
+
+  return {
+    kind: capability.target.kind,
+    id: selectedCandidate.matchedId,
+    name: selectedCandidate.matchedName,
+  };
+}
+
 export function planSmartCapability({ capability, params } = {}, discovery) {
   const requested = normalizeRequestedCapability(capability);
   const normalizedParams = normalizeInputParams(params);
@@ -187,6 +199,7 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
         matchedName: null,
       },
       surface: null,
+      target: null,
       score: null,
       params: {},
       warnings: Object.keys(normalizedParams).length > 0
@@ -237,6 +250,7 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
       matchedName: selectedCandidate?.matchedName ?? null,
     },
     surface: knownCapability.target.surface,
+    target: status === 'supported' ? buildPlanTarget(knownCapability, selectedCandidate) : null,
     score: selectedCandidate?.score ?? null,
     params: mappedParams.params,
     warnings: mappedParams.warnings,

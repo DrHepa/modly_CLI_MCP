@@ -5,6 +5,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const EXPECTED_TOOLS = [
   'modly.capabilities.get',
+  'modly.capability.plan',
+  'modly.capability.execute',
   'modly.health',
   'modly.model.list',
   'modly.model.current',

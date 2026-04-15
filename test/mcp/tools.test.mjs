@@ -77,6 +77,11 @@ function assertCapabilityPlannerCallsStayReadOnly(calls) {
   assert.equal(calls.some((call) => call.path.includes('/process-runs')), false);
 }
 
+function assertNoCapabilityExecutionPosts(calls) {
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path.includes('/workflow-runs')), false);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path.includes('/process-runs')), false);
+}
+
 async function createTempImage(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-mcp-workflow-run-'));
   const imagePath = path.join(directory, 'input.png');
@@ -112,6 +117,27 @@ test('registry catalog exposes modly.capability.plan as strict read-only input',
       required: ['capability'],
       properties: {
         capability: { type: 'string' },
+        params: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+  });
+});
+
+test('registry catalog exposes modly.capability.execute with honest first-cut MVP wording', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.capability.execute');
+
+  assert.deepEqual(tool, {
+    name: 'modly.capability.execute',
+    title: 'Execute Smart Capability',
+    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches only supported image input to modly.workflowRun.createFromImage while process targets remain known but unavailable.',
+    inputSchema: {
+      type: 'object',
+      required: ['capability', 'input'],
+      properties: {
+        capability: { type: 'string' },
+        input: { type: 'object' },
         params: { type: 'object' },
       },
       additionalProperties: false,
@@ -169,6 +195,11 @@ test('modly.capability.plan does health preflight and returns planner output wit
         matchedName: 'TripoSG',
       },
       surface: 'workflowRun.createFromImage',
+      target: {
+        kind: 'model',
+        id: 'triposg',
+        name: 'TripoSG',
+      },
       score: 105,
       params: {
         num_inference_steps: 30,
@@ -275,6 +306,7 @@ test('modly.capability.plan returns unknown for closed-registry misses without e
         matchedName: null,
       },
       surface: null,
+      target: null,
       score: null,
       params: {},
       warnings: ['Ignored params because the requested capability is outside the closed MVP registry.'],
@@ -283,6 +315,529 @@ test('modly.capability.plan returns unknown for closed-registry misses without e
   });
   assert.equal(result.content[0].text, 'Capability plan: unknown.');
   assertCapabilityPlannerCallsStayReadOnly(calls);
+});
+
+test('modly.capability.execute dispatches image input to workflowRun.createFromImage with stable envelope', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [
+              { id: 'num_inference_steps', type: 'integer' },
+              { id: 'guidance_scale', type: 'number' },
+            ],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(method, 'POST');
+      const body = init.body;
+      assert.equal(body instanceof FormData, true);
+      assert.equal(body.get('model_id'), 'triposg');
+      assert.equal(body.get('params'), JSON.stringify({ num_inference_steps: 30 }));
+      return jsonResponse({
+        run_id: 'cap-run-123',
+        status: 'queued',
+        progress: 0,
+        scene_candidate: { path: 'outputs/mesh.glb' },
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'TripoSG',
+    input: {
+      kind: 'image',
+      imagePath,
+    },
+    params: {
+      steps: 30,
+      ignored: true,
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: supported via modly.workflowRun.createFromImage.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      plan: {
+        status: 'supported',
+        cap: {
+          key: 'triposg',
+          requested: 'TripoSG',
+          matchedId: 'triposg',
+          matchedName: 'TripoSG',
+        },
+        surface: 'workflowRun.createFromImage',
+        target: {
+          kind: 'model',
+          id: 'triposg',
+          name: 'TripoSG',
+        },
+        score: 105,
+        params: {
+          num_inference_steps: 30,
+        },
+        warnings: [
+          'Discarded param "ignored": it is not an allowed canonical id or alias for "triposg".',
+        ],
+        reasons: [
+          'Requested capability matched registry entry "triposg".',
+          'Matched discovered id "triposg" exactly. Discovery confirms 1 requested canonical param(s).',
+          'Mapped alias "steps" to canonical param "num_inference_steps".',
+        ],
+      },
+      execution: {
+        executed: true,
+        surface: 'modly.workflowRun.createFromImage',
+        arguments: {
+          imagePath,
+          modelId: 'triposg',
+          params: {
+            num_inference_steps: 30,
+          },
+        },
+      },
+      run: {
+        run_id: 'cap-run-123',
+        runId: 'cap-run-123',
+        status: 'queued',
+        progress: 0,
+        step: undefined,
+        outputUrl: undefined,
+        error: undefined,
+        sceneCandidate: { path: 'outputs/mesh.glb' },
+        scene_candidate: { path: 'outputs/mesh.glb' },
+      },
+      meta: {
+        polling: {
+          terminal: false,
+          operation: {
+            kind: 'workflowRun',
+            runId: 'cap-run-123',
+          },
+          operationState: 'pending',
+          nextAction: {
+            kind: 'poll_status',
+            tool: 'modly.workflowRun.status',
+            input: { runId: 'cap-run-123' },
+          },
+          suggestedPollIntervalMs: 1000,
+        },
+        source: {
+          tool: 'modly.capability.execute',
+          planner: 'planSmartCapability',
+        },
+        limits: {
+          singleStep: true,
+          chaining: false,
+          plannerGated: true,
+          unsupportedExec: false,
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'GET /model/all', 'POST /workflow-runs/from-image'],
+  );
+});
+
+test('modly.capability.execute stays image-first and never chains into process execution', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [
+          {
+            extension_id: 'unirig-process-extension',
+            node_id: 'rig-mesh',
+            name: 'Rig Mesh',
+            params_schema: { seed: { type: 'int' } },
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(method, 'POST');
+      const body = init.body;
+      assert.equal(body instanceof FormData, true);
+      assert.equal(body.get('model_id'), 'triposg');
+      return jsonResponse({
+        run_id: 'cap-run-124',
+        status: 'queued',
+        progress: 0,
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'TripoSG',
+    input: {
+      kind: 'image',
+      imagePath,
+    },
+    params: { steps: 24 },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.data.execution.surface, 'modly.workflowRun.createFromImage');
+  assert.equal(result.structuredContent.data.meta.limits.chaining, false);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'GET /model/all', 'POST /workflow-runs/from-image'],
+  );
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path.includes('/process-runs')), false);
+});
+
+test('modly.capability.execute keeps process-oriented capabilities known_but_unavailable in the first cut', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            extension_id: 'unirig-process-extension',
+            node_id: 'rig-mesh',
+            name: 'Rig Mesh',
+            params_schema: { seed: { type: 'int' } },
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'UniRig',
+    input: {
+      kind: 'workspace',
+      meshPath: 'meshes/in.glb',
+      workspacePath: 'workspace',
+      outputPath: 'meshes/out.glb',
+    },
+    params: { seed: 12345 },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: known_but_unavailable; not executed.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      plan: {
+        status: 'known_but_unavailable',
+        cap: {
+          key: 'unirig',
+          requested: 'UniRig',
+          matchedId: 'unirig-process-extension/rig-mesh',
+          matchedName: 'Rig Mesh',
+        },
+        surface: 'processRun.create',
+        target: null,
+        score: 105,
+        params: { seed: 12345 },
+        warnings: [],
+        reasons: [
+          'Requested capability matched registry entry "unirig".',
+          'Matched discovered id "unirig-process-extension/rig-mesh" exactly. Discovery confirms 1 requested canonical param(s).',
+          'This capability is known but intentionally unavailable for the current MVP surface.',
+        ],
+      },
+      execution: {
+        executed: false,
+        surface: null,
+        arguments: null,
+      },
+      run: null,
+      meta: {
+        polling: null,
+        source: {
+          tool: 'modly.capability.execute',
+          planner: 'planSmartCapability',
+        },
+        limits: {
+          singleStep: true,
+          chaining: false,
+          plannerGated: true,
+          unsupportedExec: false,
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute keeps Add to Scene out of scope and does not execute', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'Add to Scene',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+    },
+    params: { scene: 'main' },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: unknown; not executed.');
+  assert.equal(result.structuredContent.data.plan.status, 'unknown');
+  assert.equal(result.structuredContent.data.execution.executed, false);
+  assert.equal(result.structuredContent.data.run, null);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute returns unknown without POST and keeps stable envelope', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh decimator pro',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+    },
+    params: { seed: 7 },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: unknown; not executed.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      plan: {
+        status: 'unknown',
+        cap: {
+          key: null,
+          requested: 'mesh decimator pro',
+          matchedId: null,
+          matchedName: null,
+        },
+        surface: null,
+        target: null,
+        score: null,
+        params: {},
+        warnings: ['Ignored params because the requested capability is outside the closed MVP registry.'],
+        reasons: ['Requested capability did not match the closed smart-capability registry.'],
+      },
+      execution: {
+        executed: false,
+        surface: null,
+        arguments: null,
+      },
+      run: null,
+      meta: {
+        polling: null,
+        source: {
+          tool: 'modly.capability.execute',
+          planner: 'planSmartCapability',
+        },
+        limits: {
+          singleStep: true,
+          chaining: false,
+          plannerGated: true,
+          unsupportedExec: false,
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute rejects invalid input shape before any execution POST', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+
+  const invalidImageKind = await registry.invoke('modly.capability.execute', {
+    capability: 'TripoSG',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+    },
+    params: { steps: 30 },
+  });
+
+  assert.equal(invalidImageKind.isError, true);
+  assert.equal(invalidImageKind.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(invalidImageKind.structuredContent.error.details, {
+    field: 'input.kind',
+    reason: 'invalid_workflow_input_kind',
+    value: 'mesh',
+  });
+
+  const invalidImagePath = await registry.invoke('modly.capability.execute', {
+    capability: 'TripoSG',
+    input: {
+      kind: 'image',
+      imagePath: '   ',
+    },
+    params: { steps: 30 },
+  });
+
+  assert.equal(invalidImagePath.isError, true);
+  assert.equal(invalidImagePath.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(invalidImagePath.structuredContent.error.details, {
+    field: 'input.imagePath',
+    reason: 'invalid_image_path',
+  });
+
+  const invalidInputShape = await registry.invoke('modly.capability.execute', {
+    capability: 'TripoSG',
+    input: imagePath,
+    params: { steps: 30 },
+  });
+
+  assert.equal(invalidInputShape.isError, true);
+  assert.equal(invalidInputShape.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(invalidInputShape.structuredContent.error.details, {
+    path: 'input.input',
+    expected: 'object',
+  });
+
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    [
+      'GET /health',
+      'GET /automation/capabilities',
+      'GET /health',
+      'GET /automation/capabilities',
+    ],
+  );
+  assertNoCapabilityExecutionPosts(calls);
 });
 
 test('registry catalog exposes strict long-running MCP schemas and recovery wording', () => {
