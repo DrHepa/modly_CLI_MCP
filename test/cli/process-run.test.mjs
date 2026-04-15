@@ -479,6 +479,8 @@ test('process-run status and cancel validate runId and normalize stable payloads
   assert.equal(statusResult.data.run.runId, 'run-42');
   assert.equal(statusResult.data.run.process_id, 'mesh-simplify');
   assert.equal(statusResult.data.run.status, 'running');
+  assert.deepEqual(statusResult.data.meta, { terminal: false });
+  assert.equal(statusResult.humanMessage, 'Process run run-42: running.');
 
   const cancelResult = await runProcessRunCommand({
     args: ['cancel', 'run-42'],
@@ -562,6 +564,11 @@ test('process-run wait checks health, prints progress to stderr, and returns ter
   assert.equal(result.data.timeoutMs, 30);
   assert.equal(result.data.run.status, 'succeeded');
   assert.equal(result.data.run.outputUrl, 'https://example.com/out.glb');
+  assert.deepEqual(result.data.meta.terminal, true);
+  assert.equal(result.data.meta.polling.intervalMs, 1);
+  assert.equal(result.data.meta.polling.timeoutMs, 30);
+  assert.equal(result.data.meta.polling.attempts, 2);
+  assert.ok(result.data.meta.polling.elapsedMs >= 0);
   assert.equal(result.humanMessage, 'Process run run-42: succeeded.');
 });
 
@@ -581,6 +588,10 @@ test('process-run wait returns terminal failed and canceled payloads as success 
   );
   assert.match(failed.stderr, /Process run run-failed: failed \(error=mesh failed\)/u);
   assert.equal(failed.result.data.run.status, 'failed');
+  assert.deepEqual(failed.result.data.meta.terminal, true);
+  assert.equal(failed.result.data.meta.polling.intervalMs, 1);
+  assert.equal(failed.result.data.meta.polling.timeoutMs, 20);
+  assert.equal(failed.result.data.meta.polling.attempts, 1);
   assert.equal(failed.result.humanMessage, 'Process run run-failed: failed.');
 
   const canceled = await captureStderr(() =>
@@ -598,7 +609,48 @@ test('process-run wait returns terminal failed and canceled payloads as success 
   );
   assert.match(canceled.stderr, /Process run run-canceled: canceled/u);
   assert.equal(canceled.result.data.run.status, 'canceled');
+  assert.deepEqual(canceled.result.data.meta.terminal, true);
+  assert.equal(canceled.result.data.meta.polling.intervalMs, 1);
+  assert.equal(canceled.result.data.meta.polling.timeoutMs, 20);
+  assert.equal(canceled.result.data.meta.polling.attempts, 1);
   assert.equal(canceled.result.humanMessage, 'Process run run-canceled: canceled.');
+});
+
+test('process-run wait surfaces timeout with enriched polling details', async () => {
+  await assert.rejects(
+    runProcessRunCommand({
+      args: ['wait', 'run-timeout', '--interval-ms', '1', '--timeout-ms', '5'],
+      client: {
+        async health() {
+          return { status: 'ok' };
+        },
+        async getProcessRun() {
+          return { run_id: 'run-timeout', process_id: 'mesh-simplify', status: 'running' };
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'TIMEOUT');
+      assert.equal(error.message, 'Polling timed out before reaching a terminal state.');
+      assert.equal(error.details.intervalMs, 1);
+      assert.equal(error.details.timeoutMs, 5);
+      assert.equal(typeof error.details.elapsedMs, 'number');
+      assert.ok(error.details.elapsedMs >= 0);
+      assert.ok(error.details.attempts >= 1);
+      assert.deepEqual(error.details.lastObservedRun, {
+        run_id: 'run-timeout',
+        runId: 'run-timeout',
+        process_id: 'mesh-simplify',
+        processId: 'mesh-simplify',
+        status: 'running',
+        params: undefined,
+        workspacePath: undefined,
+        outputUrl: undefined,
+        error: undefined,
+      });
+      return true;
+    },
+  );
 });
 
 test('process-run status, wait and cancel surface NOT_FOUND unchanged', async () => {

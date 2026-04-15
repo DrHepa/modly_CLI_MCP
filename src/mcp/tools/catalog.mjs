@@ -77,7 +77,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[13],
     title: 'Workflow Run Status',
-    description: 'Gets the latest workflow run state.',
+    description: 'Gets the latest workflow run state. Prefer polling this status for long-running agents; response metadata includes whether the run is terminal.',
     inputSchema: {
       type: 'object',
       required: ['runId'],
@@ -99,7 +99,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[26],
     title: 'Wait For Workflow Run',
-    description: 'Waits until a workflow run reaches a terminal state.',
+    description: 'Bounded convenience wrapper around status polling for workflow runs; use short timeout windows when you cannot poll status yourself.',
     inputSchema: {
       type: 'object',
       required: ['runId'],
@@ -130,7 +130,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[16],
     title: 'Process Run Status',
-    description: 'Gets the latest process run state.',
+    description: 'Gets the latest process run state. Prefer polling this status for long-running agents; response metadata includes whether the run is terminal.',
     inputSchema: {
       type: 'object',
       required: ['runId'],
@@ -141,7 +141,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[17],
     title: 'Wait For Process Run',
-    description: 'Waits until a process run reaches a terminal state.',
+    description: 'Bounded convenience wrapper around status polling for process runs; use short timeout windows when you cannot poll status yourself.',
     inputSchema: {
       type: 'object',
       required: ['runId'],

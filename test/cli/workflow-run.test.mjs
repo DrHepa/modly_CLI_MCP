@@ -169,6 +169,8 @@ test('workflow-run status and cancel validate runId and normalize stable payload
   assert.equal(statusResult.data.run.runId, 'run-42');
   assert.equal(statusResult.data.run.status, 'running');
   assert.equal(statusResult.data.run.progress, 55);
+  assert.deepEqual(statusResult.data.meta, { terminal: false });
+  assert.equal(statusResult.humanMessage, 'Workflow run run-42: running.');
 
   const cancelResult = await runWorkflowRunCommand({
     args: ['cancel', 'run-42'],
@@ -254,6 +256,11 @@ test('workflow-run wait checks health, prints progress to stderr, and returns te
   assert.equal(result.data.timeoutMs, 30);
   assert.equal(result.data.run.status, 'done');
   assert.equal(result.data.run.outputUrl, 'https://example.com/scene.glb');
+  assert.deepEqual(result.data.meta.terminal, true);
+  assert.equal(result.data.meta.polling.intervalMs, 1);
+  assert.equal(result.data.meta.polling.timeoutMs, 30);
+  assert.equal(result.data.meta.polling.attempts, 3);
+  assert.ok(result.data.meta.polling.elapsedMs >= 0);
   assert.equal(result.humanMessage, 'Workflow run run-42: done.');
 });
 
@@ -275,6 +282,10 @@ test('workflow-run wait returns terminal error payload as success result', async
   assert.match(stderr, /Workflow run run-error: error \(error=mesh failed\)/u);
   assert.equal(result.data.run.status, 'error');
   assert.equal(result.data.run.error, 'mesh failed');
+  assert.deepEqual(result.data.meta.terminal, true);
+  assert.equal(result.data.meta.polling.intervalMs, 1);
+  assert.equal(result.data.meta.polling.timeoutMs, 20);
+  assert.equal(result.data.meta.polling.attempts, 1);
   assert.equal(result.humanMessage, 'Workflow run run-error: error.');
 });
 
@@ -295,6 +306,10 @@ test('workflow-run wait returns terminal cancelled payload as success result', a
 
   assert.match(stderr, /Workflow run run-cancelled: cancelled \(progress=12\)/u);
   assert.equal(result.data.run.status, 'cancelled');
+  assert.deepEqual(result.data.meta.terminal, true);
+  assert.equal(result.data.meta.polling.intervalMs, 1);
+  assert.equal(result.data.meta.polling.timeoutMs, 20);
+  assert.equal(result.data.meta.polling.attempts, 1);
   assert.equal(result.humanMessage, 'Workflow run run-cancelled: cancelled.');
 });
 
@@ -311,9 +326,25 @@ test('workflow-run wait surfaces timeout as operational error', async () => {
         },
       },
     }),
-    {
-      code: 'TIMEOUT',
-      message: 'Polling timed out before reaching a terminal state.',
+    (error) => {
+      assert.equal(error.code, 'TIMEOUT');
+      assert.equal(error.message, 'Polling timed out before reaching a terminal state.');
+      assert.equal(error.details.intervalMs, 1);
+      assert.equal(error.details.timeoutMs, 5);
+      assert.equal(typeof error.details.elapsedMs, 'number');
+      assert.ok(error.details.elapsedMs >= 0);
+      assert.ok(error.details.attempts >= 1);
+      assert.deepEqual(error.details.lastObservedRun, {
+        run_id: 'run-timeout',
+        runId: 'run-timeout',
+        status: 'running',
+        progress: 50,
+        step: undefined,
+        outputUrl: undefined,
+        error: undefined,
+        sceneCandidate: undefined,
+      });
+      return true;
     },
   );
 });

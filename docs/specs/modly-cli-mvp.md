@@ -99,6 +99,12 @@ Error envelope:
 - `6` timeout
 - `7` validation or path safety failure
 
+### Long-running agent guidance
+
+- Prefer `create -> status -> status -> ...` for agent-driven automation.
+- Treat `wait` as a bounded convenience wrapper for short windows or backwards compatibility, not as the primary coordination primitive.
+- Where long-running run surfaces expose JSON metadata, keep the resource payload stable and add polling hints alongside it (for example `data.meta.terminal` on `status`, `data.meta.polling` on `wait`, and bounded timeout diagnostics in `error.details`).
+
 ---
 
 ## 2. Command Groups
@@ -320,7 +326,7 @@ modly generate from-image \
 
 ### Behavior
 - Without `--wait`: returns immediately with `job_id`
-- With `--wait`: internally polls job status until terminal state or timeout
+- With `--wait`: internally polls job status until terminal state or timeout as bounded convenience; agents should still prefer explicit `job status` polling when coordinating long-running work
 
 ## 2.9 `modly job status`
 
@@ -361,6 +367,7 @@ modly job wait <job-id> \
 - Polls until `done`, `error`, or `cancelled`
 - Prints progress changes to stderr
 - Returns final job object
+- Intended as convenience for short bounded windows; polling-first clients should prefer repeated `job status`
 
 ### Failure
 - Job not found → `4`

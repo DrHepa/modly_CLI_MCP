@@ -27,6 +27,11 @@ test('waitForWorkflowRun completes on done and normalizes the terminal payload',
   assert.equal(result.run.run_id, 'run-123');
   assert.equal(result.run.status, 'done');
   assert.equal(result.run.outputUrl, 'https://example.com/out.glb');
+  assert.equal(result.polling.intervalMs, 1);
+  assert.equal(result.polling.timeoutMs, 50);
+  assert.equal(result.polling.attempts, 3);
+  assert.ok(result.polling.elapsedMs >= 0);
+  assert.deepEqual(Object.keys(result.polling).sort(), ['attempts', 'elapsedMs', 'intervalMs', 'timeoutMs']);
 });
 
 test('waitForWorkflowRun returns terminal error payload instead of throwing a technical exception', async () => {
@@ -44,6 +49,10 @@ test('waitForWorkflowRun returns terminal error payload instead of throwing a te
   assert.equal(result.runId, 'run-error');
   assert.equal(result.run.status, 'error');
   assert.equal(result.run.error, 'mesh failed');
+  assert.equal(result.polling.attempts, 1);
+  assert.equal(result.polling.intervalMs, 1);
+  assert.equal(result.polling.timeoutMs, 20);
+  assert.ok(result.polling.elapsedMs >= 0);
 });
 
 test('waitForWorkflowRun returns terminal cancelled payload instead of throwing', async () => {
@@ -61,6 +70,10 @@ test('waitForWorkflowRun returns terminal cancelled payload instead of throwing'
   assert.equal(result.runId, 'run-cancelled');
   assert.equal(result.run.status, 'cancelled');
   assert.equal(result.run.progress, 12);
+  assert.equal(result.polling.attempts, 1);
+  assert.equal(result.polling.intervalMs, 1);
+  assert.equal(result.polling.timeoutMs, 20);
+  assert.ok(result.polling.elapsedMs >= 0);
 });
 
 test('waitForWorkflowRun times out when the run never reaches a terminal state', async () => {
@@ -75,9 +88,26 @@ test('waitForWorkflowRun times out when the run never reaches a terminal state',
       intervalMs: 1,
       timeoutMs: 5,
     }),
-    {
-      code: 'TIMEOUT',
-      message: 'Polling timed out before reaching a terminal state.',
+    (error) => {
+      assert.equal(error.code, 'TIMEOUT');
+      assert.equal(error.message, 'Polling timed out before reaching a terminal state.');
+      assert.equal(error.details.intervalMs, 1);
+      assert.equal(error.details.timeoutMs, 5);
+      assert.equal(typeof error.details.elapsedMs, 'number');
+      assert.ok(error.details.elapsedMs >= 0);
+      assert.ok(error.details.attempts >= 1);
+      assert.deepEqual(error.details.lastObservedRun, {
+        run_id: 'run-timeout',
+        runId: 'run-timeout',
+        status: 'running',
+        progress: 50,
+        step: undefined,
+        outputUrl: undefined,
+        error: undefined,
+        sceneCandidate: undefined,
+      });
+      assert.equal(typeof error.details.startedAt, 'number');
+      return true;
     },
   );
 });

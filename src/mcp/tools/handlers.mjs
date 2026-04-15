@@ -14,6 +14,9 @@ import { prepareProcessRunCreateInput } from '../../core/process-run-input.mjs';
 import { waitForProcessRun } from '../../core/process-run-wait.mjs';
 import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
 
+const TERMINAL_WORKFLOW_RUN_STATUSES = new Set(['done', 'error', 'cancelled']);
+const TERMINAL_PROCESS_RUN_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
+
 function getModelId(model) {
   return model?.id ?? model?.model_id ?? model?.modelId ?? 'unknown';
 }
@@ -96,6 +99,14 @@ function summarizeProcessRun(runId, run, action = 'status') {
   }
 }
 
+function isWorkflowRunTerminal(run) {
+  return TERMINAL_WORKFLOW_RUN_STATUSES.has(typeof run?.status === 'string' ? run.status.toLowerCase() : '');
+}
+
+function isProcessRunTerminal(run) {
+  return TERMINAL_PROCESS_RUN_STATUSES.has(typeof run?.status === 'string' ? run.status.toLowerCase() : '');
+}
+
 export function createToolHandlers({ client, apiUrl } = {}) {
   const modlyClient = client ?? createModlyApiClient({ apiUrl });
 
@@ -169,7 +180,7 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     async 'modly.workflowRun.status'({ runId }) {
       const response = await modlyClient.getWorkflowRun(runId);
       const run = toWorkflowRun(runId, response);
-      return { data: { run }, text: summarizeWorkflowRun(runId, run) };
+      return { data: { run, meta: { terminal: isWorkflowRunTerminal(run) } }, text: summarizeWorkflowRun(runId, run) };
     },
 
     async 'modly.workflowRun.cancel'({ runId }) {
@@ -179,14 +190,14 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     },
 
     async 'modly.workflowRun.wait'({ runId, intervalMs, timeoutMs }) {
-      const { run } = await waitForWorkflowRun({
+      const { run, polling } = await waitForWorkflowRun({
         client: modlyClient,
         runId,
         intervalMs,
         timeoutMs,
       });
 
-      return { data: { run }, text: summarizeWorkflowRun(runId, run) };
+      return { data: { run, meta: { terminal: true, polling } }, text: summarizeWorkflowRun(runId, run) };
     },
 
     async 'modly.processRun.create'({ process_id, params, workspace_path, outputPath }) {
@@ -210,18 +221,18 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     async 'modly.processRun.status'({ runId }) {
       const response = await modlyClient.getProcessRun(runId);
       const run = toProcessRun(runId, response);
-      return { data: { run }, text: summarizeProcessRun(runId, run) };
+      return { data: { run, meta: { terminal: isProcessRunTerminal(run) } }, text: summarizeProcessRun(runId, run) };
     },
 
     async 'modly.processRun.wait'({ runId, intervalMs, timeoutMs }) {
-      const { run } = await waitForProcessRun({
+      const { run, polling } = await waitForProcessRun({
         client: modlyClient,
         runId,
         intervalMs,
         timeoutMs,
       });
 
-      return { data: { run }, text: summarizeProcessRun(runId, run) };
+      return { data: { run, meta: { terminal: true, polling } }, text: summarizeProcessRun(runId, run) };
     },
 
     async 'modly.processRun.cancel'({ runId }) {

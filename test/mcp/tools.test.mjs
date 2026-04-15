@@ -102,7 +102,8 @@ test('registry catalog exposes strict process-run MCP schemas', () => {
       {
         name: 'modly.processRun.status',
         title: 'Process Run Status',
-        description: 'Gets the latest process run state.',
+        description:
+          'Gets the latest process run state. Prefer polling this status for long-running agents; response metadata includes whether the run is terminal.',
         inputSchema: {
           type: 'object',
           required: ['runId'],
@@ -113,7 +114,8 @@ test('registry catalog exposes strict process-run MCP schemas', () => {
       {
         name: 'modly.processRun.wait',
         title: 'Wait For Process Run',
-        description: 'Waits until a process run reaches a terminal state.',
+        description:
+          'Bounded convenience wrapper around status polling for process runs; use short timeout windows when you cannot poll status yourself.',
         inputSchema: {
           type: 'object',
           required: ['runId'],
@@ -757,6 +759,7 @@ test('modly.workflowRun.status returns the latest run snapshot', { concurrency: 
         error: undefined,
         sceneCandidate: undefined,
       },
+      meta: { terminal: false },
     },
   });
   assert.deepEqual(
@@ -956,8 +959,19 @@ test('modly.workflowRun.wait returns the terminal done payload', { concurrency: 
         sceneCandidate: undefined,
         output_url: 'https://example.com/final.glb',
       },
+      meta: {
+        terminal: true,
+        polling: {
+          intervalMs: 1,
+          timeoutMs: 50,
+          attempts: 2,
+          elapsedMs: result.structuredContent.data.meta.polling.elapsedMs,
+        },
+      },
     },
   });
+  assert.equal(typeof result.structuredContent.data.meta.polling.elapsedMs, 'number');
+  assert.ok(result.structuredContent.data.meta.polling.elapsedMs >= 0);
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /workflow-runs/run-123', 'GET /workflow-runs/run-123'],
@@ -985,6 +999,10 @@ test('modly.workflowRun.wait returns terminal error payload', { concurrency: fal
   assert.equal(result.isError, undefined);
   assert.equal(result.structuredContent.data.run.status, 'error');
   assert.equal(result.structuredContent.data.run.error, 'mesh failed');
+  assert.deepEqual(result.structuredContent.data.meta.terminal, true);
+  assert.equal(result.structuredContent.data.meta.polling.intervalMs, 1000);
+  assert.equal(result.structuredContent.data.meta.polling.timeoutMs, 600000);
+  assert.equal(result.structuredContent.data.meta.polling.attempts, 1);
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /workflow-runs/run-error'],
@@ -1012,6 +1030,10 @@ test('modly.workflowRun.wait returns terminal cancelled payload', { concurrency:
   assert.equal(result.isError, undefined);
   assert.equal(result.structuredContent.data.run.status, 'cancelled');
   assert.equal(result.structuredContent.data.run.progress, 12);
+  assert.deepEqual(result.structuredContent.data.meta.terminal, true);
+  assert.equal(result.structuredContent.data.meta.polling.intervalMs, 1000);
+  assert.equal(result.structuredContent.data.meta.polling.timeoutMs, 600000);
+  assert.equal(result.structuredContent.data.meta.polling.attempts, 1);
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /workflow-runs/run-cancelled'],
@@ -1043,6 +1065,21 @@ test('modly.workflowRun.wait times out when the run never reaches a terminal sta
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.error.code, 'TIMEOUT');
   assert.equal(result.structuredContent.error.message, 'Polling timed out before reaching a terminal state.');
+  assert.equal(result.structuredContent.error.details.intervalMs, 1);
+  assert.equal(result.structuredContent.error.details.timeoutMs, 5);
+  assert.equal(typeof result.structuredContent.error.details.elapsedMs, 'number');
+  assert.ok(result.structuredContent.error.details.elapsedMs >= 0);
+  assert.ok(result.structuredContent.error.details.attempts >= 1);
+  assert.deepEqual(result.structuredContent.error.details.lastObservedRun, {
+    run_id: 'run-timeout',
+    runId: 'run-timeout',
+    status: 'running',
+    progress: 90,
+    step: undefined,
+    outputUrl: undefined,
+    error: undefined,
+    sceneCandidate: undefined,
+  });
   assert.equal(calls[0].path, '/health');
   assert.ok(calls.filter((call) => call.path === '/workflow-runs/run-timeout').length >= 1);
 });
@@ -1353,6 +1390,7 @@ test('modly.processRun.status and cancel return stable process-run payloads', { 
   assert.equal(statusResult.structuredContent.data.run.run_id, 'run-123');
   assert.equal(statusResult.structuredContent.data.run.processId, 'mesh-simplify');
   assert.equal(statusResult.structuredContent.data.run.status, 'running');
+  assert.deepEqual(statusResult.structuredContent.data.meta, { terminal: false });
 
   assert.equal(cancelResult.isError, undefined);
   assert.equal(cancelResult.structuredContent.data.run.runId, 'run-123');
@@ -1429,8 +1467,19 @@ test('modly.processRun.wait returns terminal state and supports timeout passthro
         error: undefined,
         output_url: 'https://example.com/out.glb',
       },
+      meta: {
+        terminal: true,
+        polling: {
+          intervalMs: 1,
+          timeoutMs: 50,
+          attempts: 2,
+          elapsedMs: successResult.structuredContent.data.meta.polling.elapsedMs,
+        },
+      },
     },
   });
+  assert.equal(typeof successResult.structuredContent.data.meta.polling.elapsedMs, 'number');
+  assert.ok(successResult.structuredContent.data.meta.polling.elapsedMs >= 0);
 
   const timeoutResult = await registry.invoke('modly.processRun.wait', {
     runId: 'run-timeout',
@@ -1441,6 +1490,22 @@ test('modly.processRun.wait returns terminal state and supports timeout passthro
   assert.equal(timeoutResult.isError, true);
   assert.equal(timeoutResult.structuredContent.error.code, 'TIMEOUT');
   assert.equal(timeoutResult.structuredContent.error.message, 'Polling timed out before reaching a terminal state.');
+  assert.equal(timeoutResult.structuredContent.error.details.intervalMs, 1);
+  assert.equal(timeoutResult.structuredContent.error.details.timeoutMs, 5);
+  assert.equal(typeof timeoutResult.structuredContent.error.details.elapsedMs, 'number');
+  assert.ok(timeoutResult.structuredContent.error.details.elapsedMs >= 0);
+  assert.ok(timeoutResult.structuredContent.error.details.attempts >= 1);
+  assert.deepEqual(timeoutResult.structuredContent.error.details.lastObservedRun, {
+    run_id: 'run-timeout',
+    runId: 'run-timeout',
+    process_id: 'mesh-simplify',
+    processId: 'mesh-simplify',
+    status: 'running',
+    params: undefined,
+    workspacePath: undefined,
+    outputUrl: undefined,
+    error: undefined,
+  });
   assert.ok(timeoutFetches >= 1);
   assert.equal(calls[0].path, '/health');
   assert.equal(calls[0].url, 'http://127.0.0.1:8765/health');

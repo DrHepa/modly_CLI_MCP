@@ -15,7 +15,13 @@ test('pollUntilTerminal returns the observed terminal payload and reports progre
   });
 
   assert.deepEqual(seen, ['queued', 'running', 'done']);
-  assert.deepEqual(result, { status: 'done', progress: 100 });
+  assert.deepEqual(result.payload, { status: 'done', progress: 100 });
+  assert.equal(result.polling.intervalMs, 1);
+  assert.equal(result.polling.timeoutMs, 50);
+  assert.equal(result.polling.attempts, 3);
+  assert.equal(typeof result.polling.elapsedMs, 'number');
+  assert.ok(result.polling.elapsedMs >= 0);
+  assert.deepEqual(Object.keys(result.polling).sort(), ['attempts', 'elapsedMs', 'intervalMs', 'timeoutMs']);
 });
 
 test('pollUntilTerminal validates positive integer timing options and times out predictably', async () => {
@@ -39,9 +45,17 @@ test('pollUntilTerminal validates positive integer timing options and times out 
       load: async () => ({ status: 'running' }),
       isTerminal: () => false,
     }),
-    {
-      code: 'TIMEOUT',
-      message: 'Polling timed out before reaching a terminal state.',
+    (error) => {
+      assert.equal(error.code, 'TIMEOUT');
+      assert.equal(error.message, 'Polling timed out before reaching a terminal state.');
+      assert.equal(error.details.intervalMs, 1);
+      assert.equal(error.details.timeoutMs, 5);
+      assert.equal(typeof error.details.elapsedMs, 'number');
+      assert.ok(error.details.elapsedMs >= 0);
+      assert.ok(error.details.attempts >= 1);
+      assert.deepEqual(error.details.lastObservedRun, { status: 'running' });
+      assert.equal(typeof error.details.startedAt, 'number');
+      return true;
     },
   );
 });

@@ -21,6 +21,8 @@ const WAIT_USAGE =
   'Usage: modly process-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]';
 const CANCEL_USAGE = 'Usage: modly process-run cancel <run-id> [--api-url <url>] [--json]';
 
+const TERMINAL_PROCESS_RUN_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
+
 async function assertBackendReady(client) {
   try {
     await client.health();
@@ -55,6 +57,10 @@ function formatWaitProgressLine(runId, run) {
   }
 
   return suffix.length > 0 ? `Process run ${runId}: ${status} (${suffix.join(', ')})` : `Process run ${runId}: ${status}`;
+}
+
+function isProcessRunTerminal(run) {
+  return TERMINAL_PROCESS_RUN_STATUSES.has(typeof run?.status === 'string' ? run.status.toLowerCase() : '');
 }
 
 function parseWaitOptions(args) {
@@ -123,7 +129,7 @@ async function runStatus(context, args) {
   const run = toProcessRun(runId, response);
 
   return {
-    data: { run },
+    data: { run, meta: { terminal: isProcessRunTerminal(run) } },
     humanMessage: summarizeRun(run, runId, 'status'),
   };
 }
@@ -171,6 +177,10 @@ async function runWait(context, args) {
       intervalMs,
       timeoutMs,
       run: result.run,
+      meta: {
+        terminal: true,
+        polling: result.polling,
+      },
     },
     humanMessage: summarizeRun(result.run, runId, 'status'),
   };

@@ -19,7 +19,7 @@ export async function waitForProcessRun({ client, runId, intervalMs, timeoutMs, 
 
   const normalizedRunId = runId.trim();
 
-  const run = await pollUntilTerminal({
+  const { payload: run, polling } = await pollUntilTerminal({
     intervalMs,
     timeoutMs,
     onProgress,
@@ -27,5 +27,5 @@ export async function waitForProcessRun({ client, runId, intervalMs, timeoutMs, 
     isTerminal: (candidate) => TERMINAL_RUN_STATUSES.has(getRunStatus(candidate)),
   });
 
-  return { runId: normalizedRunId, run };
+  return { runId: normalizedRunId, run, polling };
 }

@@ -35,23 +35,39 @@ export async function pollUntilTerminal({
 
   const startedAt = Date.now();
   const deadline = startedAt + timeoutMs;
+  let attempts = 0;
+  let lastObservedRun;
 
   while (true) {
     const payload = await load();
+    attempts += 1;
+    lastObservedRun = payload;
+    const elapsedMs = Date.now() - startedAt;
+
+    const polling = {
+      intervalMs,
+      timeoutMs,
+      elapsedMs,
+      attempts,
+    };
 
     if (typeof onProgress === 'function') {
       onProgress(payload);
     }
 
     if (isTerminal(payload)) {
-      return payload;
+      return { payload, polling };
     }
 
     const remainingMs = deadline - Date.now();
 
     if (remainingMs <= 0) {
       throw new TimeoutError('Polling timed out before reaching a terminal state.', {
-        details: { timeoutMs, startedAt },
+        details: {
+          ...polling,
+          startedAt,
+          lastObservedRun,
+        },
       });
     }
 

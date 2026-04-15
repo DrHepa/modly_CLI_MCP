@@ -128,6 +128,13 @@ See:
 - Both surfaces rely on the existing workflow-run status endpoint plus the required `GET /health` readiness check before business operations.
 - This does **not** add workflow CRUD/management, real scene mutation, or `--wait` support to `workflow-run from-image`.
 
+## Recommended long-running pattern
+
+- For agents, prefer `create -> status -> status -> ...` instead of blocking on `wait`.
+- `workflow-run status` / `modly.workflowRun.status` expose `data.meta.terminal` so polling clients can stop without mutating `data.run`.
+- `workflow-run wait` / `modly.workflowRun.wait` remain available as a bounded convenience wrapper over status polling; use short timeout windows when you cannot drive polling yourself.
+- Wait timeouts include bounded polling diagnostics in `error.details` (`timeoutMs`, `intervalMs`, `elapsedMs`, `attempts`, `lastObservedRun`).
+
 ## Architectural notes
 
 - `src/core/modly-api.mjs` is the single HTTP source of truth for CLI and MCP.
@@ -141,6 +148,8 @@ This repository is now beyond a read-only MCP.
 
 It already supports a practical execution path for:
 
-`image -> workflow run create -> status -> wait -> cancel`
+`image -> workflow run create -> status -> status -> ...`
 
 against the backend `workflow-runs` surface implemented in Modly.
+
+`wait` is still supported for compatibility, but the preferred automation shape is polling-first with explicit `status` checks.

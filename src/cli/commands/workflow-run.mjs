@@ -23,6 +23,8 @@ const WAIT_USAGE =
   'Usage: modly workflow-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]';
 const CANCEL_USAGE = 'Usage: modly workflow-run cancel <run-id> [--api-url <url>] [--json]';
 
+const TERMINAL_WORKFLOW_RUN_STATUSES = new Set(['done', 'error', 'cancelled']);
+
 function getModelId(model) {
   return model?.id ?? model?.model_id ?? model?.modelId ?? 'unknown';
 }
@@ -103,6 +105,10 @@ function formatWaitProgressLine(runId, run) {
   return suffix.length > 0 ? `Workflow run ${runId}: ${status} (${suffix.join(', ')})` : `Workflow run ${runId}: ${status}`;
 }
 
+function isWorkflowRunTerminal(run) {
+  return TERMINAL_WORKFLOW_RUN_STATUSES.has(typeof run?.status === 'string' ? run.status.toLowerCase() : '');
+}
+
 function parseWaitOptions(args) {
   const { positionals, options } = parseCommandArgs(args, {
     usage: WAIT_USAGE,
@@ -164,7 +170,7 @@ async function runStatus(context, args) {
   const run = toWorkflowRun(runId, response);
 
   return {
-    data: { run },
+    data: { run, meta: { terminal: isWorkflowRunTerminal(run) } },
     humanMessage: summarizeRun(run, runId, 'status'),
   };
 }
@@ -212,6 +218,10 @@ async function runWait(context, args) {
       intervalMs,
       timeoutMs,
       run: result.run,
+      meta: {
+        terminal: true,
+        polling: result.polling,
+      },
     },
     humanMessage: summarizeRun(result.run, runId, 'status'),
   };
