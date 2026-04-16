@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { createToolRegistry } from '../../src/mcp/tools/index.mjs';
+import { OPEN_INPUT_PATH_ALLOWLIST, createToolRegistry, matchesOpenInputPath } from '../../src/mcp/tools/index.mjs';
 
 function notFoundResponse(message) {
   return jsonResponse({ detail: message }, { status: 404, statusText: 'Not Found' });
@@ -294,7 +294,7 @@ test('modly.diagnostic.guidance returns conservative hypotheses using read-only 
   assertNoCapabilityExecutionPosts(calls);
 });
 
-test('modly.diagnostic.guidance keeps insufficient_evidence when only free-text failure data is provided', { concurrency: false }, async (t) => {
+test('modly.diagnostic.guidance rejects free-text-only payloads that miss every anyOf branch', { concurrency: false }, async (t) => {
   t.after(resetFetch);
 
   const calls = installFetchStub(async ({ path }) => {
@@ -322,15 +322,14 @@ test('modly.diagnostic.guidance keeps insufficient_evidence when only free-text 
     },
   });
 
-  assert.equal(result.isError, undefined);
-  assert.equal(result.content[0].text, 'Diagnostic guidance: insufficient_evidence/unknown/none.');
-  assert.equal(result.structuredContent.data.status, 'insufficient_evidence');
-  assert.equal(result.structuredContent.data.category, 'unknown');
-  assert.equal(result.structuredContent.data.confidence, 'none');
-  assert.equal(result.structuredContent.data.next_check.target, 'planner_input');
-  assert.equal(result.structuredContent.data.evidence[0].path, 'error.message');
-  assertCapabilityPlannerCallsStayReadOnly(calls);
-  assertNoCapabilityExecutionPosts(calls);
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.structuredContent.error.details.path, 'input');
+  assert.equal(result.structuredContent.error.details.reason, 'anyOf_no_match');
+  assert.equal(result.structuredContent.error.details.firstFailure.details.path, 'input.error');
+  assert.equal(result.structuredContent.error.details.firstFailure.details.missing, 'code');
+  assert.equal(calls.length, 0);
 });
 
 test('registry catalog exposes modly.capability.execute with honest first-cut MVP wording', () => {
@@ -1889,10 +1888,9 @@ test('modly.capability.execute rejects invalid input shape before any execution 
 
   assert.equal(invalidInputShape.isError, true);
   assert.equal(invalidInputShape.structuredContent.error.code, 'VALIDATION_ERROR');
-  assert.deepEqual(invalidInputShape.structuredContent.error.details, {
-    path: 'input.input',
-    expected: 'object',
-  });
+  assert.equal(invalidInputShape.structuredContent.error.details.tool, 'modly.capability.execute');
+  assert.equal(invalidInputShape.structuredContent.error.details.path, 'input.input');
+  assert.equal(invalidInputShape.structuredContent.error.details.expected, 'object');
 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
@@ -2367,6 +2365,189 @@ test('wrapper rejects unknown properties before any backend call', { concurrency
   assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
   assert.deepEqual(result.structuredContent.error.details.unknownKeys, ['unexpected']);
   assert.equal(calls.length, 0);
+});
+
+test('open input path matcher supports exact paths and [*] array items only', () => {
+  assert.equal(matchesOpenInputPath('input.params'), true);
+  assert.equal(matchesOpenInputPath('input.liveContext.extensionErrors[0]'), true);
+  assert.equal(matchesOpenInputPath('input.liveContext.extensionErrors[*]'), true);
+  assert.equal(matchesOpenInputPath('input.error.details.foo'), false);
+  assert.equal(matchesOpenInputPath('input.liveContext.extensionErrors'), false);
+  assert.deepEqual(OPEN_INPUT_PATH_ALLOWLIST, [
+    'input.params',
+    'input.input',
+    'input.error.details',
+    'input.planner.target',
+    'input.run.error',
+    'input.runtimeEvidence.response',
+    'input.runtimeEvidence.body',
+    'input.runtimeEvidence.cause',
+    'input.liveContext.health',
+    'input.liveContext.capabilities',
+    'input.liveContext.runtimePaths',
+    'input.liveContext.extensionErrors[*]',
+  ]);
+});
+
+test('modly.diagnostic.guidance rejects nested unknown keys under closed objects before handler execution', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(() => jsonResponse({ status: 'ok' }));
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'electron_ipc',
+    error: {
+      message: 'Extension IPC handshake failed.',
+      extra: true,
+    },
+    planner: {
+      reasons: ['x'],
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.ok, false);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.structuredContent.error.details.path, 'input.error');
+  assert.deepEqual(result.structuredContent.error.details.unknownKeys, ['extra']);
+  assert.equal(result.structuredContent.meta.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.content[0].type, 'text');
+  assert.equal(calls.length, 0);
+});
+
+test('modly.diagnostic.guidance rejects invalid recursive array items before handler execution', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(() => jsonResponse({ status: 'ok' }));
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'backend_api',
+    error: {
+      message: 'Something failed.',
+      code: 'RUNTIME_ERROR',
+    },
+    logsExcerpt: ['ok', 2],
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.ok, false);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.structuredContent.error.details.path, 'input.logsExcerpt[1]');
+  assert.equal(result.structuredContent.error.details.expected, 'string');
+  assert.equal(result.structuredContent.meta.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.content[0].type, 'text');
+  assert.equal(calls.length, 0);
+});
+
+test('modly.diagnostic.guidance rejects enum mismatches inside supported nested objects', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(() => jsonResponse({ status: 'ok' }));
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'backend_api',
+    error: {
+      message: 'Something failed.',
+      code: 'RUN_INVALID',
+    },
+    run: {
+      kind: 'jobRun',
+      id: 'run-123',
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.ok, false);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.structuredContent.error.details.path, 'input.run.kind');
+  assert.equal(result.structuredContent.error.details.reason, 'enum_no_match');
+  assert.deepEqual(result.structuredContent.error.details.expected, ['workflowRun', 'processRun']);
+  assert.equal(result.structuredContent.error.details.received, 'jobRun');
+  assert.equal(result.structuredContent.meta.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.content[0].type, 'text');
+  assert.equal(calls.length, 0);
+});
+
+test('modly.diagnostic.guidance returns compatible anyOf miss details with deterministic first failure', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(() => jsonResponse({ status: 'ok' }));
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'backend_api',
+    error: {
+      message: 'Something failed.',
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.ok, false);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.structuredContent.error.details.path, 'input');
+  assert.equal(result.structuredContent.error.details.reason, 'anyOf_no_match');
+  assert.equal(result.structuredContent.error.details.branchesTried, 7);
+  assert.equal(result.structuredContent.error.details.firstFailure.details.path, 'input.error');
+  assert.equal(result.structuredContent.error.details.firstFailure.details.missing, 'code');
+  assert.equal(result.structuredContent.meta.tool, 'modly.diagnostic.guidance');
+  assert.equal(result.content[0].type, 'text');
+  assert.equal(calls.length, 0);
+});
+
+test('modly.diagnostic.guidance preserves allowlisted-open nested paths without publication changes', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'electron_ipc',
+    error: {
+      message: 'Extension IPC handshake failed.',
+      code: 'IPC_UNAVAILABLE',
+      details: {
+        arbitrary: true,
+        nested: {
+          note: 'still open',
+        },
+      },
+    },
+    liveContext: {
+      extensionErrors: [
+        {
+          extensionId: 'modly.github',
+          arbitrary: {
+            deep: ['still', 'open'],
+          },
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.structuredContent.ok, true);
+  assert.equal(result.structuredContent.data.category, 'extension_runtime');
+  assert.equal(result.structuredContent.data.layer, 'electron_ipc');
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
 });
 
 test('modly.model.current returns { model: null } when no model is active', { concurrency: false }, async (t) => {
