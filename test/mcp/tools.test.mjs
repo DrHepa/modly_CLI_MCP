@@ -339,7 +339,7 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
   assert.deepEqual(tool, {
     name: 'modly.capability.execute',
     title: 'Execute Smart Capability',
-    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize to modly.processRun.create.',
+    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize and mesh-exporter/export (default_backend output only; explicit outputPath unsupported) to modly.processRun.create.',
     inputSchema: {
       type: 'object',
       required: ['capability', 'input'],
@@ -1208,7 +1208,7 @@ test('modly.capability.guide returns BACKEND_UNAVAILABLE when health preflight f
   assert.equal(calls[0].path, '/health');
 });
 
-test('modly.capability.guide returns discovered_only for observable items outside the closed registry', { concurrency: false }, async (t) => {
+test('modly.capability.guide reports exporter as supported_now in the safe default-output slice', { concurrency: false }, async (t) => {
   t.after(resetFetch);
 
   const calls = installFetchStub(({ path }) => {
@@ -1241,7 +1241,7 @@ test('modly.capability.guide returns discovered_only for observable items outsid
   });
 
   assert.equal(result.isError, undefined);
-  assert.equal(result.content[0].text, 'Capability guidance: discovered_only.');
+  assert.equal(result.content[0].text, 'Capability guidance: supported_now (mesh-exporter).');
   assert.deepEqual(result.structuredContent, {
     ok: true,
     data: {
@@ -1249,28 +1249,30 @@ test('modly.capability.guide returns discovered_only for observable items outsid
         capability: 'mesh-exporter/export',
         params: { output_format: 'glb' },
       },
-      status: 'discovered_only',
-      capability_key: null,
-      surface: 'none',
-      target: null,
+      status: 'supported_now',
+      capability_key: 'mesh-exporter',
+      surface: 'processRun',
+      target: {
+        kind: 'process',
+        id: 'mesh-exporter/export',
+        name: 'Mesh Exporter',
+      },
       available_safe_params: {
-        allowed: { canonical_ids: [], aliases: {} },
-        available_now: { canonical_ids: [], aliases: {} },
+        allowed: {
+          canonical_ids: ['output_format'],
+          aliases: {},
+        },
+        available_now: {
+          canonical_ids: ['output_format'],
+          aliases: {},
+        },
       },
       reasons: [
-        'Requested capability did not match the closed smart-capability registry.',
-        'Discovery exposes id "mesh-exporter/export", but it is outside the closed registry.',
+        'Requested capability matched registry entry "mesh-exporter".',
+        'Matched discovered id "mesh-exporter/export" exactly. Discovery confirms 1 requested canonical param(s).',
       ],
       warnings: [],
-      discovered_extras: [
-        {
-          kind: 'process',
-          id: 'mesh-exporter/export',
-          name: 'Mesh Exporter',
-          status: 'discovered_only',
-          surface: 'none',
-        },
-      ],
+      discovered_extras: [],
     },
   });
   assertCapabilityPlannerCallsStayReadOnly(calls);
@@ -1644,7 +1646,192 @@ test('modly.capability.execute keeps UniRig blocked even when discovery exposes 
   assertNoCapabilityExecutionPosts(calls);
 });
 
-test('modly.capability.execute keeps exporter blocked even when discovery exposes it', { concurrency: false }, async (t) => {
+test('modly.capability.execute dispatches exporter through processRun.create with default backend output mode', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-exporter/export',
+            name: 'Mesh Exporter',
+            params_schema: [{ id: 'output_format', type: 'string' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-exporter/export',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          output_format: 'glb',
+        },
+        workspace_path: 'workspace',
+      });
+      return jsonResponse({
+        run_id: 'exporter-run-123',
+        process_id: 'mesh-exporter/export',
+        status: 'accepted',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          output_format: 'glb',
+        },
+        workspace_path: 'workspace',
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh-exporter/export',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+      workspacePath: 'workspace',
+    },
+    params: { output_format: 'glb' },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability execution: supported via modly.processRun.create.');
+  assert.equal(result.structuredContent.data.plan.status, 'supported');
+  assert.equal(result.structuredContent.data.execution.executed, true);
+  assert.equal(result.structuredContent.data.execution.outputMode, 'default_backend');
+  assert.deepEqual(result.structuredContent.data.execution.arguments, {
+    process_id: 'mesh-exporter/export',
+    params: {
+      mesh_path: 'meshes/in.glb',
+      output_format: 'glb',
+    },
+    workspace_path: 'workspace',
+  });
+  assert.equal('outputPath' in result.structuredContent.data.execution.arguments, false);
+  assert.equal('output_path' in result.structuredContent.data.execution.arguments.params, false);
+  assert.equal(result.structuredContent.data.run.runId, 'exporter-run-123');
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'POST /process-runs'],
+  );
+});
+
+test('modly.capability.execute rejects explicit exporter outputPath before POST', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-exporter/export',
+            name: 'Mesh Exporter',
+            params_schema: [{ id: 'output_format', type: 'string' }, { id: 'output_path', type: 'string' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh-exporter/export',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+      outputPath: 'exports/out.glb',
+    },
+    params: { output_format: 'glb' },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(result.structuredContent.error.details, {
+    field: 'input.outputPath',
+    reason: 'unsupported_output_path_mvp',
+    capability: 'mesh-exporter/export',
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute rejects explicit exporter params.output_path before POST', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-exporter/export',
+            name: 'Mesh Exporter',
+            params_schema: [{ id: 'output_format', type: 'string' }, { id: 'output_path', type: 'string' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh-exporter/export',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+    },
+    params: {
+      output_format: 'glb',
+      output_path: 'exports/out.glb',
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(result.structuredContent.error.details, {
+    field: 'params.output_path',
+    reason: 'unsupported_output_path_mvp',
+    capability: 'mesh-exporter/export',
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.execute rejects exporter absolute and traversal meshPath before POST', { concurrency: false }, async (t) => {
   t.after(resetFetch);
 
   const calls = installFetchStub(({ path }) => {
@@ -1671,23 +1858,49 @@ test('modly.capability.execute keeps exporter blocked even when discovery expose
   });
 
   const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
-  const result = await registry.invoke('modly.capability.execute', {
+
+  const absolutePathResult = await registry.invoke('modly.capability.execute', {
     capability: 'mesh-exporter/export',
     input: {
       kind: 'mesh',
-      meshPath: 'meshes/in.glb',
+      meshPath: '/tmp/in.glb',
     },
     params: { output_format: 'glb' },
   });
 
-  assert.equal(result.isError, undefined);
-  assert.equal(result.content[0].text, 'Capability execution: unknown; not executed.');
-  assert.equal(result.structuredContent.data.plan.status, 'unknown');
-  assert.equal(result.structuredContent.data.execution.executed, false);
-  assert.equal(result.structuredContent.data.run, null);
+  assert.equal(absolutePathResult.isError, true);
+  assert.equal(absolutePathResult.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(absolutePathResult.structuredContent.error.details, {
+    field: 'input.meshPath',
+    reason: 'absolute_path',
+    value: '/tmp/in.glb',
+  });
+
+  const traversalPathResult = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh-exporter/export',
+    input: {
+      kind: 'mesh',
+      meshPath: '../meshes/in.glb',
+    },
+    params: { output_format: 'glb' },
+  });
+
+  assert.equal(traversalPathResult.isError, true);
+  assert.equal(traversalPathResult.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.deepEqual(traversalPathResult.structuredContent.error.details, {
+    field: 'input.meshPath',
+    reason: 'path_traversal',
+    value: '../meshes/in.glb',
+  });
+
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
-    ['GET /health', 'GET /automation/capabilities'],
+    [
+      'GET /health',
+      'GET /automation/capabilities',
+      'GET /health',
+      'GET /automation/capabilities',
+    ],
   );
   assertNoCapabilityExecutionPosts(calls);
 });

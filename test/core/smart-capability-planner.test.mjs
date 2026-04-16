@@ -95,7 +95,7 @@ test('planner returns supported for the allowlisted optimizer process only', () 
   assert.ok(result.reasons.some((reason) => reason.includes('Mapped alias "targetFaces" to canonical param "target_faces"')));
 });
 
-test('planner keeps exporter outside the closed registry even when discovery exposes it', () => {
+test('planner returns supported for exporter only in the default-output safe slice', () => {
   const discovery = {
     models: [],
     processes: [
@@ -115,20 +115,69 @@ test('planner keeps exporter outside the closed registry even when discovery exp
   }, discovery);
 
   assert.deepEqual(result, {
-    status: 'unknown',
+    status: 'supported',
     cap: {
-      key: null,
+      key: 'mesh-exporter',
       requested: 'mesh-exporter/export',
-      matchedId: null,
-      matchedName: null,
+      matchedId: 'mesh-exporter/export',
+      matchedName: 'Mesh Exporter',
     },
-    surface: null,
-    target: null,
-    score: null,
-    params: {},
-    warnings: ['Ignored params because the requested capability is outside the closed MVP registry.'],
-    reasons: ['Requested capability did not match the closed smart-capability registry.'],
+    surface: 'processRun.create',
+    target: {
+      kind: 'process',
+      id: 'mesh-exporter/export',
+      name: 'Mesh Exporter',
+    },
+    score: 105,
+    params: {
+      output_format: 'glb',
+    },
+    warnings: [],
+    reasons: [
+      'Requested capability matched registry entry "mesh-exporter".',
+      'Matched discovered id "mesh-exporter/export" exactly. Discovery confirms 1 requested canonical param(s).',
+    ],
   });
+});
+
+test('planner keeps exporter outside support when params imply a custom output path', () => {
+  const discovery = {
+    models: [],
+    processes: [
+      {
+        id: 'mesh-exporter/export',
+        name: 'Mesh Exporter',
+        params_schema: [
+          { id: 'output_format' },
+          { id: 'output_path' },
+        ],
+      },
+    ],
+  };
+
+  const result = planSmartCapability({
+    capability: 'mesh-exporter/export',
+    params: {
+      output_format: 'glb',
+      output_path: 'exports/custom.glb',
+    },
+  }, discovery);
+
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.surface, 'processRun.create');
+  assert.equal(result.score, 105);
+  assert.equal(result.target, null);
+  assert.deepEqual(result.cap, {
+    key: 'mesh-exporter',
+    requested: 'mesh-exporter/export',
+    matchedId: 'mesh-exporter/export',
+    matchedName: 'Mesh Exporter',
+  });
+  assert.deepEqual(result.params, {
+    output_format: 'glb',
+  });
+  assert.ok(result.warnings.some((warning) => warning.includes('output_path')));
+  assert.ok(result.reasons.some((reason) => reason.includes('default_output_only')));
 });
 
 test('planner keeps UniRig blocked even when discovery exposes a matching process', () => {
@@ -412,14 +461,14 @@ test('guidance classification stays explicit across supported_now, known_but_una
   });
 
   const discoveredOnly = evaluateCapabilityGuidance({
-    capability: 'mesh-exporter/export',
+    capability: 'mesh decimator pro',
   }, {
     models: [],
     processes: [
       {
-        id: 'mesh-exporter/export',
-        name: 'Mesh Exporter',
-        params_schema: [{ id: 'output_format' }],
+        id: 'mesh-decimator/pro',
+        name: 'Mesh Decimator Pro',
+        params_schema: [{ id: 'target_faces' }],
       },
     ],
   });
@@ -486,10 +535,13 @@ test('guidance keeps UniRig as known_but_unavailable with surface none', () => {
   assert.ok(result.reasons.some((reason) => reason.includes('closed capability-execute allowlist')));
 });
 
-test('guidance returns discovered_only for observable discovery outside the closed registry', () => {
+test('guidance keeps exporter known but unavailable when params request a custom output path', () => {
   const result = evaluateCapabilityGuidance({
     capability: 'mesh-exporter/export',
-    params: { output_format: 'glb' },
+    params: {
+      output_format: 'glb',
+      output_path: 'exports/custom.glb',
+    },
   }, {
     models: [],
     processes: [
@@ -498,29 +550,23 @@ test('guidance returns discovered_only for observable discovery outside the clos
         name: 'Mesh Exporter',
         params_schema: [
           { id: 'output_format' },
+          { id: 'output_path' },
         ],
       },
     ],
   });
 
-  assert.equal(result.status, 'discovered_only');
-  assert.equal(result.capability_key, null);
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.capability_key, 'mesh-exporter');
   assert.equal(result.surface, 'none');
   assert.equal(result.target, null);
   assert.deepEqual(result.available_safe_params, {
-    allowed: { canonical_ids: [], aliases: {} },
-    available_now: { canonical_ids: [], aliases: {} },
+    allowed: { canonical_ids: ['output_format'], aliases: {} },
+    available_now: { canonical_ids: ['output_format'], aliases: {} },
   });
-  assert.ok(result.reasons.some((reason) => reason.includes('outside the closed registry')));
-  assert.deepEqual(result.discovered_extras, [
-    {
-      kind: 'process',
-      id: 'mesh-exporter/export',
-      name: 'Mesh Exporter',
-      status: 'discovered_only',
-      surface: 'none',
-    },
-  ]);
+  assert.ok(result.reasons.some((reason) => reason.includes('default_output_only')));
+  assert.ok(result.warnings.some((warning) => warning.includes('output_path')));
+  assert.deepEqual(result.discovered_extras, []);
 });
 
 test('guidance does not auto-select tied candidates and keeps surface none', () => {

@@ -37,6 +37,7 @@ const PROCESS_RUN_OPERATION_STATES = {
 };
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const OPTIMIZER_PROCESS_ID = 'mesh-optimizer/optimize';
+const EXPORTER_PROCESS_ID = 'mesh-exporter/export';
 
 function getModelId(model) {
   return model?.id ?? model?.model_id ?? model?.modelId ?? 'unknown';
@@ -451,28 +452,62 @@ function resolveImageCapabilityExecutionInput(input) {
 function resolveProcessCapabilityExecutionInput(input, plan) {
   const processId = resolveCapabilityExecutionTarget(plan);
 
-  if (processId !== OPTIMIZER_PROCESS_ID) {
-    return null;
+  if (processId === OPTIMIZER_PROCESS_ID) {
+    const resolvedInput = prepareCapabilityProcessInput(input);
+    const executionInput = {
+      process_id: processId,
+      params: {
+        mesh_path: resolvedInput.meshPath,
+        ...plan.params,
+      },
+    };
+
+    if (resolvedInput.workspacePath !== undefined) {
+      executionInput.workspace_path = resolvedInput.workspacePath;
+    }
+
+    if (resolvedInput.outputPath !== undefined) {
+      executionInput.outputPath = resolvedInput.outputPath;
+    }
+
+    return {
+      payload: executionInput,
+      outputMode: null,
+    };
   }
 
-  const resolvedInput = prepareCapabilityProcessInput(input);
-  const executionInput = {
-    process_id: processId,
-    params: {
-      mesh_path: resolvedInput.meshPath,
-      ...plan.params,
-    },
-  };
+  if (processId === EXPORTER_PROCESS_ID) {
+    const resolvedInput = prepareCapabilityProcessInput(input, {
+      processId,
+      params: plan.params,
+    });
+    const executionInput = {
+      process_id: processId,
+      params: {
+        mesh_path: resolvedInput.meshPath,
+        ...resolvedInput.params,
+      },
+      workspace_path: resolvedInput.workspacePath,
+    };
 
-  if (resolvedInput.workspacePath !== undefined) {
-    executionInput.workspace_path = resolvedInput.workspacePath;
+    return {
+      payload: executionInput,
+      outputMode: 'default_backend',
+    };
   }
 
-  if (resolvedInput.outputPath !== undefined) {
-    executionInput.outputPath = resolvedInput.outputPath;
+  return null;
+}
+
+function assertExporterExecutionRequestIsInScope(input, params, plan) {
+  if (plan?.cap?.key !== 'mesh-exporter') {
+    return;
   }
 
-  return executionInput;
+  prepareCapabilityProcessInput(input, {
+    processId: EXPORTER_PROCESS_ID,
+    params,
+  });
 }
 
 function summarizeCapabilityExecution(plan, execution) {
@@ -516,6 +551,8 @@ export function createToolHandlers({ client, apiUrl } = {}) {
       const { capabilities } = await prepareAutomationContext(modlyClient);
       const plan = planSmartCapability({ capability, params }, capabilities);
 
+      assertExporterExecutionRequestIsInScope(input, params, plan);
+
       if (plan.status !== 'supported') {
         return buildNonExecutedCapabilityResult(plan);
       }
@@ -546,17 +583,18 @@ export function createToolHandlers({ client, apiUrl } = {}) {
           return buildFailedCapabilityExecutionResult({ plan, execution, error });
         }
       } else if (plan.surface === 'processRun.create') {
-        const executionInput = resolveProcessCapabilityExecutionInput(input, plan);
+        const resolvedExecution = resolveProcessCapabilityExecutionInput(input, plan);
 
-        if (executionInput === null) {
+        if (resolvedExecution === null) {
           return buildNonExecutedCapabilityResult(plan);
         }
 
-        const payload = prepareProcessRunCreateInput(executionInput, { capabilities });
+        const payload = prepareProcessRunCreateInput(resolvedExecution.payload, { capabilities });
         execution = {
           executed: true,
           surface: toExecutionSurface(plan.surface),
           arguments: payload,
+          ...(resolvedExecution.outputMode ? { outputMode: resolvedExecution.outputMode } : {}),
         };
         try {
           ({ run, polling } = await dispatchProcessRun(modlyClient, capabilities, payload, { prepared: true }));

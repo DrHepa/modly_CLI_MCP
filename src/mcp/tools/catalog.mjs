@@ -130,7 +130,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[29],
     title: 'Execute Smart Capability',
-    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize to modly.processRun.create.',
+    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize and mesh-exporter/export (default_backend output only; explicit outputPath unsupported) to modly.processRun.create.',
     inputSchema: {
       type: 'object',
       required: ['capability', 'input'],

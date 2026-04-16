@@ -331,6 +331,33 @@ function mapSafeParams(capability, rawParams, availableParamIds) {
   return { params, warnings, reasons };
 }
 
+function evaluateExecutionScope(capability, rawParams) {
+  const blockedParamIds = Array.isArray(capability?.safeExecution?.blockedParamIds)
+    ? capability.safeExecution.blockedParamIds
+    : [];
+  const blockedParams = blockedParamIds.filter((paramId) => Object.hasOwn(rawParams, paramId));
+
+  if (blockedParams.length === 0) {
+    return {
+      inScope: true,
+      warnings: [],
+      reasons: [],
+    };
+  }
+
+  const safeMode = capability?.safeExecution?.mode ?? 'safe_only';
+
+  return {
+    inScope: false,
+    warnings: blockedParams.map((paramId) => (
+      `Discarded param "${paramId}": ${capability.key} only supports the ${safeMode} capability-execute slice.`
+    )),
+    reasons: [
+      `Requested params require behavior outside the ${safeMode} capability-execute slice.`,
+    ],
+  };
+}
+
 function buildPlanTarget(capability, selectedCandidate) {
   if (selectedCandidate === null) {
     return null;
@@ -453,12 +480,13 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
   const capabilitySelection = selectCandidate(knownCapability, discovery, requestedCanonicalIds);
   const selectedCandidate = capabilitySelection.selectedCandidate;
   const mappedParams = mapSafeParams(knownCapability, normalizedParams, capabilitySelection.availableParamIds);
+  const executionScope = evaluateExecutionScope(knownCapability, normalizedParams);
   const guideMetadata = getCapabilityGuideMetadata(knownCapability.key);
   const observableSurface = guideMetadata?.target.observableSurface ?? getObservableMvpSurface(knownCapability.target.surface);
   const reasons = [
     `Requested capability matched registry entry "${knownCapability.key}".`,
   ];
-  const warnings = [];
+  const warnings = [...executionScope.warnings];
 
   if (capabilitySelection.tieDetected) {
     warnings.push('Discovery returned multiple equivalent candidates, so no safe target was auto-selected.');
@@ -477,9 +505,12 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
     reasons.push('Discovery matched a candidate, but the closed capability-execute allowlist does not permit supported execution for this capability.');
   }
 
+  reasons.push(...executionScope.reasons);
+
   const isExecutableNow = selectedCandidate !== null
     && knownCapability.availability === 'discovery_based'
-    && isCapabilityExecuteSupported(knownCapability);
+    && isCapabilityExecuteSupported(knownCapability)
+    && executionScope.inScope;
   const status = isExecutableNow ? 'supported_now' : 'known_but_unavailable';
 
   return {
@@ -556,7 +587,7 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
     target: evaluation.status === 'supported_now' ? evaluation.target : null,
     score: evaluation.selectedScore,
     params: evaluation.mappedParams.params,
-    warnings: evaluation.mappedParams.warnings,
+    warnings: [...evaluation.warnings, ...evaluation.mappedParams.warnings],
     reasons: [...evaluation.reasons, ...evaluation.mappedParams.reasons],
   };
 }

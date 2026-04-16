@@ -94,6 +94,26 @@ export const KNOWN_CAPABILITIES = deepFreeze([
     },
   },
   {
+    key: 'mesh-exporter',
+    labels: ['mesh exporter', 'export mesh', 'mesh-exporter/export'],
+    target: {
+      kind: 'process',
+      surface: 'processRun.create',
+      ids: ['mesh-exporter/export'],
+      names: ['Mesh Exporter'],
+    },
+    availability: 'discovery_based',
+    capabilityExecuteSupported: true,
+    safeExecution: {
+      mode: 'default_output_only',
+      blockedParamIds: ['output_path'],
+    },
+    safeParams: {
+      canonicalIds: ['output_format'],
+      aliases: {},
+    },
+  },
+  {
     key: 'unirig',
     labels: ['unirig', 'uni rig', 'UniRig', 'Rig Mesh', 'rig mesh'],
     target: {
@@ -162,6 +182,12 @@ export function getCapabilityGuideMetadata(requestedCapability) {
       ids: [...capability.target.ids],
       names: [...capability.target.names],
     },
+    safeExecution: capability.safeExecution
+      ? {
+        mode: capability.safeExecution.mode,
+        blockedParamIds: [...capability.safeExecution.blockedParamIds],
+      }
+      : null,
     safeParams: {
       canonicalIds: [...capability.safeParams.canonicalIds],
       aliases: { ...capability.safeParams.aliases },

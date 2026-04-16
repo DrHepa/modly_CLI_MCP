@@ -7,7 +7,7 @@ import { createModlyApiClient } from '../../src/core/modly-api.mjs';
 import { ModlyError } from '../../src/core/errors.mjs';
 import { requestJsonRuntime } from '../../src/core/http.mjs';
 import { toProcessRun, toWorkflowRun } from '../../src/core/modly-normalizers.mjs';
-import { prepareProcessRunCreateInput } from '../../src/core/process-run-input.mjs';
+import { prepareCapabilityProcessInput, prepareProcessRunCreateInput } from '../../src/core/process-run-input.mjs';
 
 async function withTempImage(t, fileName) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'modly-api-image-'));
@@ -999,5 +999,55 @@ test('prepareProcessRunCreateInput rejects invalid params, traversal paths and c
         { capabilities: { processes: [{ id: 'mesh-simplify' }] } },
       ),
     /Unknown canonical process_id: mesh-unknown/,
+  );
+});
+
+test('prepareCapabilityProcessInput keeps exporter payload in default-output-only shape', () => {
+  const prepared = prepareCapabilityProcessInput(
+    {
+      kind: 'mesh',
+      meshPath: './meshes/in.glb',
+      workspacePath: ' workspace ',
+    },
+    {
+      processId: 'mesh-exporter/export',
+      params: { output_format: 'glb' },
+    },
+  );
+
+  assert.deepEqual(prepared, {
+    kind: 'mesh',
+    meshPath: 'meshes/in.glb',
+    workspacePath: 'workspace',
+    params: { output_format: 'glb' },
+  });
+});
+
+test('prepareCapabilityProcessInput rejects explicit exporter output paths before dispatch', () => {
+  assert.throws(
+    () => prepareCapabilityProcessInput(
+      {
+        meshPath: 'meshes/in.glb',
+        outputPath: 'exports/out.glb',
+      },
+      {
+        processId: 'mesh-exporter/export',
+        params: { output_format: 'glb' },
+      },
+    ),
+    /input\.outputPath is unsupported for mesh-exporter\/export in this MVP/,
+  );
+
+  assert.throws(
+    () => prepareCapabilityProcessInput(
+      {
+        meshPath: 'meshes/in.glb',
+      },
+      {
+        processId: 'mesh-exporter/export',
+        params: { output_format: 'glb', output_path: 'exports/out.glb' },
+      },
+    ),
+    /params\.output_path is unsupported for mesh-exporter\/export in this MVP/,
   );
 });

@@ -2,6 +2,8 @@ import path from 'node:path';
 import { ValidationError } from './errors.mjs';
 import { getCanonicalProcessIds } from './modly-normalizers.mjs';
 
+const EXPORTER_PROCESS_ID = 'mesh-exporter/export';
+
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -69,6 +71,48 @@ function validateProcessId(processId, capabilities) {
   return normalizedProcessId;
 }
 
+function hasOwn(object, key) {
+  return isObject(object) && Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function validateCapabilityProcessBaseInput(input) {
+  if (!isObject(input)) {
+    throw new ValidationError('input must be a JSON object.', {
+      details: { field: 'input', reason: 'invalid_input_shape' },
+    });
+  }
+
+  const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
+
+  if (kind !== '' && kind !== 'mesh' && kind !== 'workspace') {
+    throw new ValidationError('input.kind must be "mesh" or "workspace" for process execution.', {
+      details: { field: 'input.kind', reason: 'invalid_process_input_kind', value: input.kind ?? null },
+    });
+  }
+
+  if (input.meshPath === undefined) {
+    throw new ValidationError('input.meshPath is required for process execution.', {
+      details: { field: 'input.meshPath', reason: 'required' },
+    });
+  }
+
+  const meshPath = normalizeWorkspaceRelativePath(input.meshPath, 'input.meshPath');
+  const workspacePath = normalizeWorkspaceRelativePath(input.workspacePath, 'input.workspacePath', { omitIfEmpty: true })
+    ?? meshPath;
+
+  return { kind, meshPath, workspacePath };
+}
+
+function rejectExplicitExporterOutputPath(field) {
+  throw new ValidationError(`${field} is unsupported for mesh-exporter/export in this MVP.`, {
+    details: {
+      field,
+      reason: 'unsupported_output_path_mvp',
+      capability: EXPORTER_PROCESS_ID,
+    },
+  });
+}
+
 export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
   if (!isObject(input)) {
     throw new ValidationError('process-run create input must be a JSON object.', {
@@ -125,30 +169,41 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
   return payload;
 }
 
-export function prepareCapabilityProcessInput(input) {
-  if (!isObject(input)) {
-    throw new ValidationError('input must be a JSON object.', {
-      details: { field: 'input', reason: 'invalid_input_shape' },
-    });
+export function prepareCapabilityProcessInput(input, { processId, params } = {}) {
+  const { kind, meshPath, workspacePath } = validateCapabilityProcessBaseInput(input);
+
+  if (processId === EXPORTER_PROCESS_ID) {
+    if (hasOwn(input, 'outputPath')) {
+      rejectExplicitExporterOutputPath('input.outputPath');
+    }
+
+    if (params !== undefined && !isObject(params)) {
+      throw new ValidationError('params must be a JSON object.', {
+        details: { field: 'params', reason: 'invalid_params' },
+      });
+    }
+
+    if (hasOwn(params, 'output_path')) {
+      rejectExplicitExporterOutputPath('params.output_path');
+    }
+
+    const preparedInput = {
+      meshPath,
+      workspacePath,
+      params: {},
+    };
+
+    if (kind !== '') {
+      preparedInput.kind = kind;
+    }
+
+    if (hasOwn(params, 'output_format') && params.output_format !== undefined) {
+      preparedInput.params.output_format = params.output_format;
+    }
+
+    return preparedInput;
   }
 
-  const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
-
-  if (kind !== '' && kind !== 'mesh' && kind !== 'workspace') {
-    throw new ValidationError('input.kind must be "mesh" or "workspace" for process execution.', {
-      details: { field: 'input.kind', reason: 'invalid_process_input_kind', value: input.kind ?? null },
-    });
-  }
-
-  if (input.meshPath === undefined) {
-    throw new ValidationError('input.meshPath is required for process execution.', {
-      details: { field: 'input.meshPath', reason: 'required' },
-    });
-  }
-
-  const meshPath = normalizeWorkspaceRelativePath(input.meshPath, 'input.meshPath');
-  const workspacePath = normalizeWorkspaceRelativePath(input.workspacePath, 'input.workspacePath', { omitIfEmpty: true })
-    ?? meshPath;
   const outputPath = normalizeWorkspaceRelativePath(input.outputPath, 'input.outputPath', { omitIfEmpty: true });
   const preparedInput = {
     meshPath,

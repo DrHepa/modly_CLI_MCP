@@ -59,9 +59,10 @@ This repository does **not** pretend to support:
 `modly.capability.execute` is intentionally transparent and conservative. In the current cut it can execute:
 
 - image → mesh via `workflowRun.createFromImage`
-- mesh → mesh via `processRun.create` only for `mesh-optimizer/optimize`
+- mesh → mesh via `processRun.create` for `mesh-optimizer/optimize`
+- mesh → export via `processRun.create` for `mesh-exporter/export` ONLY when the backend chooses the default output location
 
-It does **not** execute unknown capabilities, UI-only nodes, `UniRig`, or generic process chains.
+It does **not** execute unknown capabilities, UI-only nodes, `UniRig`, generic process chains, or explicit exporter output-path requests. `input.outputPath` and `params.output_path` remain outside this MVP and are rejected locally.
 
 `scene_candidate` is treated as **descriptive output only**, not as a scene mutation.
 
