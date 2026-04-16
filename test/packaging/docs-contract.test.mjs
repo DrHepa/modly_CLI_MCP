@@ -69,18 +69,18 @@ test('docs and README stay aligned with supported global and repo-local flows', 
   assert.match(readme, /`modly\.workflowRun\.wait`/u);
   assert.match(readme, /do \*\*not\*\* imply workflow management, \*\*Add to Scene\*\*, or blocking `from-image` behavior/u);
 
-  assert.match(globalDoc, /`modly` y `modly-mcp`/u);
+  assert.match(globalDoc, /`modly` and `modly-mcp`/u);
   assert.match(globalDoc, /npm install -g modly-cli-mcp/u);
   assert.match(globalDoc, /modly --help/u);
   assert.match(globalDoc, /modly-mcp --help/u);
   assert.match(globalDoc, /https:\/\/opencode\.ai\/config\.json/u);
   assert.match(globalDoc, /"command": \["modly-mcp"\]/u);
-  assert.match(globalDoc, /NO `mcpServers`/u);
+  assert.match(globalDoc, /\*\*not\*\* `mcpServers`|not `mcpServers`/iu);
 
   assert.match(repoLocalDoc, /tools\/modly_mcp\/run_server\.mjs/u);
   assert.match(repoLocalDoc, /node_modules\/.bin\/modly-mcp/u);
   assert.match(repoLocalDoc, /tools\/_tmp\/modly_mcp\/local\.env/u);
   assert.match(repoLocalDoc, /node tools\/modly_mcp\/run_server\.mjs --check/u);
   assert.match(repoLocalDoc, /https:\/\/opencode\.ai\/config\.json/u);
-  assert.match(repoLocalDoc, /NO usa `dotenv`/u);
+  assert.match(repoLocalDoc, /does \*\*not\*\* use `dotenv`/u);
 });
