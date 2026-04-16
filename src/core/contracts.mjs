@@ -82,4 +82,5 @@ export const MCP_TOOL_IDS = Object.freeze([
   'modly.workflowRun.wait',
   'modly.capability.execute',
   'modly.diagnostic.guidance',
+  'modly.recipe.execute',
 ]);

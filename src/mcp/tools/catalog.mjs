@@ -143,6 +143,30 @@ export const MCP_TOOL_CATALOG = [
     },
   },
   {
+    name: MCP_TOOL_IDS[31],
+    title: 'Execute Guided Recipe',
+    description: 'Executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
+    inputSchema: {
+      type: 'object',
+      required: ['recipe', 'input'],
+      properties: {
+        recipe: {
+          type: 'string',
+          enum: ['image_to_mesh', 'image_to_mesh_optimized', 'image_to_mesh_exported'],
+        },
+        input: { type: 'object' },
+        options: {
+          type: 'object',
+          properties: {
+            resume: { type: 'object' },
+          },
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: MCP_TOOL_IDS[3],
     title: 'Modly Health',
     description: 'Checks whether the Modly FastAPI backend is reachable.',

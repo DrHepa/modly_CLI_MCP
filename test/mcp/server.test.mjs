@@ -9,6 +9,7 @@ const EXPECTED_TOOLS = [
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.recipe.execute',
   'modly.health',
   'modly.model.list',
   'modly.model.current',

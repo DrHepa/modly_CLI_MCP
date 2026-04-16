@@ -177,6 +177,10 @@ async function createTempImage(t) {
   return imagePath;
 }
 
+function getRecipeResume(result) {
+  return result.structuredContent.data.nextAction.input.options.resume;
+}
+
 test('registry catalog exposes modly.capabilities.get with empty input schema', () => {
   const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
   const tool = registry.catalog.find((entry) => entry.name === 'modly.capabilities.get');
@@ -347,6 +351,37 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
         capability: { type: 'string' },
         input: { type: 'object' },
         params: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+  });
+});
+
+test('registry catalog exposes modly.recipe.execute with closed recipe v1 polling-first wording', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.recipe.execute');
+
+  assert.deepEqual(tool, {
+    name: 'modly.recipe.execute',
+    title: 'Execute Guided Recipe',
+    description:
+      'Executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
+    inputSchema: {
+      type: 'object',
+      required: ['recipe', 'input'],
+      properties: {
+        recipe: {
+          type: 'string',
+          enum: ['image_to_mesh', 'image_to_mesh_optimized', 'image_to_mesh_exported'],
+        },
+        input: { type: 'object' },
+        options: {
+          type: 'object',
+          properties: {
+            resume: { type: 'object' },
+          },
+          additionalProperties: false,
+        },
       },
       additionalProperties: false,
     },
@@ -1644,6 +1679,687 @@ test('modly.capability.execute keeps UniRig blocked even when discovery exposes 
     ['GET /health', 'GET /automation/capabilities'],
   );
   assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.recipe.execute first call creates exactly one workflow run and returns polling resume state', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(method, 'POST');
+      const body = init.body;
+      assert.equal(body instanceof FormData, true);
+      assert.equal(body.get('model_id'), 'triposg');
+      assert.equal(body.get('params'), JSON.stringify({ num_inference_steps: 28 }));
+      return jsonResponse({
+        run_id: 'recipe-workflow-1',
+        status: 'queued',
+        progress: 0,
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      modelParams: { steps: 28 },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh: running.');
+  assert.equal(result.structuredContent.data.status, 'running');
+  assert.deepEqual(result.structuredContent.data.runIds, { generate_mesh: 'recipe-workflow-1' });
+  assert.equal(result.structuredContent.data.steps.length, 1);
+  assert.equal(result.structuredContent.data.steps[0].id, 'generate_mesh');
+  assert.equal(result.structuredContent.data.steps[0].status, 'running');
+  assert.deepEqual(result.structuredContent.data.steps[0].run, {
+    kind: 'workflowRun',
+    runId: 'recipe-workflow-1',
+    status: 'queued',
+  });
+  assert.equal(result.structuredContent.data.nextAction.kind, 'poll');
+  assert.deepEqual(getRecipeResume(result), {
+    steps: [
+      {
+        id: 'generate_mesh',
+        status: 'running',
+        run: {
+          kind: 'workflowRun',
+          runId: 'recipe-workflow-1',
+          status: 'queued',
+        },
+        poll: {
+          tool: 'modly.workflowRun.status',
+          input: { runId: 'recipe-workflow-1' },
+          intervalMs: 1000,
+        },
+      },
+    ],
+  });
+  assert.equal(calls.filter((call) => call.method === 'POST').length, 1);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities', 'GET /model/all', 'POST /workflow-runs/from-image'],
+  );
+});
+
+test('modly.recipe.execute rejects recipes outside the closed v1 allowlist before any runs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(() => {
+    throw new Error('Unexpected fetch for closed recipe validation.');
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'custom_goal',
+    input: {},
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.ok, false);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.tool, 'modly.recipe.execute');
+  assert.equal(result.structuredContent.error.details.path, 'input.recipe');
+  assert.equal(result.structuredContent.error.details.reason, 'enum_no_match');
+  assert.deepEqual(result.structuredContent.error.details.expected, [
+    'image_to_mesh',
+    'image_to_mesh_optimized',
+    'image_to_mesh_exported',
+  ]);
+  assert.equal(result.structuredContent.error.details.received, 'custom_goal');
+  assert.equal(calls.length, 0);
+});
+
+test('modly.recipe.execute resume polls active run, advances one next step, and finishes without extra POSTs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  let phase = 'first';
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(phase, 'first');
+      assert.equal(method, 'POST');
+      return jsonResponse({
+        run_id: 'recipe-workflow-2',
+        status: 'queued',
+        progress: 0,
+      });
+    }
+
+    if (path === '/workflow-runs/recipe-workflow-2') {
+      assert.equal(phase, 'second');
+      assert.equal(method, 'GET');
+      return jsonResponse({
+        run_id: 'recipe-workflow-2',
+        status: 'done',
+        scene_candidate: { path: 'workspace/generated.glb' },
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(phase, 'second');
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'workspace/generated.glb',
+          target_faces: 12000,
+          output_path: 'workspace/optimized.glb',
+        },
+        workspace_path: 'workspace/generated.glb',
+      });
+      return jsonResponse({
+        run_id: 'recipe-process-2',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'workspace/generated.glb',
+          target_faces: 12000,
+          output_path: 'workspace/optimized.glb',
+        },
+        workspace_path: 'workspace/generated.glb',
+      });
+    }
+
+    if (path === '/process-runs/recipe-process-2') {
+      assert.equal(phase, 'third');
+      assert.equal(method, 'GET');
+      return jsonResponse({
+        run_id: 'recipe-process-2',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'succeeded',
+        params: {
+          mesh_path: 'workspace/generated.glb',
+          target_faces: 12000,
+          output_path: 'workspace/optimized.glb',
+        },
+        workspace_path: 'workspace/generated.glb',
+      });
+    }
+
+    throw new Error(`Unexpected path in phase ${phase}: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+
+  const first = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+  });
+
+  assert.equal(first.isError, undefined);
+  assert.equal(first.structuredContent.data.status, 'running');
+  assert.equal(calls.filter((call) => call.method === 'POST').length, 1);
+
+  phase = 'second';
+  const second = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+    options: {
+      resume: getRecipeResume(first),
+    },
+  });
+
+  assert.equal(second.isError, undefined);
+  assert.equal(second.structuredContent.data.status, 'running');
+  assert.deepEqual(second.structuredContent.data.runIds, {
+    generate_mesh: 'recipe-workflow-2',
+    optimize_mesh: 'recipe-process-2',
+  });
+  assert.equal(second.structuredContent.data.steps[0].status, 'succeeded');
+  assert.deepEqual(second.structuredContent.data.steps[0].outputs, {
+    meshPath: 'workspace/generated.glb',
+    sceneCandidate: { path: 'workspace/generated.glb' },
+  });
+  assert.equal(second.structuredContent.data.steps[1].status, 'running');
+  assert.equal(calls.filter((call) => call.method === 'POST').length, 2);
+
+  phase = 'third';
+  const third = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+    options: {
+      resume: getRecipeResume(second),
+    },
+  });
+
+  assert.equal(third.isError, undefined);
+  assert.equal(third.content[0].text, 'Guided recipe image_to_mesh_optimized: succeeded.');
+  assert.equal(third.structuredContent.data.status, 'succeeded');
+  assert.equal(third.structuredContent.data.nextAction.kind, 'none');
+  assert.deepEqual(third.structuredContent.data.outputs, {
+    meshPath: 'workspace/optimized.glb',
+    sceneCandidate: { path: 'workspace/generated.glb' },
+  });
+  assert.equal(third.structuredContent.data.steps[0].status, 'succeeded');
+  assert.equal(third.structuredContent.data.steps[1].status, 'succeeded');
+  assert.equal(calls.filter((call) => call.method === 'POST').length, 2);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    [
+      'GET /health',
+      'GET /health',
+      'GET /automation/capabilities',
+      'GET /model/all',
+      'POST /workflow-runs/from-image',
+      'GET /health',
+      'GET /health',
+      'GET /automation/capabilities',
+      'GET /workflow-runs/recipe-workflow-2',
+      'POST /process-runs',
+      'GET /health',
+      'GET /health',
+      'GET /automation/capabilities',
+      'GET /process-runs/recipe-process-2',
+    ],
+  );
+});
+
+test('modly.recipe.execute returns partial_failed after downstream process failure while preserving observed outputs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  let phase = 'first';
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(phase, 'first');
+      return jsonResponse({ run_id: 'recipe-workflow-fail', status: 'queued' });
+    }
+
+    if (path === '/workflow-runs/recipe-workflow-fail') {
+      assert.equal(phase, 'second');
+      return jsonResponse({
+        run_id: 'recipe-workflow-fail',
+        status: 'done',
+        scene_candidate: { path: 'workspace/generated.glb' },
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(phase, 'second');
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'workspace/generated.glb',
+          target_faces: 12000,
+          output_path: 'workspace/optimized.glb',
+        },
+        workspace_path: 'workspace/generated.glb',
+      });
+      return jsonResponse({
+        run_id: 'recipe-process-fail',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'workspace/generated.glb',
+          target_faces: 12000,
+          output_path: 'workspace/optimized.glb',
+        },
+        workspace_path: 'workspace/generated.glb',
+      });
+    }
+
+    if (path === '/process-runs/recipe-process-fail') {
+      assert.equal(phase, 'third');
+      return jsonResponse({
+        run_id: 'recipe-process-fail',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'failed',
+        params: {
+          mesh_path: 'workspace/generated.glb',
+          target_faces: 12000,
+          output_path: 'workspace/optimized.glb',
+        },
+        workspace_path: 'workspace/generated.glb',
+        error: {
+          code: 'OPTIMIZER_FAILED',
+          message: 'Optimizer failed after launch.',
+        },
+      });
+    }
+
+    throw new Error(`Unexpected path in phase ${phase}: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+
+  const first = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+  });
+
+  phase = 'second';
+  const second = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+    options: { resume: getRecipeResume(first) },
+  });
+
+  phase = 'third';
+  const third = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+    options: { resume: getRecipeResume(second) },
+  });
+
+  assert.equal(third.isError, undefined);
+  assert.equal(third.content[0].text, 'Guided recipe image_to_mesh_optimized: partial_failed.');
+  assert.equal(third.structuredContent.data.status, 'partial_failed');
+  assert.equal(third.structuredContent.data.nextAction.kind, 'none');
+  assert.deepEqual(third.structuredContent.data.outputs, {
+    meshPath: 'workspace/generated.glb',
+    sceneCandidate: { path: 'workspace/generated.glb' },
+  });
+  assert.equal(third.structuredContent.data.steps[0].status, 'succeeded');
+  assert.equal(third.structuredContent.data.steps[1].status, 'failed');
+  assert.deepEqual(third.structuredContent.data.steps[1].error, {
+    code: 'OPTIMIZER_FAILED',
+    message: 'Optimizer failed after launch.',
+  });
+  assert.equal(calls.filter((call) => call.method === 'POST').length, 2);
+});
+
+test('modly.recipe.execute fails explicitly when a required output is missing between steps', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  let phase = 'first';
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [{ id: 'num_inference_steps', type: 'integer' }],
+          },
+        ],
+        processes: [
+          {
+            id: 'mesh-exporter/export',
+            name: 'Mesh Exporter',
+            params_schema: [{ id: 'output_format', type: 'string' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(phase, 'first');
+      return jsonResponse({ run_id: 'recipe-workflow-missing-output', status: 'queued' });
+    }
+
+    if (path === '/workflow-runs/recipe-workflow-missing-output') {
+      assert.equal(phase, 'second');
+      return jsonResponse({
+        run_id: 'recipe-workflow-missing-output',
+        status: 'done',
+        scene_candidate: { id: 'scene-without-path' },
+      });
+    }
+
+    throw new Error(`Unexpected path in phase ${phase}: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+
+  const first = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_exported',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      export: { outputFormat: 'glb' },
+    },
+  });
+
+  phase = 'second';
+  const second = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_exported',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      export: { outputFormat: 'glb' },
+    },
+    options: { resume: getRecipeResume(first) },
+  });
+
+  assert.equal(second.isError, undefined);
+  assert.equal(second.content[0].text, 'Guided recipe image_to_mesh_exported: failed.');
+  assert.equal(second.structuredContent.data.status, 'failed');
+  assert.equal(second.structuredContent.data.nextAction.kind, 'none');
+  assert.deepEqual(second.structuredContent.data.outputs, {
+    sceneCandidate: { id: 'scene-without-path' },
+  });
+  assert.equal(second.structuredContent.data.steps[0].status, 'failed');
+  assert.deepEqual(second.structuredContent.data.steps[0].error, {
+    code: 'VALIDATION_ERROR',
+    message: 'Recipe step export_mesh requires an observed meshPath from a previous step.',
+    details: {
+      field: 'steps.outputs.meshPath',
+      reason: 'missing_required_output',
+      recipe: 'image_to_mesh_exported',
+      stepId: 'export_mesh',
+      required: 'meshPath',
+    },
+  });
+  assert.equal(calls.some((call) => call.path === '/process-runs'), false);
+});
+
+test('modly.recipe.execute rejects exporter outputPath outside the default_output_only slice before any runs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_exported',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      export: {
+        outputPath: 'workspace/export.glb',
+      },
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.reason, 'unsupported_output_path_mvp');
+  assert.equal(result.structuredContent.error.details.field, 'input.export.outputPath');
+  assert.deepEqual(calls.map((call) => `${call.method} ${call.path}${call.search}`), ['GET /health']);
+});
+
+test('modly.recipe.execute rejects exporter params.output_path outside the default_output_only slice before any runs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_exported',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      export: {
+        params: {
+          output_path: 'workspace/export.glb',
+        },
+      },
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.reason, 'unsupported_output_path_mvp');
+  assert.equal(result.structuredContent.error.details.field, 'input.export.params.output_path');
+  assert.deepEqual(calls.map((call) => `${call.method} ${call.path}${call.search}`), ['GET /health']);
+});
+
+test('modly.recipe.execute short-circuits with an explicit backend-not-ready envelope and no business runs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: false,
+        models: [],
+        processes: [],
+        errors: [{ message: 'Model runtime not ready yet.' }],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh: failed.');
+  assert.equal(result.structuredContent.data.status, 'failed');
+  assert.equal(result.structuredContent.data.nextAction.kind, 'none');
+  assert.equal(result.structuredContent.data.steps[0].status, 'failed');
+  assert.deepEqual(result.structuredContent.data.steps[0].error, {
+    code: 'BACKEND_NOT_READY',
+    message: 'Modly backend is not ready for guided recipe image_to_mesh.',
+    details: {
+      field: 'recipe',
+      reason: 'backend_not_ready',
+      recipe: 'image_to_mesh',
+      health_status: 'ok',
+      backend_ready: false,
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities'],
+  );
+  assert.equal(calls.some((call) => call.method === 'POST'), false);
 });
 
 test('modly.capability.execute dispatches exporter through processRun.create with default backend output mode', { concurrency: false }, async (t) => {

@@ -66,6 +66,16 @@ It does **not** execute unknown capabilities, UI-only nodes, `UniRig`, generic p
 
 `scene_candidate` is treated as **descriptive output only**, not as a scene mutation.
 
+`modly.recipe.execute` is the guided orchestration layer for the MVP, and it remains intentionally CLOSED:
+
+- recipes v1 only: `image_to_mesh`, `image_to_mesh_optimized`, `image_to_mesh_exported`
+- polling-first only: the first call may start work, then clients MUST continue with `options.resume`
+- `maxNewRunsPerCall=1`: every invocation creates at most one new workflow/process run
+- exporter support stays gated to `default_output_only`
+- no free-form goals, no branching, no automatic retries, and no hidden waits
+
+The public contract is an observable envelope with `recipe`, `status`, `steps`, `runIds`, `outputs`, `limits`, and `nextAction`, so agents can see partial progress and resume explicitly instead of relying on blind blocking behavior.
+
 ## Repository structure
 
 ```text
@@ -164,6 +174,50 @@ See:
 - `workflow-run wait` / `modly.workflowRun.wait` remain available as a bounded convenience wrapper over status polling; use short timeout windows when you cannot drive polling yourself.
 - `data.meta.nextAction` always points back to the canonical status tool with the same `runId`; recovery MUST resume polling an existing run, not recreate it.
 - Wait timeouts include bounded polling diagnostics in `error.details` (`timeoutMs`, `intervalMs`, `elapsedMs`, `attempts`, `lastObservedRun`).
+
+## Guided recipe MVP (`modly.recipe.execute`)
+
+- `modly.recipe.execute` runs one allowlisted recipe over the existing capability/workflow/process surfaces; it is NOT a generic workflow engine.
+- Supported recipes v1 are exactly `image_to_mesh`, `image_to_mesh_optimized`, and `image_to_mesh_exported`.
+- `image_to_mesh_exported` stays within the exporter `default_output_only` slice. Custom `input.export.outputPath` and `input.export.params.output_path` are out of scope and rejected.
+- The execution model is polling-first: a call can either poll the active run or launch the next step, but the client keeps control by sending `options.resume` on the next invocation.
+- The runtime guarantee is `maxNewRunsPerCall=1`, which means each invocation can create AT MOST one new run after observing current state.
+- Out of scope by contract: free-form goals, branching, DAGs, automatic retries, hidden waits, workflow CRUD, and invented headless support for Electron-only actions.
+
+Minimal contract example:
+
+```json
+{
+  "recipe": "image_to_mesh_optimized",
+  "status": "running",
+  "steps": [
+    {
+      "id": "generate_mesh",
+      "status": "running",
+      "run": {
+        "kind": "workflowRun",
+        "runId": "recipe-workflow-123",
+        "status": "queued"
+      },
+      "poll": {
+        "tool": "modly.workflowRun.status",
+        "input": { "runId": "recipe-workflow-123" },
+        "intervalMs": 1000
+      }
+    }
+  ],
+  "runIds": {
+    "generate_mesh": "recipe-workflow-123"
+  },
+  "outputs": {},
+  "limits": {
+    "maxNewRunsPerCall": 1
+  },
+  "nextAction": {
+    "kind": "poll"
+  }
+}
+```
 
 ## Architectural notes
 

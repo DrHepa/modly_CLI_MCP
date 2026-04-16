@@ -70,6 +70,34 @@ function normalizeParams(payload) {
         : undefined;
 }
 
+function normalizeString(value) {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function normalizeObservedPath(value) {
+  const normalized = normalizeString(value);
+
+  if (normalized === undefined) {
+    return undefined;
+  }
+
+  const segments = normalized.split(/[\\/]+/).filter(Boolean);
+
+  if (segments.length === 0) {
+    return undefined;
+  }
+
+  return segments.filter((segment) => segment !== '.').join('/');
+}
+
+function normalizeObservedSceneCandidateValue(value) {
+  if (value === null) {
+    return null;
+  }
+
+  return isObject(value) ? value : undefined;
+}
+
 export function toAutomationCapabilities(payload) {
   if (!isObject(payload)) {
     throw new TypeError('Capabilities payload must be an object.');
@@ -163,6 +191,31 @@ export function toWorkflowRun(runId, payload) {
     error: normalizeError(payload),
     sceneCandidate: normalizeSceneCandidate(payload),
   };
+}
+
+export function toObservedSceneCandidate(payload) {
+  return normalizeObservedSceneCandidateValue(normalizeSceneCandidate(payload));
+}
+
+export function toObservedMeshPath(payload) {
+  const sceneCandidate = toObservedSceneCandidate(payload);
+  const params = normalizeParams(payload);
+
+  return firstDefined(
+    normalizeObservedPath(payload?.mesh_path),
+    normalizeObservedPath(payload?.meshPath),
+    normalizeObservedPath(payload?.output_path),
+    normalizeObservedPath(payload?.outputPath),
+    normalizeObservedPath(sceneCandidate?.mesh_path),
+    normalizeObservedPath(sceneCandidate?.meshPath),
+    normalizeObservedPath(sceneCandidate?.path),
+    normalizeObservedPath(params?.output_path),
+    normalizeObservedPath(params?.outputPath),
+  );
+}
+
+export function toObservedExportUrl(payload) {
+  return normalizeString(normalizeOutputUrl(payload));
 }
 
 export function getCanonicalProcessIds(capabilities) {
