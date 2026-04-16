@@ -53,6 +53,7 @@ export const MODLY_API_CONTRACT = Object.freeze({
 export const MCP_TOOL_IDS = Object.freeze([
   'modly.capabilities.get',
   'modly.capability.plan',
+  'modly.capability.guide',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -80,4 +81,5 @@ export const MCP_TOOL_IDS = Object.freeze([
   'modly.config.paths.set',
   'modly.workflowRun.wait',
   'modly.capability.execute',
+  'modly.diagnostic.guidance',
 ]);

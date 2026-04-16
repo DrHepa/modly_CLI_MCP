@@ -1,5 +1,9 @@
 import { EXIT_CODES } from './contracts.mjs';
 
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export class ModlyError extends Error {
   constructor(message, options = {}) {
     super(message);
@@ -62,4 +66,19 @@ export function normalizeError(error, fallbackMessage = 'Unexpected Modly CLI er
     cause: error,
     details: error,
   });
+}
+
+export function extractErrorEnvelope(error, fallbackMessage = 'Unexpected Modly CLI error') {
+  const normalized = normalizeError(error, fallbackMessage);
+  const nestedError = isObject(normalized.details?.error) ? normalized.details.error : null;
+
+  return {
+    normalized,
+    code:
+      typeof nestedError?.code === 'string' && nestedError.code.trim() !== ''
+        ? nestedError.code.trim()
+        : (normalized.code ?? 'MODLY_ERROR'),
+    message: normalized.message,
+    details: normalized instanceof ModlyError && isObject(normalized.details) ? normalized.details : {},
+  };
 }

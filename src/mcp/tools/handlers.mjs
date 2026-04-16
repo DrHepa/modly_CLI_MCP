@@ -1,5 +1,6 @@
 import { createModlyApiClient } from '../../core/modly-api.mjs';
-import { ModlyError, ValidationError, normalizeError } from '../../core/errors.mjs';
+import { ValidationError, extractErrorEnvelope } from '../../core/errors.mjs';
+import { analyzeDiagnosticGuidance } from '../../core/diagnostic-guidance.mjs';
 import {
   normalizeErrors,
   normalizePaths,
@@ -14,7 +15,7 @@ import {
   prepareCapabilityProcessInput,
   prepareProcessRunCreateInput,
 } from '../../core/process-run-input.mjs';
-import { planSmartCapability } from '../../core/smart-capability-planner.mjs';
+import { evaluateCapabilityGuidance, planSmartCapability } from '../../core/smart-capability-planner.mjs';
 import { waitForProcessRun } from '../../core/process-run-wait.mjs';
 import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
 
@@ -75,6 +76,10 @@ function summarizeCapabilities(capabilities) {
 
 function summarizeCapabilityPlan(plan) {
   return `Capability plan: ${plan.status}${plan.cap?.key ? ` (${plan.cap.key})` : ''}.`;
+}
+
+function summarizeCapabilityGuidance(guidance) {
+  return `Capability guidance: ${guidance.status}${guidance.capability_key ? ` (${guidance.capability_key})` : ''}.`;
 }
 
 function summarizeModelList(models) {
@@ -214,19 +219,16 @@ function buildCapabilityExecuteEnvelope({ plan, execution, run, polling, error =
 }
 
 function toCapabilityExecutionErrorCode(error) {
-  if (typeof error?.details?.error?.code === 'string' && error.details.error.code.trim() !== '') {
-    return error.details.error.code.trim();
-  };
-
-  return error.code ?? 'MODLY_ERROR';
+  return extractErrorEnvelope(error).code;
 }
 
 function toCapabilityExecutionError(error) {
-  const normalized = normalizeError(error);
+  const envelope = extractErrorEnvelope(error);
+
   return {
-    code: toCapabilityExecutionErrorCode(normalized),
-    message: normalized.message,
-    details: normalized instanceof ModlyError && isObject(normalized.details) ? normalized.details : {},
+    code: toCapabilityExecutionErrorCode(envelope.normalized),
+    message: envelope.message,
+    details: envelope.details,
   };
 }
 
@@ -235,13 +237,21 @@ function summarizeCapabilityExecutionFailure(plan, execution) {
 }
 
 function buildFailedCapabilityExecutionResult({ plan, execution, error }) {
+  const executionError = toCapabilityExecutionError(error);
+
+  executionError.diagnostic = buildCapabilityExecutionDiagnostic({
+    plan,
+    execution,
+    error: executionError,
+  });
+
   return {
     data: buildCapabilityExecuteEnvelope({
       plan,
       execution,
       run: null,
       polling: null,
-      error: toCapabilityExecutionError(error),
+      error: executionError,
     }),
     text: summarizeCapabilityExecutionFailure(plan, execution),
   };
@@ -281,7 +291,7 @@ function toExecutionSurface(planSurface) {
 }
 
 async function runHealthPreflight(modlyClient) {
-  await modlyClient.health();
+  return modlyClient.health();
 }
 
 async function loadAutomationCapabilities(modlyClient) {
@@ -289,9 +299,84 @@ async function loadAutomationCapabilities(modlyClient) {
 }
 
 async function prepareAutomationContext(modlyClient) {
-  await runHealthPreflight(modlyClient);
+  const health = await runHealthPreflight(modlyClient);
   const capabilities = await loadAutomationCapabilities(modlyClient);
-  return { capabilities };
+  return { health, capabilities };
+}
+
+function summarizeDiagnosticGuidance(result) {
+  return `Diagnostic guidance: ${result.status}/${result.category}/${result.confidence}.`;
+}
+
+function toCapabilityExecutionRuntimeEvidence(details) {
+  if (!isObject(details)) {
+    return undefined;
+  }
+
+  if (isObject(details.runtimeEvidence)) {
+    return details.runtimeEvidence;
+  }
+
+  const runtimeEvidence = {};
+
+  if (typeof details.requestedUrl === 'string' && details.requestedUrl.trim() !== '') {
+    runtimeEvidence.requestedUrl = details.requestedUrl;
+  }
+
+  if (isObject(details.response)) {
+    runtimeEvidence.response = details.response;
+  }
+
+  if (details.body !== undefined) {
+    runtimeEvidence.body = details.body;
+  }
+
+  if (typeof details.rawBody === 'string') {
+    runtimeEvidence.rawBody = details.rawBody;
+  }
+
+  if (isObject(details.cause)) {
+    runtimeEvidence.cause = details.cause;
+  }
+
+  return Object.keys(runtimeEvidence).length > 0 ? runtimeEvidence : undefined;
+}
+
+function buildCapabilityExecutionDiagnostic({ plan, execution, error }) {
+  const diagnostic = {
+    surface: 'backend_api',
+    error: {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+    },
+    planner: {
+      capability: plan?.cap?.key ?? plan?.cap?.requested,
+      status: plan?.status,
+      surface: plan?.surface,
+      target: plan?.target,
+      reasons: Array.isArray(plan?.reasons) ? plan.reasons : undefined,
+    },
+  };
+
+  if (plan?.cap?.requested !== undefined || plan?.cap?.key !== undefined) {
+    diagnostic.capability = {
+      requested: plan?.cap?.requested,
+      key: plan?.cap?.key,
+    };
+  }
+
+  if (execution?.surface) {
+    diagnostic.execution = { surface: execution.surface };
+  }
+
+  const runtimeEvidence = toCapabilityExecutionRuntimeEvidence(error.details);
+
+  if (runtimeEvidence !== undefined) {
+    diagnostic.runtimeEvidence = runtimeEvidence;
+  }
+
+  return diagnostic;
 }
 
 async function dispatchWorkflowRunFromImage(modlyClient, { imagePath, modelId, params }) {
@@ -412,6 +497,19 @@ export function createToolHandlers({ client, apiUrl } = {}) {
       const { capabilities } = await prepareAutomationContext(modlyClient);
       const plan = planSmartCapability({ capability, params }, capabilities);
       return { data: plan, text: summarizeCapabilityPlan(plan) };
+    },
+
+    async 'modly.capability.guide'({ capability, params }) {
+      const { capabilities } = await prepareAutomationContext(modlyClient);
+      const guidance = evaluateCapabilityGuidance({ capability, params }, capabilities);
+      return { data: guidance, text: summarizeCapabilityGuidance(guidance) };
+    },
+
+    async 'modly.diagnostic.guidance'(input) {
+      await prepareAutomationContext(modlyClient);
+      const guidance = analyzeDiagnosticGuidance(input);
+
+      return { data: guidance, text: summarizeDiagnosticGuidance(guidance) };
     },
 
     async 'modly.capability.execute'({ capability, input, params }) {

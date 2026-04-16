@@ -23,6 +23,91 @@ const PROCESS_STATUS_DESCRIPTION =
   'Gets the latest process run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
 const PROCESS_WAIT_DESCRIPTION =
   'Bounded convenience wrapper around process status polling; prefer modly.processRun.status for recovery and use short timeout windows when you cannot poll yourself.';
+const DIAGNOSTIC_GUIDANCE_INPUT_SCHEMA = {
+  type: 'object',
+  required: ['surface', 'error'],
+  properties: {
+    surface: { type: 'string' },
+    error: {
+      type: 'object',
+      required: ['message'],
+      properties: {
+        message: { type: 'string' },
+        code: { type: 'string' },
+        details: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+    planner: {
+      type: 'object',
+      properties: {
+        capability: { type: 'string' },
+        status: { type: 'string' },
+        surface: { type: 'string' },
+        target: { type: 'object' },
+        reasons: { type: 'array', items: { type: 'string' } },
+      },
+      additionalProperties: false,
+    },
+    run: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['workflowRun', 'processRun'] },
+        id: { type: 'string' },
+        status: { type: 'string' },
+        error: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+    capability: {
+      type: 'object',
+      properties: {
+        requested: { type: 'string' },
+        key: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    execution: {
+      type: 'object',
+      properties: {
+        surface: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+    runtimeEvidence: {
+      type: 'object',
+      properties: {
+        requestedUrl: { type: 'string' },
+        response: { type: 'object' },
+        body: { type: 'object' },
+        rawBody: { type: 'string' },
+        cause: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+    liveContext: {
+      type: 'object',
+      properties: {
+        health: { type: 'object' },
+        capabilities: { type: 'object' },
+        extensionErrors: { type: 'array', items: { type: 'object' } },
+        runtimePaths: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+    logsExcerpt: { type: 'array', items: { type: 'string' } },
+  },
+  anyOf: [
+    { properties: { error: { required: ['code'] } } },
+    { required: ['runtimeEvidence'] },
+    { required: ['run'] },
+    { required: ['planner'] },
+    { required: ['capability'] },
+    { required: ['liveContext'] },
+    { required: ['logsExcerpt'] },
+  ],
+  additionalProperties: false,
+};
 
 function jsonResponse(payload, init = {}) {
   return new Response(JSON.stringify(payload), {
@@ -122,6 +207,130 @@ test('registry catalog exposes modly.capability.plan as strict read-only input',
       additionalProperties: false,
     },
   });
+});
+
+test('registry catalog exposes modly.capability.guide as strict read-only input', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.capability.guide');
+
+  assert.deepEqual(tool, {
+    name: 'modly.capability.guide',
+    title: 'Guide Capability Usage',
+    description: 'Read-only guidance for a capability against live discovery; checks health and automation capabilities without executing workflows or process runs.',
+    inputSchema: {
+      type: 'object',
+      required: ['capability'],
+      properties: {
+        capability: { type: 'string' },
+        params: { type: 'object' },
+      },
+      additionalProperties: false,
+    },
+  });
+});
+
+test('registry catalog exposes modly.diagnostic.guidance with the exact diagnostic evidence schema', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.diagnostic.guidance');
+
+  assert.deepEqual(tool, {
+    name: 'modly.diagnostic.guidance',
+    title: 'Diagnostic Guidance',
+    description: 'Read-only post-mortem guidance from observed structured failure evidence; it may consult read-only readiness snapshots, but does not execute fixes or hidden writes.',
+    inputSchema: DIAGNOSTIC_GUIDANCE_INPUT_SCHEMA,
+  });
+});
+
+test('modly.diagnostic.guidance returns conservative hypotheses using read-only automation context only', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'electron_ipc',
+    error: {
+      message: 'Extension IPC handshake failed.',
+      code: 'IPC_UNAVAILABLE',
+    },
+    planner: {
+      capability: 'scene.add',
+      reasons: ['Extension IPC is not ready for this request.'],
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Diagnostic guidance: hypothesis/extension_runtime/high.');
+  assert.equal(result.structuredContent.ok, true);
+  assert.equal(result.structuredContent.data.status, 'hypothesis');
+  assert.equal(result.structuredContent.data.category, 'extension_runtime');
+  assert.equal(result.structuredContent.data.layer, 'electron_ipc');
+  assert.equal(result.structuredContent.data.component, 'extension');
+  assert.equal(result.structuredContent.data.confidence, 'high');
+  assert.equal(result.structuredContent.data.next_check.target, 'extension_errors');
+  assert.deepEqual(result.structuredContent.data.matched_rules, [
+    'extension.error_code',
+    'extension.surface',
+    'extension.planner_reason',
+  ]);
+  assert.equal(result.structuredContent.data.evidence.some((entry) => entry.path === 'error.code'), true);
+  assert.equal(result.structuredContent.data.evidence.some((entry) => entry.path === 'planner.reasons'), true);
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.diagnostic.guidance keeps insufficient_evidence when only free-text failure data is provided', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.diagnostic.guidance', {
+    surface: 'backend_api',
+    error: {
+      message: 'Something failed.',
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Diagnostic guidance: insufficient_evidence/unknown/none.');
+  assert.equal(result.structuredContent.data.status, 'insufficient_evidence');
+  assert.equal(result.structuredContent.data.category, 'unknown');
+  assert.equal(result.structuredContent.data.confidence, 'none');
+  assert.equal(result.structuredContent.data.next_check.target, 'planner_input');
+  assert.equal(result.structuredContent.data.evidence[0].path, 'error.message');
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
 });
 
 test('registry catalog exposes modly.capability.execute with honest first-cut MVP wording', () => {
@@ -500,12 +709,136 @@ test('modly.capability.execute preserves transparent envelope when optimizer bac
             message: 'Optimizer rejected the mesh.',
           },
         },
+        diagnostic: {
+          surface: 'backend_api',
+          error: {
+            code: 'OPTIMIZER_REJECTED',
+            message: '422 Error for /process-runs',
+            details: {
+              error: {
+                code: 'OPTIMIZER_REJECTED',
+                message: 'Optimizer rejected the mesh.',
+              },
+            },
+          },
+          planner: {
+            capability: 'mesh-optimizer',
+            status: 'supported',
+            surface: 'processRun.create',
+            target: {
+              kind: 'process',
+              id: 'mesh-optimizer/optimize',
+              name: 'Optimize Mesh',
+            },
+            reasons: [
+              'Requested capability matched registry entry "mesh-optimizer".',
+              'Matched discovered id "mesh-optimizer/optimize" exactly. Discovery confirms 1 requested canonical param(s).',
+              'Mapped alias "targetFaces" to canonical param "target_faces".',
+            ],
+          },
+          capability: {
+            requested: 'mesh optimizer',
+            key: 'mesh-optimizer',
+          },
+          execution: {
+            surface: 'modly.processRun.create',
+          },
+        },
       },
     },
   });
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /automation/capabilities', 'POST /process-runs'],
+  );
+});
+
+test('modly.diagnostic.guidance consumes a real modly.capability.execute diagnostic envelope without hallucinating', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'meshes/in.glb',
+          target_faces: 12000,
+        },
+        workspace_path: 'workspace',
+      });
+
+      const error = new Error('fetch failed');
+      error.code = 'ECONNREFUSED';
+      throw error;
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const executeResult = await registry.invoke('modly.capability.execute', {
+    capability: 'mesh optimizer',
+    input: {
+      kind: 'mesh',
+      meshPath: 'meshes/in.glb',
+      workspacePath: 'workspace',
+    },
+    params: {
+      targetFaces: 12000,
+    },
+  });
+
+  const diagnosticInput = executeResult.structuredContent.data.error.diagnostic;
+  assert.equal(diagnosticInput.error.code, 'BACKEND_UNAVAILABLE');
+
+  const guidanceResult = await registry.invoke('modly.diagnostic.guidance', diagnosticInput);
+
+  assert.equal(guidanceResult.isError, undefined);
+  assert.equal(['hypothesis', 'insufficient_evidence'].includes(guidanceResult.structuredContent.data.status), true);
+
+  if (guidanceResult.structuredContent.data.status === 'hypothesis') {
+    assert.equal(guidanceResult.structuredContent.data.category, 'backend_unavailable');
+    assert.equal(['low', 'medium', 'high'].includes(guidanceResult.structuredContent.data.confidence), true);
+  } else {
+    assert.equal(guidanceResult.structuredContent.data.category, 'unknown');
+    assert.equal(guidanceResult.structuredContent.data.confidence, 'none');
+  }
+
+  assert.equal(guidanceResult.structuredContent.data.category === 'routing_bridge', false);
+  assert.equal(guidanceResult.structuredContent.data.evidence.some((entry) => entry.path === 'error.code'), true);
+  assert.ok(
+    guidanceResult.structuredContent.data.limits.some((entry) => entry.includes('Only structured evidence available to this analysis was used'))
+    || guidanceResult.structuredContent.data.status === 'insufficient_evidence',
+  );
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    [
+      'GET /health',
+      'GET /automation/capabilities',
+      'POST /process-runs',
+      'GET /health',
+      'GET /automation/capabilities',
+    ],
   );
 });
 
@@ -679,6 +1012,326 @@ test('modly.capability.plan returns unknown for closed-registry misses without e
   });
   assert.equal(result.content[0].text, 'Capability plan: unknown.');
   assertCapabilityPlannerCallsStayReadOnly(calls);
+});
+
+test('modly.capability.guide does health preflight and returns supported_now without execution', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'triposg',
+            name: 'TripoSG',
+            params_schema: [
+              { id: 'num_inference_steps', type: 'integer' },
+              { id: 'guidance_scale', type: 'number' },
+            ],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.guide', {
+    capability: 'TripoSG',
+    params: {
+      steps: 30,
+      guidance: 7.5,
+      decoder: true,
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability guidance: supported_now (triposg).');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      requested: {
+        capability: 'TripoSG',
+        params: {
+          steps: 30,
+          guidance: 7.5,
+          decoder: true,
+        },
+      },
+      status: 'supported_now',
+      capability_key: 'triposg',
+      surface: 'workflowRun',
+      target: {
+        kind: 'model',
+        id: 'triposg',
+        name: 'TripoSG',
+      },
+      available_safe_params: {
+        allowed: {
+          canonical_ids: ['num_inference_steps', 'guidance_scale', 'foreground_ratio', 'faces', 'seed', 'use_flash_decoder'],
+          aliases: {
+            cfg: 'guidance_scale',
+            decoder: 'use_flash_decoder',
+            fg_ratio: 'foreground_ratio',
+            foreground_ratio: 'foreground_ratio',
+            guidance: 'guidance_scale',
+            inference_steps: 'num_inference_steps',
+            max_faces: 'faces',
+            seed: 'seed',
+            steps: 'num_inference_steps',
+          },
+        },
+        available_now: {
+          canonical_ids: ['num_inference_steps', 'guidance_scale'],
+          aliases: {
+            cfg: 'guidance_scale',
+            guidance: 'guidance_scale',
+            inference_steps: 'num_inference_steps',
+            steps: 'num_inference_steps',
+          },
+        },
+      },
+      reasons: [
+        'Requested capability matched registry entry "triposg".',
+        'Matched discovered id "triposg" exactly. Discovery confirms 2 requested canonical param(s).',
+        'Mapped alias "steps" to canonical param "num_inference_steps".',
+        'Mapped alias "guidance" to canonical param "guidance_scale".',
+      ],
+      warnings: [
+        'Discarded param "decoder": canonical param "use_flash_decoder" is not available in discovery params_schema.',
+      ],
+      discovered_extras: [],
+    },
+  });
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.guide returns processRun guidance for known process capability without POSTs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-optimizer/optimize',
+            name: 'Optimize Mesh',
+            params_schema: [{ id: 'target_faces', type: 'integer' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.guide', {
+    capability: 'mesh optimizer',
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability guidance: supported_now (mesh-optimizer).');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      requested: {
+        capability: 'mesh optimizer',
+        params: {},
+      },
+      status: 'supported_now',
+      capability_key: 'mesh-optimizer',
+      surface: 'processRun',
+      target: {
+        kind: 'process',
+        id: 'mesh-optimizer/optimize',
+        name: 'Optimize Mesh',
+      },
+      available_safe_params: {
+        allowed: {
+          canonical_ids: ['target_faces'],
+          aliases: {
+            targetFaces: 'target_faces',
+          },
+        },
+        available_now: {
+          canonical_ids: ['target_faces'],
+          aliases: {
+            targetFaces: 'target_faces',
+          },
+        },
+      },
+      reasons: [
+        'Requested capability matched registry entry "mesh-optimizer".',
+        'Matched discovered id "mesh-optimizer/optimize" exactly.',
+      ],
+      warnings: [],
+      discovered_extras: [],
+    },
+  });
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.guide returns BACKEND_UNAVAILABLE when health preflight fails', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    assert.equal(path, '/health');
+    throw new Error('connect ECONNREFUSED');
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.guide', {
+    capability: 'TripoSG',
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'BACKEND_UNAVAILABLE');
+  assert.equal(result.structuredContent.error.message, 'Modly backend is unavailable.');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, '/health');
+});
+
+test('modly.capability.guide returns discovered_only for observable items outside the closed registry', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [
+          {
+            id: 'mesh-exporter/export',
+            name: 'Mesh Exporter',
+            params_schema: [{ id: 'output_format', type: 'string' }],
+          },
+        ],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.guide', {
+    capability: 'mesh-exporter/export',
+    params: { output_format: 'glb' },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability guidance: discovered_only.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      requested: {
+        capability: 'mesh-exporter/export',
+        params: { output_format: 'glb' },
+      },
+      status: 'discovered_only',
+      capability_key: null,
+      surface: 'none',
+      target: null,
+      available_safe_params: {
+        allowed: { canonical_ids: [], aliases: {} },
+        available_now: { canonical_ids: [], aliases: {} },
+      },
+      reasons: [
+        'Requested capability did not match the closed smart-capability registry.',
+        'Discovery exposes id "mesh-exporter/export", but it is outside the closed registry.',
+      ],
+      warnings: [],
+      discovered_extras: [
+        {
+          kind: 'process',
+          id: 'mesh-exporter/export',
+          name: 'Mesh Exporter',
+          status: 'discovered_only',
+          surface: 'none',
+        },
+      ],
+    },
+  });
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
+});
+
+test('modly.capability.guide keeps ambiguous ties non-executable and read-only', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'community-hunyuan3d-mini-a',
+            name: 'Community Hunyuan3D Mini A',
+            params_schema: [{ id: 'seed', type: 'integer' }],
+          },
+          {
+            id: 'community-hunyuan3d-mini-b',
+            name: 'Community Hunyuan3D Mini B',
+            params_schema: [{ id: 'seed', type: 'integer' }],
+          },
+        ],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.capability.guide', {
+    capability: 'Hunyuan3D',
+    params: { seed: 99 },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Capability guidance: known_but_unavailable (hunyuan3d).');
+  assert.equal(result.structuredContent.ok, true);
+  assert.equal(result.structuredContent.data.status, 'known_but_unavailable');
+  assert.equal(result.structuredContent.data.capability_key, 'hunyuan3d');
+  assert.equal(result.structuredContent.data.surface, 'none');
+  assert.equal(result.structuredContent.data.target, null);
+  assert.deepEqual(result.structuredContent.data.available_safe_params.available_now, {
+    canonical_ids: ['seed'],
+    aliases: {
+      seed: 'seed',
+    },
+  });
+  assert.ok(result.structuredContent.data.warnings.some((warning) => warning.includes('multiple equivalent candidates')));
+  assert.ok(result.structuredContent.data.reasons.some((reason) => reason.includes('remain tied')));
+  assertCapabilityPlannerCallsStayReadOnly(calls);
+  assertNoCapabilityExecutionPosts(calls);
 });
 
 test('modly.capability.execute dispatches image input to workflowRun.createFromImage with stable envelope', { concurrency: false }, async (t) => {

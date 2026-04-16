@@ -11,7 +11,14 @@ import { createToolHandlers } from './handlers.mjs';
 
 const MAX_INPUT_PROPERTIES = 8;
 const MAX_TEXT_LENGTH = 180;
-const PREFLIGHT_EXEMPT_TOOLS = new Set(['modly.capabilities.get', 'modly.capability.plan', 'modly.capability.execute', 'modly.health']);
+const PREFLIGHT_EXEMPT_TOOLS = new Set([
+  'modly.capabilities.get',
+  'modly.capability.plan',
+  'modly.capability.guide',
+  'modly.diagnostic.guidance',
+  'modly.capability.execute',
+  'modly.health',
+]);
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

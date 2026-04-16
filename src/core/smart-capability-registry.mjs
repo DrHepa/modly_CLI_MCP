@@ -113,6 +113,11 @@ export const KNOWN_CAPABILITIES = deepFreeze([
   },
 ]);
 
+export const OBSERVABLE_MVP_SURFACES = deepFreeze({
+  'workflowRun.createFromImage': 'workflowRun',
+  'processRun.create': 'processRun',
+});
+
 function normalizeText(value) {
   return typeof value === 'string'
     ? value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
@@ -133,4 +138,33 @@ export function findKnownCapability(requestedCapability) {
 
     return capability.labels.some((label) => normalizeText(label) === normalizedRequested);
   }) ?? null;
+}
+
+export function getObservableMvpSurface(surface) {
+  const normalizedSurface = typeof surface === 'string' ? surface.trim() : '';
+  return OBSERVABLE_MVP_SURFACES[normalizedSurface] ?? 'none';
+}
+
+export function getCapabilityGuideMetadata(requestedCapability) {
+  const capability = findKnownCapability(requestedCapability);
+
+  if (capability === null) {
+    return null;
+  }
+
+  return deepFreeze({
+    key: capability.key,
+    availability: capability.availability,
+    capabilityExecuteSupported: capability.capabilityExecuteSupported === true,
+    target: {
+      kind: capability.target.kind,
+      observableSurface: getObservableMvpSurface(capability.target.surface),
+      ids: [...capability.target.ids],
+      names: [...capability.target.names],
+    },
+    safeParams: {
+      canonicalIds: [...capability.safeParams.canonicalIds],
+      aliases: { ...capability.safeParams.aliases },
+    },
+  });
 }

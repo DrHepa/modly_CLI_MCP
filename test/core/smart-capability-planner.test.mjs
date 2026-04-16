@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planSmartCapability } from '../../src/core/smart-capability-planner.mjs';
+import { evaluateCapabilityGuidance, planSmartCapability } from '../../src/core/smart-capability-planner.mjs';
 
 test('planner returns supported result with safe alias mapping and dropped unknown params', () => {
   const discovery = {
@@ -290,4 +290,269 @@ test('planner accepts canonical params directly and keeps alias mapping limited 
   ]);
   assert.ok(result.reasons.some((reason) => reason.includes('Mapped alias "steps" to canonical param "num_inference_steps"')));
   assert.equal(result.reasons.some((reason) => reason.includes('Mapped alias "prompt"')), false);
+});
+
+test('guidance returns supported_now with observable surface and live safe params', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'TripoSG',
+    params: {
+      steps: 30,
+      guidance: 7.5,
+      unsupported_param: true,
+    },
+  }, {
+    models: [
+      {
+        id: 'triposg',
+        name: 'TripoSG',
+        params_schema: [
+          { id: 'num_inference_steps' },
+          { id: 'guidance_scale' },
+        ],
+      },
+    ],
+    processes: [],
+  });
+
+  assert.equal(result.status, 'supported_now');
+  assert.equal(result.capability_key, 'triposg');
+  assert.equal(result.surface, 'workflowRun');
+  assert.deepEqual(result.target, {
+    kind: 'model',
+    id: 'triposg',
+    name: 'TripoSG',
+  });
+  assert.deepEqual(result.available_safe_params, {
+    allowed: {
+      canonical_ids: ['num_inference_steps', 'guidance_scale', 'foreground_ratio', 'faces', 'seed', 'use_flash_decoder'],
+      aliases: {
+        cfg: 'guidance_scale',
+        decoder: 'use_flash_decoder',
+        fg_ratio: 'foreground_ratio',
+        foreground_ratio: 'foreground_ratio',
+        guidance: 'guidance_scale',
+        inference_steps: 'num_inference_steps',
+        max_faces: 'faces',
+        seed: 'seed',
+        steps: 'num_inference_steps',
+      },
+    },
+    available_now: {
+      canonical_ids: ['num_inference_steps', 'guidance_scale'],
+      aliases: {
+        cfg: 'guidance_scale',
+        guidance: 'guidance_scale',
+        inference_steps: 'num_inference_steps',
+        steps: 'num_inference_steps',
+      },
+    },
+  });
+  assert.ok(result.warnings.some((warning) => warning.includes('unsupported_param')));
+  assert.deepEqual(result.discovered_extras, []);
+});
+
+test('guidance returns known process capability with processRun surface', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'mesh optimizer',
+  }, {
+    models: [],
+    processes: [
+      {
+        id: 'mesh-optimizer/optimize',
+        name: 'Optimize Mesh',
+        params_schema: [
+          { id: 'target_faces' },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.status, 'supported_now');
+  assert.equal(result.capability_key, 'mesh-optimizer');
+  assert.equal(result.surface, 'processRun');
+  assert.deepEqual(result.target, {
+    kind: 'process',
+    id: 'mesh-optimizer/optimize',
+    name: 'Optimize Mesh',
+  });
+  assert.deepEqual(result.available_safe_params.available_now, {
+    canonical_ids: ['target_faces'],
+    aliases: {
+      targetFaces: 'target_faces',
+    },
+  });
+  assert.ok(result.reasons.some((reason) => reason.includes('mesh-optimizer/optimize')));
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.discovered_extras, []);
+});
+
+test('guidance classification stays explicit across supported_now, known_but_unavailable, and discovered_only', () => {
+  const supportedNow = evaluateCapabilityGuidance({
+    capability: 'TripoSG',
+    params: { steps: 30, decoder: true },
+  }, {
+    models: [
+      {
+        id: 'triposg',
+        name: 'TripoSG',
+        params_schema: [
+          { id: 'num_inference_steps' },
+        ],
+      },
+    ],
+    processes: [],
+  });
+
+  const knownButUnavailable = evaluateCapabilityGuidance({
+    capability: 'Hunyuan3D',
+    params: { quality: 40, steps: 12 },
+  }, {
+    models: [],
+    processes: [],
+  });
+
+  const discoveredOnly = evaluateCapabilityGuidance({
+    capability: 'mesh-exporter/export',
+  }, {
+    models: [],
+    processes: [
+      {
+        id: 'mesh-exporter/export',
+        name: 'Mesh Exporter',
+        params_schema: [{ id: 'output_format' }],
+      },
+    ],
+  });
+
+  assert.equal(supportedNow.status, 'supported_now');
+  assert.deepEqual(supportedNow.available_safe_params.available_now, {
+    canonical_ids: ['num_inference_steps'],
+    aliases: {
+      inference_steps: 'num_inference_steps',
+      steps: 'num_inference_steps',
+    },
+  });
+  assert.deepEqual(supportedNow.target, {
+    kind: 'model',
+    id: 'triposg',
+    name: 'TripoSG',
+  });
+  assert.ok(supportedNow.warnings.some((warning) => warning.includes('decoder')));
+
+  assert.equal(knownButUnavailable.status, 'known_but_unavailable');
+  assert.equal(knownButUnavailable.surface, 'none');
+  assert.equal(knownButUnavailable.target, null);
+  assert.deepEqual(knownButUnavailable.available_safe_params.available_now, {
+    canonical_ids: [],
+    aliases: {},
+  });
+  assert.ok(knownButUnavailable.warnings.some((warning) => warning.includes('num_inference_steps')));
+
+  assert.equal(discoveredOnly.status, 'discovered_only');
+  assert.equal(discoveredOnly.capability_key, null);
+  assert.equal(discoveredOnly.surface, 'none');
+  assert.equal(discoveredOnly.target, null);
+});
+
+test('guidance keeps UniRig as known_but_unavailable with surface none', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'UniRig',
+    params: { seed: 12345 },
+  }, {
+    models: [],
+    processes: [
+      {
+        extension_id: 'unirig-process-extension',
+        node_id: 'rig-mesh',
+        name: 'Rig Mesh',
+        params_schema: {
+          seed: { type: 'int' },
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.capability_key, 'unirig');
+  assert.equal(result.surface, 'none');
+  assert.equal(result.target, null);
+  assert.deepEqual(result.available_safe_params.available_now, {
+    canonical_ids: ['seed'],
+    aliases: {
+      seed: 'seed',
+    },
+  });
+  assert.ok(result.reasons.some((reason) => reason.includes('intentionally unavailable')));
+  assert.ok(result.reasons.some((reason) => reason.includes('closed capability-execute allowlist')));
+});
+
+test('guidance returns discovered_only for observable discovery outside the closed registry', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'mesh-exporter/export',
+    params: { output_format: 'glb' },
+  }, {
+    models: [],
+    processes: [
+      {
+        id: 'mesh-exporter/export',
+        name: 'Mesh Exporter',
+        params_schema: [
+          { id: 'output_format' },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(result.status, 'discovered_only');
+  assert.equal(result.capability_key, null);
+  assert.equal(result.surface, 'none');
+  assert.equal(result.target, null);
+  assert.deepEqual(result.available_safe_params, {
+    allowed: { canonical_ids: [], aliases: {} },
+    available_now: { canonical_ids: [], aliases: {} },
+  });
+  assert.ok(result.reasons.some((reason) => reason.includes('outside the closed registry')));
+  assert.deepEqual(result.discovered_extras, [
+    {
+      kind: 'process',
+      id: 'mesh-exporter/export',
+      name: 'Mesh Exporter',
+      status: 'discovered_only',
+      surface: 'none',
+    },
+  ]);
+});
+
+test('guidance does not auto-select tied candidates and keeps surface none', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'Hunyuan3D',
+    params: { seed: 99 },
+  }, {
+    models: [
+      {
+        id: 'community-hunyuan3d-mini-a',
+        name: 'Community Hunyuan3D Mini A',
+        params_schema: [{ id: 'seed' }],
+      },
+      {
+        id: 'community-hunyuan3d-mini-b',
+        name: 'Community Hunyuan3D Mini B',
+        params_schema: [{ id: 'seed' }],
+      },
+    ],
+    processes: [],
+  });
+
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.capability_key, 'hunyuan3d');
+  assert.equal(result.surface, 'none');
+  assert.equal(result.target, null);
+  assert.deepEqual(result.available_safe_params.available_now, {
+    canonical_ids: ['seed'],
+    aliases: {
+      seed: 'seed',
+    },
+  });
+  assert.ok(result.warnings.some((warning) => warning.includes('multiple equivalent candidates')));
+  assert.ok(result.reasons.some((reason) => reason.includes('remain tied')));
 });
