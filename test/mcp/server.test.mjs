@@ -9,7 +9,6 @@ const EXPECTED_TOOLS = [
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
-  'modly.recipe.execute',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -27,7 +26,13 @@ const EXPECTED_TOOLS = [
   'modly.processRun.cancel',
 ];
 
-test('stdio server advertises exactly the MVP tool catalog', async () => {
+const EXPECTED_TOOLS_WITH_EXPERIMENTAL_RECIPE = [
+  ...EXPECTED_TOOLS.slice(0, 5),
+  'modly.recipe.execute',
+  ...EXPECTED_TOOLS.slice(5),
+];
+
+test('stdio server hides modly.recipe.execute by default from the advertised tool catalog', async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ['./src/mcp/server.mjs'],
@@ -44,6 +49,32 @@ test('stdio server advertises exactly the MVP tool catalog', async () => {
     const names = result.tools.map((tool) => tool.name);
 
     assert.deepEqual(names, EXPECTED_TOOLS);
+  } finally {
+    await client.close().catch(() => {});
+    await transport.close().catch(() => {});
+  }
+});
+
+test('stdio server advertises modly.recipe.execute when experimental recipe execution is enabled', async () => {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ['./src/mcp/server.mjs'],
+    cwd: process.cwd(),
+    env: {
+      MODLY_API_URL: 'http://127.0.0.1:8765',
+      MODLY_EXPERIMENTAL_RECIPE_EXECUTE: '1',
+    },
+    stderr: 'pipe',
+  });
+
+  const client = new Client({ name: 'modly-cli-mcp-tests', version: '0.1.0' });
+
+  try {
+    await client.connect(transport);
+    const result = await client.listTools();
+    const names = result.tools.map((tool) => tool.name);
+
+    assert.deepEqual(names, EXPECTED_TOOLS_WITH_EXPERIMENTAL_RECIPE);
   } finally {
     await client.close().catch(() => {});
     await transport.close().catch(() => {});

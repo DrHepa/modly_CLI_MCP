@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveAutomationCapabilitiesUrl, resolveProcessRunsUrl } from '../../src/core/config.mjs';
+import {
+  resolveAutomationCapabilitiesUrl,
+  resolveProcessRunsUrl,
+  resolveRuntimeConfig,
+} from '../../src/core/config.mjs';
 
 test('resolveAutomationCapabilitiesUrl gives precedence to MODLY_AUTOMATION_URL', () => {
   const result = resolveAutomationCapabilitiesUrl({
@@ -83,4 +87,29 @@ test('resolveProcessRunsUrl derives the bridge origin from apiUrl and ignores ex
       process.env.MODLY_PROCESS_URL = originalProcessUrl;
     }
   }
+});
+
+test('resolveRuntimeConfig defaults experimentalRecipeExecution to false', () => {
+  const config = resolveRuntimeConfig({ argv: [], env: {} });
+
+  assert.equal(config.experimentalRecipeExecution, false);
+});
+
+test('resolveRuntimeConfig enables experimentalRecipeExecution from env opt-in', () => {
+  const config = resolveRuntimeConfig({
+    argv: [],
+    env: { MODLY_EXPERIMENTAL_RECIPE_EXECUTE: 'true' },
+  });
+
+  assert.equal(config.experimentalRecipeExecution, true);
+});
+
+test('resolveRuntimeConfig gives explicit experimentalRecipeExecution override precedence over env', () => {
+  const config = resolveRuntimeConfig({
+    argv: [],
+    env: { MODLY_EXPERIMENTAL_RECIPE_EXECUTE: 'false' },
+    experimentalRecipeExecution: true,
+  });
+
+  assert.equal(config.experimentalRecipeExecution, true);
 });

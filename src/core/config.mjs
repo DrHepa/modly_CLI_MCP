@@ -32,6 +32,26 @@ export function resolveProcessRunsUrl({
   return url.toString();
 }
 
+function resolveExperimentalRecipeExecutionFlag(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case '1':
+    case 'true':
+    case 'yes':
+    case 'on':
+      return true;
+    default:
+      return false;
+  }
+}
+
 export function parseGlobalOptions(argv = []) {
   const options = {
     apiUrl: undefined,
@@ -72,7 +92,11 @@ export function parseGlobalOptions(argv = []) {
   return { options, positionals };
 }
 
-export function resolveRuntimeConfig({ argv = [], env = process.env } = {}) {
+export function resolveRuntimeConfig({
+  argv = [],
+  env = process.env,
+  experimentalRecipeExecution,
+} = {}) {
   const { options, positionals } = parseGlobalOptions(argv);
 
   return {
@@ -81,5 +105,7 @@ export function resolveRuntimeConfig({ argv = [], env = process.env } = {}) {
     help: options.help,
     argv,
     positionals,
+    experimentalRecipeExecution:
+      experimentalRecipeExecution ?? resolveExperimentalRecipeExecutionFlag(env.MODLY_EXPERIMENTAL_RECIPE_EXECUTE),
   };
 }

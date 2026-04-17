@@ -182,6 +182,13 @@ function getRecipeResume(result) {
   return result.structuredContent.data.nextAction.input.options.resume;
 }
 
+function createRecipeRegistry() {
+  return createToolRegistry({
+    apiUrl: 'http://127.0.0.1:8765',
+    experimentalRecipeExecution: true,
+  });
+}
+
 test('registry catalog exposes modly.capabilities.get with empty input schema', () => {
   const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
   const tool = registry.catalog.find((entry) => entry.name === 'modly.capabilities.get');
@@ -358,8 +365,15 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
   });
 });
 
-test('registry catalog exposes modly.recipe.execute with closed recipe v1 polling-first wording', () => {
+test('registry catalog hides modly.recipe.execute by default when experimental execution is disabled', () => {
   const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.recipe.execute');
+
+  assert.equal(tool, undefined);
+});
+
+test('registry catalog exposes modly.recipe.execute with closed recipe v1 polling-first wording when experimental execution is enabled', () => {
+  const registry = createRecipeRegistry();
   const tool = registry.catalog.find((entry) => entry.name === 'modly.recipe.execute');
 
   assert.deepEqual(tool, {
@@ -387,6 +401,34 @@ test('registry catalog exposes modly.recipe.execute with closed recipe v1 pollin
       additionalProperties: false,
     },
   });
+});
+
+test('modly.recipe.execute fails closed before validation, preflight, or handler work when experimental execution is disabled', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path }) => {
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'not_in_allowlist',
+    input: {
+      imagePath: '',
+    }
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.ok, false);
+  assert.equal(result.structuredContent.error.code, 'EXPERIMENTAL_FEATURE_DISABLED');
+  assert.equal(result.structuredContent.error.message, 'modly.recipe.execute requires explicit opt-in.');
+  assert.deepEqual(result.structuredContent.error.details, {
+    tool: 'modly.recipe.execute',
+    flag: 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE',
+    reason: 'experimental_feature_disabled',
+  });
+  assert.equal(result.content[0].text, 'modly.recipe.execute requires explicit opt-in.');
+  assert.deepEqual(calls, []);
 });
 
 test('modly.capability.execute dispatches optimizer input to processRun.create with transparent envelope', { concurrency: false }, async (t) => {
@@ -1726,7 +1768,7 @@ test('modly.recipe.execute first call creates exactly one workflow run and retur
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh',
     input: {
@@ -1820,7 +1862,7 @@ test('modly.recipe.execute bypasses planner model discovery when /model/all expo
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh',
     input: {
@@ -1868,7 +1910,7 @@ test('modly.recipe.execute fails before workflow launch when input.modelId is ab
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh',
     input: {
@@ -1905,7 +1947,7 @@ test('modly.recipe.execute rejects recipes outside the closed v1 allowlist befor
     throw new Error('Unexpected fetch for closed recipe validation.');
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'custom_goal',
     input: {},
@@ -2025,7 +2067,7 @@ test('modly.recipe.execute resume polls active run, advances one next step, and 
     throw new Error(`Unexpected path in phase ${phase}: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
 
   const first = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_optimized',
@@ -2217,7 +2259,7 @@ test('modly.recipe.execute returns partial_failed after downstream process failu
     throw new Error(`Unexpected path in phase ${phase}: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
 
   const first = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_optimized',
@@ -2297,7 +2339,7 @@ test('modly.recipe.execute terminalizes failed plus pending resume states withou
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_optimized',
     input: {
@@ -2368,7 +2410,7 @@ test('modly.recipe.execute keeps recipe running when resume still has a running 
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_optimized',
     input: {
@@ -2435,7 +2477,7 @@ test('modly.recipe.execute keeps export_mesh planner-gated on resume when export
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_exported',
     input: {
@@ -2537,7 +2579,7 @@ test('modly.recipe.execute fails explicitly when a required output is missing be
     throw new Error(`Unexpected path in phase ${phase}: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
 
   const first = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_exported',
@@ -2592,7 +2634,7 @@ test('modly.recipe.execute rejects exporter outputPath outside the default_outpu
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_exported',
     input: {
@@ -2622,7 +2664,7 @@ test('modly.recipe.execute rejects exporter params.output_path outside the defau
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh_exported',
     input: {
@@ -2664,7 +2706,7 @@ test('modly.recipe.execute short-circuits with an explicit backend-not-ready env
     throw new Error(`Unexpected path: ${path}`);
   });
 
-  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const registry = createRecipeRegistry();
   const result = await registry.invoke('modly.recipe.execute', {
     recipe: 'image_to_mesh',
     input: {

@@ -72,8 +72,13 @@ Use this skill when the user asks to:
    - If the planner says `known_but_unavailable` or `unknown`, stop and explain; do not execute optimistically.
 
 10. **Be honest about persistence**
-   - FastAPI `settings/paths` updates runtime registry paths only.
-   - It does not persist Electron desktop settings.
+    - FastAPI `settings/paths` updates runtime registry paths only.
+    - It does not persist Electron desktop settings.
+
+11. **Treat recipe execution as experimental**
+    - `modly.recipe.execute` is experimental, opt-in, hidden by default, and disabled unless `MODLY_EXPERIMENTAL_RECIPE_EXECUTE` is set.
+    - Do NOT assume recipe execution is available in the public MCP catalog.
+    - When guiding operators, name `MODLY_EXPERIMENTAL_RECIPE_EXECUTE` exactly; do not invent alternate flags.
 
 ## Allowed
 

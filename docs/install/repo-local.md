@@ -95,6 +95,14 @@ node tools/modly_mcp/run_server.mjs --check
 - FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`).
 - capabilities and process-runs use the Electron automation bridge on `:8766`.
 - The installed package derives those bridge URLs automatically unless you override them explicitly.
+- `modly.recipe.execute` is experimental, opt-in, hidden by default, and disabled unless the wrapper environment sets `MODLY_EXPERIMENTAL_RECIPE_EXECUTE=1`.
+- Without `MODLY_EXPERIMENTAL_RECIPE_EXECUTE`, the recipe tool is not advertised in the public MCP catalog.
+
+If you need experimental recipe execution in a consumer repository, add the flag to the wrapper environment explicitly:
+
+```dotenv
+MODLY_EXPERIMENTAL_RECIPE_EXECUTE=1
+```
 
 ## When to choose global vs repo-local
 

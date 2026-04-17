@@ -66,7 +66,13 @@ It does **not** execute unknown capabilities, UI-only nodes, `UniRig`, generic p
 
 `scene_candidate` is treated as **descriptive output only**, not as a scene mutation.
 
-`modly.recipe.execute` is the guided orchestration layer for the MVP, and it remains intentionally CLOSED:
+`modly.recipe.execute` is the guided orchestration layer for the MVP, and it remains EXPERIMENTAL and default-off.
+It is hidden by default and disabled unless you opt in with `MODLY_EXPERIMENTAL_RECIPE_EXECUTE`.
+
+When the flag is not set, `modly.recipe.execute` is absent from the advertised MCP catalog and direct invocation stays disabled.
+Only enable it deliberately for experimental recipe testing.
+
+When enabled, the tool remains intentionally constrained:
 
 - recipes v1 only: `image_to_mesh`, `image_to_mesh_optimized`, `image_to_mesh_exported`
 - polling-first only: the first call may start work, then clients MUST continue with `options.resume`
@@ -177,6 +183,9 @@ See:
 
 ## Guided recipe MVP (`modly.recipe.execute`)
 
+- `modly.recipe.execute` is experimental, opt-in, and hidden by default.
+- Enable it only with `MODLY_EXPERIMENTAL_RECIPE_EXECUTE`.
+- Without that flag, the tool stays disabled and is not advertised in the public MCP catalog.
 - `modly.recipe.execute` runs one allowlisted recipe over the existing capability/workflow/process surfaces; it is NOT a generic workflow engine.
 - Supported recipes v1 are exactly `image_to_mesh`, `image_to_mesh_optimized`, and `image_to_mesh_exported`.
 - `image_to_mesh_exported` stays within the exporter `default_output_only` slice. Custom `input.export.outputPath` and `input.export.params.output_path` are out of scope and rejected.

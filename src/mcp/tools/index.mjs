@@ -33,6 +33,23 @@ const PREFLIGHT_EXEMPT_TOOLS = new Set([
   'modly.capability.execute',
   'modly.health',
 ]);
+const EXPERIMENTAL_RECIPE_TOOL = 'modly.recipe.execute';
+const EXPERIMENTAL_RECIPE_FLAG = 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE';
+
+function isExperimentalRecipeDisabled({ name, experimentalRecipeExecution }) {
+  return name === EXPERIMENTAL_RECIPE_TOOL && experimentalRecipeExecution !== true;
+}
+
+function createExperimentalRecipeDisabledError() {
+  return new ModlyError(`${EXPERIMENTAL_RECIPE_TOOL} requires explicit opt-in.`, {
+    code: 'EXPERIMENTAL_FEATURE_DISABLED',
+    details: {
+      tool: EXPERIMENTAL_RECIPE_TOOL,
+      flag: EXPERIMENTAL_RECIPE_FLAG,
+      reason: 'experimental_feature_disabled',
+    },
+  });
+}
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -516,13 +533,16 @@ function createErrorResult({ toolName, error }) {
   };
 }
 
-export function createToolRegistry({ apiUrl }) {
+export function createToolRegistry({ apiUrl, experimentalRecipeExecution = false }) {
   const client = createModlyApiClient({ apiUrl });
   const handlers = createToolHandlers({ client, apiUrl });
   const catalogByName = new Map(MCP_TOOL_CATALOG.map((tool) => [tool.name, tool]));
+  const publicCatalog = MCP_TOOL_CATALOG.filter(
+    (tool) => !isExperimentalRecipeDisabled({ name: tool.name, experimentalRecipeExecution }),
+  );
 
   return {
-    catalog: MCP_TOOL_CATALOG,
+    catalog: publicCatalog,
     client,
     async invoke(name, args = {}) {
       const tool = catalogByName.get(name);
@@ -531,6 +551,13 @@ export function createToolRegistry({ apiUrl }) {
         return createErrorResult({
           toolName: name,
           error: new UnsupportedOperationError(`Unknown MCP tool: ${name}`, { code: 'UNSUPPORTED_OPERATION' }),
+        });
+      }
+
+      if (isExperimentalRecipeDisabled({ name, experimentalRecipeExecution })) {
+        return createErrorResult({
+          toolName: name,
+          error: createExperimentalRecipeDisabledError(),
         });
       }
 

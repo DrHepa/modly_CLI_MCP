@@ -117,7 +117,10 @@ async function main(argv = process.argv.slice(2)) {
     throw new UsageError('The MCP server runs only over stdio. Start it with the installable `modly-mcp` bin (or `node ./src/mcp/server.mjs` for local development) and connect with an MCP client.');
   }
 
-  const registry = createToolRegistry({ apiUrl: config.apiUrl });
+  const registry = createToolRegistry({
+    apiUrl: config.apiUrl,
+    experimentalRecipeExecution: config.experimentalRecipeExecution,
+  });
   const server = createMcpServer({ registry });
   const transport = new StdioServerTransport();
 
