@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { OPEN_INPUT_PATH_ALLOWLIST, createToolRegistry, matchesOpenInputPath } from '../../src/mcp/tools/index.mjs';
+import { deriveRecipeStatusFromSteps } from '../../src/mcp/tools/handlers.mjs';
 
 function notFoundResponse(message) {
   return jsonResponse({ detail: message }, { status: 404, statusText: 'Not Found' });
@@ -1714,7 +1715,7 @@ test('modly.recipe.execute first call creates exactly one workflow run and retur
       const body = init.body;
       assert.equal(body instanceof FormData, true);
       assert.equal(body.get('model_id'), 'triposg');
-      assert.equal(body.get('params'), JSON.stringify({ num_inference_steps: 28 }));
+      assert.equal(body.get('params'), JSON.stringify({ steps: 28 }));
       return jsonResponse({
         run_id: 'recipe-workflow-1',
         status: 'queued',
@@ -1770,6 +1771,130 @@ test('modly.recipe.execute first call creates exactly one workflow run and retur
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}${call.search}`),
     ['GET /health', 'GET /health', 'GET /automation/capabilities', 'GET /model/all', 'POST /workflow-runs/from-image'],
+  );
+});
+
+test('deriveRecipeStatusFromSteps returns partial_failed for failed plus pending after prior success', () => {
+  assert.equal(deriveRecipeStatusFromSteps([
+    { id: 'generate_mesh', status: 'succeeded' },
+    { id: 'optimize_mesh', status: 'failed' },
+    { id: 'publish_mesh', status: 'pending' },
+  ]), 'partial_failed');
+});
+
+test('modly.recipe.execute bypasses planner model discovery when /model/all exposes the canonical model id', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'canon-bypass-1', name: 'Canonical Bypass 1' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(method, 'POST');
+      const body = init.body;
+      assert.equal(body instanceof FormData, true);
+      assert.equal(body.get('model_id'), 'canon-bypass-1');
+      assert.equal(body.get('params'), JSON.stringify({ seed: 7 }));
+      return jsonResponse({
+        run_id: 'recipe-workflow-bypass',
+        status: 'queued',
+        progress: 0,
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh',
+    input: {
+      imagePath,
+      modelId: 'canon-bypass-1',
+      modelParams: { seed: 7 },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh: running.');
+  assert.equal(result.structuredContent.data.status, 'running');
+  assert.equal(result.structuredContent.data.steps[0].status, 'running');
+  assert.equal(result.structuredContent.data.steps[0].run.runId, 'recipe-workflow-bypass');
+  assert.equal(result.structuredContent.data.nextAction.kind, 'poll');
+  assert.equal(calls.filter((call) => call.method === 'POST' && call.path === '/workflow-runs/from-image').length, 1);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities', 'GET /model/all', 'POST /workflow-runs/from-image'],
+  );
+});
+
+test('modly.recipe.execute fails before workflow launch when input.modelId is absent from /model/all', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'triposg', name: 'TripoSG' }] });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh',
+    input: {
+      imagePath,
+      modelId: 'missing-model',
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh: failed.');
+  assert.equal(result.structuredContent.data.status, 'failed');
+  assert.equal(result.structuredContent.data.nextAction.kind, 'none');
+  assert.equal(result.structuredContent.data.steps[0].status, 'failed');
+  assert.deepEqual(result.structuredContent.data.steps[0].error, {
+    code: 'VALIDATION_ERROR',
+    message: 'Unknown canonical modelId: missing-model.',
+    details: {
+      field: 'modelId',
+      reason: 'non_canonical_model_id',
+      modelId: 'missing-model',
+    },
+  });
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/workflow-runs/from-image'), false);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities', 'GET /model/all'],
   );
 });
 
@@ -2149,6 +2274,215 @@ test('modly.recipe.execute returns partial_failed after downstream process failu
     message: 'Optimizer failed after launch.',
   });
   assert.equal(calls.filter((call) => call.method === 'POST').length, 2);
+});
+
+test('modly.recipe.execute terminalizes failed plus pending resume states without suggesting more polling', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [{ id: 'triposg', name: 'TripoSG' }],
+        processes: [{ id: 'mesh-optimizer/optimize', name: 'Optimize Mesh', params_schema: [] }],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+    options: {
+      resume: {
+        steps: [
+          {
+            id: 'generate_mesh',
+            status: 'failed',
+            error: {
+              code: 'WORKFLOW_FAILED',
+              message: 'Workflow failed before producing outputs.',
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh_optimized: failed.');
+  assert.equal(result.structuredContent.data.status, 'failed');
+  assert.equal(result.structuredContent.data.nextAction.kind, 'none');
+  assert.equal(result.structuredContent.data.steps[0].status, 'failed');
+  assert.equal(result.structuredContent.data.steps[1].status, 'pending');
+  assert.equal(calls.some((call) => call.path === '/workflow-runs/from-image'), false);
+  assert.equal(calls.some((call) => call.path === '/process-runs'), false);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities'],
+  );
+});
+
+test('modly.recipe.execute keeps recipe running when resume still has a running step plus pending work', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path, method }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [{ id: 'triposg', name: 'TripoSG' }],
+        processes: [{ id: 'mesh-optimizer/optimize', name: 'Optimize Mesh', params_schema: [] }],
+        errors: [],
+      });
+    }
+
+    if (path === '/workflow-runs/running-recipe-workflow') {
+      assert.equal(method, 'GET');
+      return jsonResponse({
+        run_id: 'running-recipe-workflow',
+        status: 'running',
+        progress: 42,
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_optimized',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      optimize: {
+        outputPath: 'workspace/optimized.glb',
+        params: { targetFaces: 12000 },
+      },
+    },
+    options: {
+      resume: {
+        steps: [
+          {
+            id: 'generate_mesh',
+            status: 'running',
+            run: {
+              kind: 'workflowRun',
+              runId: 'running-recipe-workflow',
+              status: 'queued',
+            },
+            poll: {
+              tool: 'modly.workflowRun.status',
+              input: { runId: 'running-recipe-workflow' },
+              intervalMs: 1000,
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh_optimized: running.');
+  assert.equal(result.structuredContent.data.status, 'running');
+  assert.equal(result.structuredContent.data.nextAction.kind, 'poll');
+  assert.equal(result.structuredContent.data.steps[0].status, 'running');
+  assert.equal(result.structuredContent.data.steps[1].status, 'pending');
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), false);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities', 'GET /workflow-runs/running-recipe-workflow'],
+  );
+});
+
+test('modly.recipe.execute keeps export_mesh planner-gated on resume when exporter support is unavailable', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [{ id: 'triposg', name: 'TripoSG' }],
+        processes: [],
+        errors: [],
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'image_to_mesh_exported',
+    input: {
+      imagePath,
+      modelId: 'triposg',
+      export: { outputFormat: 'glb' },
+    },
+    options: {
+      resume: {
+        steps: [
+          {
+            id: 'generate_mesh',
+            status: 'succeeded',
+            outputs: {
+              meshPath: 'workspace/generated.glb',
+              sceneCandidate: { path: 'workspace/generated.glb' },
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe image_to_mesh_exported: partial_failed.');
+  assert.equal(result.structuredContent.data.status, 'partial_failed');
+  assert.equal(result.structuredContent.data.nextAction.kind, 'none');
+  assert.equal(result.structuredContent.data.steps[0].status, 'succeeded');
+  assert.equal(result.structuredContent.data.steps[1].status, 'failed');
+  assert.deepEqual(result.structuredContent.data.steps[1].error, {
+    code: 'VALIDATION_ERROR',
+    message: 'Recipe step export_mesh is unavailable for image_to_mesh_exported.',
+    details: {
+      field: 'recipe',
+      reason: 'recipe_step_unavailable',
+      recipe: 'image_to_mesh_exported',
+      stepId: 'export_mesh',
+      planStatus: 'known_but_unavailable',
+      planSurface: 'processRun.create',
+      planTargetKind: null,
+    },
+  });
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), false);
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /health', 'GET /automation/capabilities'],
+  );
 });
 
 test('modly.recipe.execute fails explicitly when a required output is missing between steps', { concurrency: false }, async (t) => {

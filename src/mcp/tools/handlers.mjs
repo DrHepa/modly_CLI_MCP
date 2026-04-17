@@ -506,6 +506,53 @@ function normalizeGuidedRecipeInput(recipeRuntime, input) {
   return normalized;
 }
 
+function normalizeRecipeModelParamValue(value) {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    return normalizeNonEmptyString(value);
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeRecipeModelParamValue(entry))
+      .filter((entry) => entry !== undefined);
+  }
+
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  const normalized = {};
+
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = normalizeNonEmptyString(rawKey);
+    const safeValue = normalizeRecipeModelParamValue(rawValue);
+
+    if (!key || safeValue === undefined) {
+      continue;
+    }
+
+    normalized[key] = safeValue;
+  }
+
+  return normalized;
+}
+
+function normalizeRecipeModelParams(params) {
+  return normalizeRecipeModelParamValue(normalizeRecipeParams(params, 'input.modelParams')) ?? {};
+}
+
 function toRecipeStepStatusFromRun(stepDefinition, run) {
   const terminal = stepDefinition.runKind === 'workflowRun' ? isWorkflowRunTerminal(run) : isProcessRunTerminal(run);
   const operationState = toOperationState(stepDefinition.runKind, run, terminal);
@@ -631,10 +678,10 @@ function getRecipeStepDefinition(recipeRuntime, stepId) {
   return definition;
 }
 
-function deriveRecipeStatusFromSteps(steps) {
+export function deriveRecipeStatusFromSteps(steps) {
   const resolvedSteps = Array.isArray(steps) ? steps : [];
 
-  if (resolvedSteps.some((step) => step.status === 'running' || step.status === 'pending')) {
+  if (resolvedSteps.some((step) => step.status === 'running')) {
     return 'running';
   }
 
@@ -730,22 +777,10 @@ async function launchRecipeStep(modlyClient, { recipeRuntime, recipeInput, step,
   const stepDefinition = getRecipeStepDefinition(recipeRuntime, step.id);
 
   if (stepDefinition.id === 'generate_mesh') {
-    const plan = planSmartCapability({
-      capability: recipeInput.modelId,
-      params: recipeInput.modelParams,
-    }, capabilities);
-
-    assertSupportedRecipePlan(plan, {
-      recipe: recipeRuntime.id,
-      stepId: step.id,
-      expectedSurface: 'workflowRun.createFromImage',
-      expectedTargetKind: 'model',
-    });
-
     const { run } = await dispatchWorkflowRunFromImage(modlyClient, {
       imagePath: recipeInput.imagePath,
       modelId: recipeInput.modelId,
-      params: plan.params,
+      params: normalizeRecipeModelParams(recipeInput.modelParams),
     });
 
     return markRecipeStepRunning(step, stepDefinition, run);
