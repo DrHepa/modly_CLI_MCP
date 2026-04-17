@@ -71,6 +71,8 @@ Template shipped in this package:
 - `command` must be a JSON array, even when it contains only one binary.
 - FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`).
 - capabilities and process-runs use the Electron automation bridge on `:8766`.
+- By default the installed package derives those bridge URLs from `MODLY_API_URL`.
+- Override bridge endpoints only when needed with `MODLY_AUTOMATION_URL` and `MODLY_PROCESS_URL`.
 - `modly.recipe.execute` is experimental, opt-in, hidden by default, and disabled unless you set `MODLY_EXPERIMENTAL_RECIPE_EXECUTE=1` before starting `modly-mcp`.
 - Without `MODLY_EXPERIMENTAL_RECIPE_EXECUTE`, the recipe tool is not advertised in the MCP catalog.
 - If you need additional system configuration, resolve it in the environment where the global binary lives.

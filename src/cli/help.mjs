@@ -24,8 +24,10 @@ Flags globales:
   -h, --help                Muestra esta ayuda
 
 Estado del bootstrap:
-  - capabilities, health, model, job, process-run, workflow-run, generate from-image, mesh, ext y config ya son funcionales
-  - MCP real sigue diferido
+  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, ext y config ya son funcionales
+  - workflow-run y process-run son las superficies run principales
+  - generate/job se mantienen como compatibilidad observable actual
+  - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
 `;
 }
 

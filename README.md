@@ -12,6 +12,42 @@ This repository keeps the operational automation layer **outside** the upstream 
 
 ## Current capabilities
 
+### CLI groups in the public contract
+
+- `capabilities`
+- `health`
+- `model`
+- `generate`
+- `job`
+- `process-run`
+- `workflow-run`
+- `mesh`
+- `ext`
+- `config`
+
+### Default public MCP catalog
+
+- `modly.capabilities.get`
+- `modly.capability.plan`
+- `modly.capability.guide`
+- `modly.diagnostic.guidance`
+- `modly.capability.execute`
+- `modly.health`
+- `modly.model.list`
+- `modly.model.current`
+- `modly.model.params`
+- `modly.ext.errors`
+- `modly.config.paths.get`
+- `modly.job.status`
+- `modly.workflowRun.createFromImage`
+- `modly.workflowRun.status`
+- `modly.workflowRun.cancel`
+- `modly.workflowRun.wait`
+- `modly.processRun.create`
+- `modly.processRun.status`
+- `modly.processRun.wait`
+- `modly.processRun.cancel`
+
 ### Read-only surfaces
 
 - backend health
@@ -134,7 +170,11 @@ They should **not** point OpenCode at the source checkout of this repository as 
 
 ## OpenCode integration
 
-The verified OpenCode config shape is:
+There are exactly two supported OpenCode integration modes: global installed binary and repo-local wrapper. Pointing OpenCode at the source checkout of this repository is unsupported.
+
+### Global installed binary
+
+Canonical shape:
 
 ```json
 {
@@ -144,7 +184,28 @@ The verified OpenCode config shape is:
       "type": "local",
       "enabled": true,
       "timeout": 30000,
-      "command": ["..."]
+      "command": ["modly-mcp"]
+    }
+  }
+}
+```
+
+### Repo-local wrapper
+
+Canonical shape:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "modly": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 30000,
+      "command": [
+        "node",
+        "tools/modly_mcp/run_server.mjs"
+      ]
     }
   }
 }
@@ -164,12 +225,16 @@ See:
 - [`templates/opencode/opencode.json`](templates/opencode/opencode.json)
 - [`templates/opencode/run_server.mjs`](templates/opencode/run_server.mjs)
 
+`tools/modly_mcp/run_server.mjs` is the supported repo-local wrapper path.
+
 ## Wait capability boundaries
 
 - `workflow-run wait <run-id>` waits for `done`, `error`, or `cancelled` on an existing run.
 - `modly.workflowRun.wait({ runId, intervalMs?, timeoutMs? })` exposes the same capability over MCP.
 - Both surfaces rely on the existing workflow-run status endpoint plus the required `GET /health` readiness check before business operations.
 - This does **not** add workflow CRUD/management, real scene mutation, or `--wait` support to `workflow-run from-image`.
+- `workflow-run` / `process-run` are the primary run surfaces.
+- `generate` / `job` remain observable compatibility surfaces.
 
 ## Recommended long-running pattern
 

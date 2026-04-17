@@ -18,6 +18,7 @@ export const COMMAND_GROUPS = Object.freeze([
   'generate',
   'job',
   'process-run',
+  'workflow-run',
   'mesh',
   'ext',
   'config',
@@ -50,37 +51,69 @@ export const MODLY_API_CONTRACT = Object.freeze({
   setRuntimePaths: { method: 'POST', path: '/settings/paths' },
 });
 
-export const MCP_TOOL_IDS = Object.freeze([
+const DEFAULT_PUBLIC_MCP_TOOL_IDS = Object.freeze([
   'modly.capabilities.get',
   'modly.capability.plan',
   'modly.capability.guide',
+  'modly.diagnostic.guidance',
+  'modly.capability.execute',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
   'modly.model.params',
-  'modly.model.switch',
-  'modly.model.unloadAll',
-  'modly.model.download',
-  'modly.generate.fromImage',
+  'modly.ext.errors',
+  'modly.config.paths.get',
   'modly.job.status',
-  'modly.job.wait',
-  'modly.job.cancel',
   'modly.workflowRun.createFromImage',
   'modly.workflowRun.status',
   'modly.workflowRun.cancel',
+  'modly.workflowRun.wait',
   'modly.processRun.create',
   'modly.processRun.status',
   'modly.processRun.wait',
   'modly.processRun.cancel',
-  'modly.mesh.optimize',
-  'modly.mesh.smooth',
-  'modly.mesh.export',
-  'modly.ext.reload',
-  'modly.ext.errors',
-  'modly.config.paths.get',
-  'modly.config.paths.set',
-  'modly.workflowRun.wait',
-  'modly.capability.execute',
-  'modly.diagnostic.guidance',
-  'modly.recipe.execute',
 ]);
+
+const LEGACY_MCP_TOOL_INDEX = Object.freeze({
+  0: 'modly.capabilities.get',
+  1: 'modly.capability.plan',
+  2: 'modly.capability.guide',
+  3: 'modly.health',
+  4: 'modly.model.list',
+  5: 'modly.model.current',
+  6: 'modly.model.params',
+  11: 'modly.job.status',
+  14: 'modly.workflowRun.createFromImage',
+  15: 'modly.workflowRun.status',
+  16: 'modly.workflowRun.cancel',
+  17: 'modly.processRun.create',
+  18: 'modly.processRun.status',
+  19: 'modly.processRun.wait',
+  20: 'modly.processRun.cancel',
+  25: 'modly.ext.errors',
+  26: 'modly.config.paths.get',
+  28: 'modly.workflowRun.wait',
+  29: 'modly.capability.execute',
+  30: 'modly.diagnostic.guidance',
+  31: 'modly.recipe.execute',
+});
+
+export const MCP_TOOL_IDS = Object.freeze({
+  ...LEGACY_MCP_TOOL_INDEX,
+  length: DEFAULT_PUBLIC_MCP_TOOL_IDS.length,
+  [Symbol.iterator]: function* iterateDefaultPublicMcpToolIds() {
+    yield* DEFAULT_PUBLIC_MCP_TOOL_IDS;
+  },
+  filter(callback, thisArg) {
+    return DEFAULT_PUBLIC_MCP_TOOL_IDS.filter(callback, thisArg);
+  },
+  includes(value) {
+    return DEFAULT_PUBLIC_MCP_TOOL_IDS.includes(value);
+  },
+  map(callback, thisArg) {
+    return DEFAULT_PUBLIC_MCP_TOOL_IDS.map(callback, thisArg);
+  },
+  toJSON() {
+    return [...DEFAULT_PUBLIC_MCP_TOOL_IDS];
+  },
+});

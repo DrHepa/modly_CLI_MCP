@@ -10,7 +10,7 @@ The consumer repository should have:
 - a local wrapper in `tools/modly_mcp/run_server.mjs`
 - optionally `tools/_tmp/modly_mcp/local.env`
 
-The wrapper resolves `node_modules/.bin/modly-mcp` in the consumer repository first and falls back to a global `modly-mcp` in `PATH` only if the local one is missing.
+The wrapper resolves `node_modules/.bin/modly-mcp` in the consumer repository first and falls back to a global `modly-mcp` in `PATH` only if the local one is missing. In other words, the supported resolution order is local-first with global-fallback.
 
 ## Not supported
 

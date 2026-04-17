@@ -73,7 +73,8 @@ test('docs and README stay aligned with supported global and repo-local flows', 
   assert.match(readme, /"type": "local"/u);
   assert.match(readme, /"enabled": true/u);
   assert.match(readme, /"timeout": 30000/u);
-  assert.match(readme, /\["\.\.\."\]/u);
+  assert.match(readme, /"command": \["modly-mcp"\]/u);
+  assert.match(readme, /"node",\s+"tools\/modly_mcp\/run_server\.mjs"/u);
   assert.match(readme, /templates\/opencode\/run_server\.mjs/u);
   assert.match(readme, /`workflow-run wait`/u);
   assert.match(readme, /`modly\.workflowRun\.wait`/u);
