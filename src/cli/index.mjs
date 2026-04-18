@@ -134,6 +134,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     platform: deps.platform ?? process.platform,
     stageGitHubExtension: deps.stageGitHubExtension,
     applyStagedExtension: deps.applyStagedExtension,
+    repairStagedExtension: deps.repairStagedExtension,
     tmpdir: deps.tmpdir,
     spawnImpl: deps.spawnImpl,
   });

@@ -88,6 +88,233 @@ test('applyStagedExtension revalidates the prepared stage before returning a pla
   );
 });
 
+test('repairStagedExtension rejects non-absolute extensionsDir values before planning live paths', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => repairStagedExtension({ stagePath, extensionsDir: 'relative/extensions' }),
+    (error) => {
+      assert.equal(error.code, 'EXTENSIONS_DIR_UNRESOLVABLE');
+      assert.equal(error.details.apply.phase, 'resolve_extensions_dir');
+      assert.equal(error.details.apply.stagePath, stagePath);
+      return true;
+    },
+  );
+});
+
+test('repairStagedExtension revalidates the prepared stage before mutating the live destination', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  mkdirSync(stagePath, { recursive: true });
+  writeFileSync(path.join(stagePath, 'package.json'), JSON.stringify({ name: 'octo-invalid' }));
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  const destinationPath = path.join(extensionsDir, 'octo.valid');
+  mkdirSync(destinationPath, { recursive: true });
+  writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
+
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => repairStagedExtension({ stagePath, extensionsDir }),
+    (error) => {
+      assert.equal(error.code, 'APPLY_STAGE_INVALID');
+      assert.equal(error.details.apply.phase, 'preflight');
+      assert.equal(error.details.apply.stagePath, stagePath);
+      assert.equal(error.details.apply.stageInspection.code, 'MANIFEST_MISSING');
+      return true;
+    },
+  );
+
+  assert.equal(readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), 'legacy destination');
+});
+
+test('repairStagedExtension reports observable backup restoration details when promote fails after backup creation', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  const destinationPath = path.join(extensionsDir, 'octo.valid');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  mkdirSync(destinationPath, { recursive: true });
+  writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
+
+  const renameLog = [];
+  const fs = await import('node:fs/promises');
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => repairStagedExtension(
+      { stagePath, extensionsDir },
+      {
+        fs: {
+          ...fs,
+          async rename(from, to) {
+            renameLog.push([from, to]);
+
+            if (to === destinationPath && from.endsWith('.candidate')) {
+              const error = new Error('candidate promote failed');
+              error.code = 'EACCES';
+              throw error;
+            }
+
+            return fs.rename(from, to);
+          },
+        },
+      },
+    ),
+    (error) => {
+      assert.equal(error.code, 'APPLY_PROMOTE_FAILED');
+      assert.equal(error.details.apply.phase, 'promote');
+      assert.equal(error.details.apply.stagePath, stagePath);
+      assert.deepEqual(error.details.apply.backup, {
+        path: path.join(extensionsDir, 'octo.valid.backup'),
+        expected: true,
+        created: true,
+        restored: true,
+      });
+      return true;
+    },
+  );
+
+  assert.deepEqual(renameLog, [
+    [destinationPath, path.join(extensionsDir, 'octo.valid.backup')],
+    [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
+    [path.join(extensionsDir, 'octo.valid.backup'), destinationPath],
+  ]);
+  assert.equal(readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), 'legacy destination');
+});
+
+test('repairStagedExtension reports observable backup details when rollback cannot restore the previous destination', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  const destinationPath = path.join(extensionsDir, 'octo.valid');
+  const backupPath = path.join(extensionsDir, 'octo.valid.backup');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  mkdirSync(destinationPath, { recursive: true });
+  writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
+
+  const renameLog = [];
+  const fs = await import('node:fs/promises');
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => repairStagedExtension(
+      { stagePath, extensionsDir },
+      {
+        fs: {
+          ...fs,
+          async rename(from, to) {
+            renameLog.push([from, to]);
+
+            if (to === destinationPath && from.endsWith('.candidate')) {
+              const error = new Error('candidate promote failed');
+              error.code = 'EACCES';
+              throw error;
+            }
+
+            if (from === backupPath && to === destinationPath) {
+              const error = new Error('backup restore failed');
+              error.code = 'EPERM';
+              throw error;
+            }
+
+            return fs.rename(from, to);
+          },
+        },
+      },
+    ),
+    (error) => {
+      assert.equal(error.code, 'APPLY_PROMOTE_FAILED');
+      assert.deepEqual(error.details.apply.backup, {
+        path: backupPath,
+        expected: true,
+        created: true,
+        restored: false,
+      });
+      return true;
+    },
+  );
+
+  assert.deepEqual(renameLog, [
+    [destinationPath, backupPath],
+    [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
+    [backupPath, destinationPath],
+  ]);
+  assert.equal(readFileSync(path.join(backupPath, 'legacy.txt'), 'utf8'), 'legacy destination');
+});
+
+test('repairStagedExtension reports repaired only when reload succeeds and matched runtime errors stay empty', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+  const result = await repairStagedExtension(
+    { stagePath, extensionsDir },
+    {
+      reloadExtensions: async () => ({ ok: true }),
+      getExtensionErrors: async () => [],
+    },
+  );
+
+  assert.equal(result.status, 'repaired');
+  assert.equal(result.repaired, true);
+  assert.deepEqual(result.reload, {
+    requested: true,
+    succeeded: true,
+  });
+  assert.deepEqual(result.errors, {
+    observed: true,
+    matched: [],
+  });
+});
+
+test('repairStagedExtension reports repaired_degraded when extension errors cannot be observed honestly', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+  const result = await repairStagedExtension(
+    { stagePath, extensionsDir },
+    {
+      reloadExtensions: async () => ({ ok: true }),
+      getExtensionErrors: async () => 'not-a-real-errors-payload',
+    },
+  );
+
+  assert.equal(result.status, 'repaired_degraded');
+  assert.equal(result.repaired, true);
+  assert.deepEqual(result.errors, {
+    observed: false,
+    matched: [],
+    diagnostic: {
+      code: 'ERRORS_UNOBSERVABLE',
+      message: 'Extension error observation returned an unsupported payload.',
+    },
+  });
+  assert.deepEqual(result.warnings, [
+    {
+      code: 'MANIFEST_SOURCE_UNCHANGED',
+      message: 'manifest.source was left unchanged because no trusted GitHub source metadata was supplied.',
+    },
+    {
+      code: 'ERRORS_UNOBSERVABLE',
+      message: 'Extension error observation failed after promotion.',
+      detail: {
+        code: 'ERRORS_UNOBSERVABLE',
+        message: 'Extension error observation returned an unsupported payload.',
+      },
+    },
+  ]);
+});
+
 test('applyStagedExtension applies cleanly when no previous destination exists', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');

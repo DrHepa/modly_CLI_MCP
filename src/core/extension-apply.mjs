@@ -56,7 +56,7 @@ async function pathExists(targetPath) {
   }
 }
 
-function createApplyOperationError({ message, code, phase, stagePath, manifestId, resolution, cause }) {
+function createApplyOperationError({ message, code, phase, stagePath, manifestId, resolution, cause, extraDetails = {} }) {
   return new ValidationError(message, {
     code,
     cause,
@@ -67,6 +67,7 @@ function createApplyOperationError({ message, code, phase, stagePath, manifestId
         stagePath,
         manifestId,
         resolution,
+        ...extraDetails,
       },
     },
   });
@@ -130,6 +131,35 @@ function collectMatchedErrors(rawErrors, manifestId) {
   return [];
 }
 
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function canObserveExtensionErrors(payload) {
+  return Array.isArray(payload)
+    || Array.isArray(payload?.errors)
+    || isObject(payload?.errors)
+    || isObject(payload);
+}
+
+function observeExtensionErrors(payload, manifestId) {
+  if (!canObserveExtensionErrors(payload)) {
+    return {
+      observed: false,
+      matched: [],
+      diagnostic: {
+        code: 'ERRORS_UNOBSERVABLE',
+        message: 'Extension error observation returned an unsupported payload.',
+      },
+    };
+  }
+
+  return {
+    observed: true,
+    matched: collectMatchedErrors(normalizeErrors(payload), manifestId),
+  };
+}
+
 function createApplyStageInvalidError(stagePath, stageInspection) {
   return new ValidationError(stageInspection?.diagnostics?.detail ?? 'Prepared stage is invalid for apply.', {
     code: 'APPLY_STAGE_INVALID',
@@ -162,7 +192,7 @@ function planPaths({ extensionsDir, manifestId, destinationExists }) {
   };
 }
 
-export async function applyStagedExtension(input = {}, deps = {}) {
+async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   const fs = {
     ...defaultFs,
     ...(deps.fs ?? {}),
@@ -267,6 +297,13 @@ export async function applyStagedExtension(input = {}, deps = {}) {
       manifestId: manifest.id,
       resolution,
       cause: error,
+      extraDetails: {
+        backup: {
+          ...paths.backup,
+          created: backupCreated,
+          restored: backupRestored,
+        },
+      },
     });
   }
 
@@ -290,7 +327,7 @@ export async function applyStagedExtension(input = {}, deps = {}) {
   } else {
     reload.diagnostic = {
       code: 'RELOAD_FAILED',
-      message: 'Reload dependency was not provided to applyStagedExtension().',
+      message: 'Reload dependency was not provided to the staged extension promotion flow.',
     };
     warnings.push({
       code: 'RELOAD_FAILED',
@@ -306,9 +343,18 @@ export async function applyStagedExtension(input = {}, deps = {}) {
 
   if (typeof getExtensionErrors === 'function') {
     try {
-      const rawErrors = normalizeErrors(await getExtensionErrors());
-      errors.observed = true;
-      errors.matched = collectMatchedErrors(rawErrors, manifest.id);
+      const observedErrors = observeExtensionErrors(await getExtensionErrors(), manifest.id);
+      errors.observed = observedErrors.observed;
+      errors.matched = observedErrors.matched;
+
+      if (observedErrors.diagnostic) {
+        errors.diagnostic = observedErrors.diagnostic;
+        warnings.push({
+          code: 'ERRORS_UNOBSERVABLE',
+          message: 'Extension error observation failed after promotion.',
+          detail: errors.diagnostic,
+        });
+      }
     } catch (error) {
       errors.diagnostic = toDiagnostic(error, 'ERRORS_UNOBSERVABLE');
       warnings.push({
@@ -320,7 +366,7 @@ export async function applyStagedExtension(input = {}, deps = {}) {
   } else {
     errors.diagnostic = {
       code: 'ERRORS_UNOBSERVABLE',
-      message: 'Error observation dependency was not provided to applyStagedExtension().',
+      message: 'Error observation dependency was not provided to the staged extension promotion flow.',
     };
     warnings.push({
       code: 'ERRORS_UNOBSERVABLE',
@@ -338,8 +384,8 @@ export async function applyStagedExtension(input = {}, deps = {}) {
   }
 
   return {
-    status: reload.succeeded && errors.observed && errors.matched.length === 0 ? 'applied' : 'applied_degraded',
-    applied: true,
+    status: reload.succeeded && errors.observed && errors.matched.length === 0 ? statusMap.clean : statusMap.degraded,
+    [statusMap.flag]: true,
     stagePath,
     manifest,
     resolution,
@@ -357,4 +403,20 @@ export async function applyStagedExtension(input = {}, deps = {}) {
     errors,
     warnings,
   };
+}
+
+export async function applyStagedExtension(input = {}, deps = {}) {
+  return promoteStagedExtension(input, deps, {
+    clean: 'applied',
+    degraded: 'applied_degraded',
+    flag: 'applied',
+  });
+}
+
+export async function repairStagedExtension(input = {}, deps = {}) {
+  return promoteStagedExtension(input, deps, {
+    clean: 'repaired',
+    degraded: 'repaired_degraded',
+    flag: 'repaired',
+  });
 }

@@ -1,14 +1,16 @@
 import { UnsupportedOperationError, UsageError } from '../../core/errors.mjs';
-import { applyStagedExtension } from '../../core/extension-apply.mjs';
+import { applyStagedExtension, repairStagedExtension } from '../../core/extension-apply.mjs';
 import { stageGitHubExtension } from '../../core/github-extension-staging.mjs';
 import { normalizeErrors } from '../../core/modly-normalizers.mjs';
 import { assertExactPositionals, parseCommandArgs } from './shared.mjs';
 
-const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply'];
+const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'repair'];
 const STAGE_GITHUB_USAGE =
   'Usage: modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]';
 const APPLY_USAGE =
   'Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
+const REPAIR_USAGE =
+  'Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
 
 async function runReload(context, args) {
   if (args.length !== 0) {
@@ -162,6 +164,72 @@ async function runApply(context, args) {
   };
 }
 
+function renderRepairHumanMessage(repair) {
+  const runtimeErrorCount = Array.isArray(repair.errors?.matched) ? repair.errors.matched.length : 0;
+  const lines = [
+    `CLI-only repair/reapply over prepared stage: ${repair.status} for ${repair.manifest?.id ?? '<unknown>'}.`,
+    `stagePath: ${repair.stagePath}`,
+    `extensionsDir: ${repair.resolution?.extensionsDir ?? '<unknown>'}`,
+    `destination: ${repair.destination?.path ?? '<unknown>'}`,
+    'No GitHub fetch, install, setup, build, or general health fix was attempted.',
+  ];
+
+  if (repair.backup?.created && repair.backup.path) {
+    lines.push(`backup: ${repair.backup.path}`);
+  }
+
+  if (repair.reload?.requested) {
+    lines.push(`reload: ${repair.reload.succeeded ? 'requested and observed' : 'requested but degraded'}`);
+  }
+
+  if (runtimeErrorCount > 0) {
+    lines.push(`runtime errors: ${runtimeErrorCount}`);
+  }
+
+  if (Array.isArray(repair.warnings) && repair.warnings.length > 0) {
+    lines.push(`warnings: ${repair.warnings.length}`);
+  }
+
+  return lines.join('\n');
+}
+
+async function runRepair(context, args) {
+  const { positionals, options } = parseCommandArgs(args, {
+    usage: REPAIR_USAGE,
+    valueFlags: ['--stage-path', '--extensions-dir', '--source-repo', '--source-ref', '--source-commit'],
+  });
+  assertExactPositionals(positionals, 0, REPAIR_USAGE);
+
+  if (!options['--stage-path']) {
+    throw new UsageError(REPAIR_USAGE);
+  }
+
+  if (!options['--extensions-dir']) {
+    throw new UsageError(REPAIR_USAGE);
+  }
+
+  const repair = context.repairStagedExtension ?? repairStagedExtension;
+  const result = await repair(
+    {
+      stagePath: options['--stage-path'],
+      extensionsDir: options['--extensions-dir'],
+      sourceRepo: options['--source-repo'],
+      sourceRef: options['--source-ref'],
+      sourceCommit: options['--source-commit'],
+    },
+    {
+      cwd: context.cwd,
+      reloadExtensions: context.client.reloadExtensions?.bind(context.client),
+      getExtensionErrors: context.client.getExtensionErrors?.bind(context.client),
+    },
+  );
+
+  return {
+    data: { repair: result },
+    humanMessage: renderRepairHumanMessage(result),
+  };
+}
+
 export async function runExtCommand(context) {
   const [subcommand = 'reload', ...args] = context.args;
 
@@ -179,6 +247,8 @@ export async function runExtCommand(context) {
       );
     case 'apply':
       return runApply(context, args);
+    case 'repair':
+      return runRepair(context, args);
     default:
       throw new UsageError(`Unknown ext subcommand: ${subcommand}. Available: ${EXT_SUBCOMMANDS.join(', ')}.`);
   }
