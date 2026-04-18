@@ -80,6 +80,15 @@ Use this skill when the user asks to:
     - Do NOT assume recipe execution is available in the public MCP catalog.
     - When guiding operators, name `MODLY_EXPERIMENTAL_RECIPE_EXECUTE` exactly; do not invent alternate flags.
 
+12. **Resolve the real Modly launcher explicitly before improvising filesystem searches**
+    - Prefer `modly config launcher locate` to discover a validated upstream launcher.
+    - Prefer `modly config launcher open` to launch it with the correct working directory.
+    - Resolution order is: `MODLY_LAUNCHER` override, current repo/ancestors, then sibling `../modly`.
+    - A launcher is only valid when it lives in a repo root containing real Modly markers such as `api/main.py` and `electron/main`.
+    - On POSIX prefer `launch.sh`; on Windows prefer `launch.bat`.
+    - `open` runs in background by default; use `--foreground` only when an operator explicitly needs first-plane execution.
+    - `open` executes `.sh` with `bash` and `.bat` with `cmd.exe /c`, always with `cwd` set to the launcher repo root.
+
 ## Allowed
 
 - Check backend health
@@ -156,6 +165,10 @@ Use this skill when the user asks to:
 ### Runtime paths
 - `GET /settings/paths`
 - `POST /settings/paths`
+
+### Launcher discovery / open
+- `modly config launcher locate`
+- `modly config launcher open`
 
 ## Decision Rules
 

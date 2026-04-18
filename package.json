@@ -19,6 +19,8 @@
     "start:cli": "node ./src/cli/index.mjs",
     "mcp": "node ./src/mcp/server.mjs",
     "start:mcp": "node ./src/mcp/server.mjs",
+    "test:cli": "node --test test/cli/*.test.mjs",
+    "test:core": "node --test test/core/*.test.mjs",
     "test:mcp": "node --test test/mcp/*.test.mjs",
     "test:packaging": "node --test test/packaging/*.test.mjs"
   },

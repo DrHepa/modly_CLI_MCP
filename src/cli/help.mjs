@@ -16,7 +16,10 @@ Grupos disponibles:
   job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
   ext <subcomando>          reload | errors
-  config <subcomando>       paths get | paths set
+  config <subcomando>       paths get | paths set | launcher locate | launcher open
+
+Nota launcher:
+  launcher open corre en background por defecto; use --foreground para primer plano
 
 Flags globales:
   --api-url <url>           Sobrescribe MODLY_API_URL
@@ -178,9 +181,13 @@ export function renderConfigHelp() {
 Uso:
   modly config paths get [--api-url <url>] [--json]
   modly config paths set [--models-dir <dir>] [--workspace-dir <dir>] [--api-url <url>] [--json]
+  modly config launcher locate [--json]
+  modly config launcher open [--foreground] [--json]
 
 Subcomandos disponibles:
   paths get                 Lee rutas runtime actuales
   paths set                 Actualiza rutas runtime (NO persistente)
+  launcher locate           Localiza launch.sh/launch.bat válidos de Modly
+  launcher open             Abre el launcher resuelto (background por defecto; --foreground lo mantiene en primer plano)
 `;
 }

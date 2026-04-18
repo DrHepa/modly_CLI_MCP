@@ -113,7 +113,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   const client = createModlyApiClient({ apiUrl: config.apiUrl });
-  const result = await handler({ config, args, client });
+  const result = await handler({ config, args, client, cwd: process.cwd(), env: process.env, platform: process.platform });
 
   emitSuccess(result, config);
   return EXIT_CODES.SUCCESS;
