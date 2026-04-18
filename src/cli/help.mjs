@@ -15,7 +15,7 @@ Grupos disponibles:
   generate <subcomando>     from-image
   job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
-  ext <subcomando>          reload | errors
+  ext <subcomando>          reload | errors | stage github
   config <subcomando>       paths get | paths set | launcher locate | launcher open
 
 Nota launcher:
@@ -32,6 +32,7 @@ Estado del bootstrap:
   - modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.
   - generate/job se mantienen como compatibilidad observable actual
   - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
+  - ext stage github             Stage/preflight only desde GitHub; NO instala ni aplica en vivo.
 `;
 }
 
@@ -168,10 +169,16 @@ export function renderExtHelp() {
 Uso:
   modly ext reload [--api-url <url>] [--json]
   modly ext errors [--api-url <url>] [--json]
+  modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]
 
 Subcomandos disponibles:
   reload                    Recarga el registro de extensiones
   errors                    Muestra errores capturados al cargar extensiones
+  stage github              staging/preflight only desde GitHub; NO instala ni aplica en vivo
+
+Notas:
+  - Esta surface CLI solo prepara un stage aislado e inspeccionable.
+  - No expone capability MCP estable ni hace install/apply headless.
 `;
 }
 

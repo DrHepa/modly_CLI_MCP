@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+
 import { resolveRuntimeConfig } from '../core/config.mjs';
 import { EXIT_CODES } from '../core/contracts.mjs';
 import { NotFoundError, UsageError, normalizeError } from '../core/errors.mjs';
@@ -52,11 +55,11 @@ const commandHelpRenderers = {
   config: renderConfigHelp,
 };
 
-function writeJson(payload) {
-  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+function writeJson(payload, stdout = process.stdout) {
+  stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
-function emitSuccess(result, config) {
+function emitSuccess(result, config, { stdout = process.stdout } = {}) {
   if (config.json) {
     writeJson({
       ok: true,
@@ -64,14 +67,14 @@ function emitSuccess(result, config) {
       meta: {
         apiUrl: config.apiUrl,
       },
-    });
+    }, stdout);
     return;
   }
 
-  process.stdout.write(`${result.humanMessage ?? 'OK'}\n`);
+  stdout.write(`${result.humanMessage ?? 'OK'}\n`);
 }
 
-function emitError(error, config) {
+function emitError(error, config, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (config.json) {
     writeJson({
       ok: false,
@@ -82,54 +85,83 @@ function emitError(error, config) {
       meta: {
         apiUrl: config.apiUrl,
       },
-    });
+    }, stdout);
     return;
   }
 
-  process.stderr.write(`[${error.code}] ${error.message}\n`);
+  stderr.write(`[${error.code}] ${error.message}\n`);
 }
 
-async function main(argv = process.argv.slice(2)) {
-  const config = resolveRuntimeConfig({ argv });
+export async function main(argv = process.argv.slice(2), deps = {}) {
+  const env = deps.env ?? process.env;
+  const stdout = deps.stdout ?? process.stdout;
+  const config = resolveRuntimeConfig({
+    argv,
+    env,
+    experimentalRecipeExecution: deps.experimentalRecipeExecution,
+  });
 
   if (config.positionals.length === 0) {
-    process.stdout.write(renderHelp());
+    stdout.write(renderHelp());
     return EXIT_CODES.SUCCESS;
   }
 
   if (config.help) {
     const [group] = config.positionals;
-    const renderCommandHelp = commandHelpRenderers[group];
+    const renderCommandHelp = (deps.commandHelpRenderers ?? commandHelpRenderers)[group];
 
-    process.stdout.write(renderCommandHelp ? renderCommandHelp() : renderHelp());
+    stdout.write(renderCommandHelp ? renderCommandHelp() : renderHelp());
     return EXIT_CODES.SUCCESS;
   }
 
   const [group, ...args] = config.positionals;
-  const handler = commandHandlers[group];
+  const handler = (deps.commandHandlers ?? commandHandlers)[group];
 
   if (!handler) {
     throw new UsageError(`Unknown command group: ${group}`);
   }
 
-  const client = createModlyApiClient({ apiUrl: config.apiUrl });
-  const result = await handler({ config, args, client, cwd: process.cwd(), env: process.env, platform: process.platform });
+  const createClient = deps.createClient ?? createModlyApiClient;
+  const client = createClient({ apiUrl: config.apiUrl });
+  const result = await handler({
+    config,
+    args,
+    client,
+    cwd: deps.cwd ?? process.cwd(),
+    env,
+    platform: deps.platform ?? process.platform,
+    stageGitHubExtension: deps.stageGitHubExtension,
+    tmpdir: deps.tmpdir,
+    spawnImpl: deps.spawnImpl,
+  });
 
-  emitSuccess(result, config);
+  emitSuccess(result, config, { stdout });
   return EXIT_CODES.SUCCESS;
 }
 
-try {
-  const exitCode = await main();
-  process.exitCode = exitCode;
-} catch (error) {
-  const normalized = normalizeError(error);
+async function runCliEntrypoint() {
+  try {
+    const exitCode = await main();
+    process.exitCode = exitCode;
+  } catch (error) {
+    const normalized = normalizeError(error);
+    emitError(normalized, resolveRuntimeConfig({ argv: process.argv.slice(2), env: process.env }));
+    process.exitCode = normalized.exitCode ?? EXIT_CODES.FAILURE;
+  }
+}
 
-  if (normalized instanceof UsageError || normalized instanceof NotFoundError) {
-    emitError(normalized, resolveRuntimeConfig({ argv: process.argv.slice(2) }));
-  } else {
-    emitError(normalized, resolveRuntimeConfig({ argv: process.argv.slice(2) }));
+function isCliEntrypoint(entryFileUrl = import.meta.url, argv1 = process.argv[1]) {
+  if (!argv1) {
+    return false;
   }
 
-  process.exitCode = normalized.exitCode ?? EXIT_CODES.FAILURE;
+  try {
+    return entryFileUrl === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    return entryFileUrl === pathToFileURL(argv1).href;
+  }
+}
+
+if (isCliEntrypoint()) {
+  await runCliEntrypoint();
 }
