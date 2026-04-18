@@ -92,6 +92,10 @@ node tools/modly_mcp/run_server.mjs --check
 
 ## Runtime notes
 
+- Execution surface taxonomy:
+  - `workflow-run` / `process-run` and `modly.workflowRun.*` / `modly.processRun.*` are the visible **canonical run primitive** surfaces.
+  - `modly.capability.execute` and `modly.recipe.execute` are **orchestration wrapper** surfaces over those run primitives; recovery/polling stays on the canonical run status surfaces.
+  - `generate` / `job` and `modly.job.status` remain **legacy compatibility** surfaces.
 - FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`).
 - capabilities and process-runs use the Electron automation bridge on `:8766`.
 - The installed package derives those bridge URLs automatically unless you override them explicitly.

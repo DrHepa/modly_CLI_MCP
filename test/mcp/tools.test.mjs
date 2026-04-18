@@ -13,17 +13,17 @@ function notFoundResponse(message) {
 const originalFetch = globalThis.fetch;
 
 const WORKFLOW_CREATE_DESCRIPTION =
-  'Creates a workflow run from an input image and returns recovery metadata so clients can continue polling the same runId via modly.workflowRun.status.';
+  'Creates a workflow run from an input image as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.workflowRun.status.';
 const WORKFLOW_STATUS_DESCRIPTION =
-  'Gets the latest workflow run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
+  'Gets the latest workflow run state for this canonical run primitive. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
 const WORKFLOW_WAIT_DESCRIPTION =
-  'Bounded convenience wrapper around workflow status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.';
+  'Bounded convenience wrapper around canonical workflow-run status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.';
 const PROCESS_CREATE_DESCRIPTION =
-  'Creates a process run and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.';
+  'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.';
 const PROCESS_STATUS_DESCRIPTION =
-  'Gets the latest process run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
+  'Gets the latest process run state for this canonical run primitive. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
 const PROCESS_WAIT_DESCRIPTION =
-  'Bounded convenience wrapper around process status polling; prefer modly.processRun.status for recovery and use short timeout windows when you cannot poll yourself.';
+  'Bounded convenience wrapper around canonical process-run status polling; prefer modly.processRun.status for recovery and use short timeout windows when you cannot poll yourself.';
 const DIAGNOSTIC_GUIDANCE_INPUT_SCHEMA = {
   type: 'object',
   required: ['surface', 'error'],
@@ -351,7 +351,8 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
   assert.deepEqual(tool, {
     name: 'modly.capability.execute',
     title: 'Execute Smart Capability',
-    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize and mesh-exporter/export (default_backend output only; explicit outputPath unsupported) to modly.processRun.create.',
+    description:
+      'Orchestration wrapper that plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize and mesh-exporter/export (default_backend output only; explicit outputPath unsupported) to modly.processRun.create. The canonical recovery surface remains modly.workflowRun.status/modly.processRun.status.',
     inputSchema: {
       type: 'object',
       required: ['capability', 'input'],
@@ -380,7 +381,7 @@ test('registry catalog exposes modly.recipe.execute with closed recipe v1 pollin
     name: 'modly.recipe.execute',
     title: 'Execute Guided Recipe',
     description:
-      'Executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
+      'Experimental orchestration wrapper that executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
     inputSchema: {
       type: 'object',
       required: ['recipe', 'input'],

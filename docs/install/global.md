@@ -66,6 +66,10 @@ Template shipped in this package:
 
 ## Runtime notes
 
+- Execution surface taxonomy:
+  - `workflow-run` / `process-run` and `modly.workflowRun.*` / `modly.processRun.*` are the visible **canonical run primitive** surfaces.
+  - `modly.capability.execute` and `modly.recipe.execute` are **orchestration wrapper** surfaces over those run primitives; recovery/polling stays on the canonical run status surfaces.
+  - `generate` / `job` and `modly.job.status` remain **legacy compatibility** surfaces.
 - `modly-mcp` is the supported MCP stdio binary.
 - OpenCode uses the top-level `mcp` key, **not** `mcpServers`.
 - `command` must be a JSON array, even when it contains only one binary.

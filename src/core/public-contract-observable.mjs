@@ -1,9 +1,20 @@
+import { EXECUTION_SURFACE_TAXONOMY } from './contracts.mjs';
+
 const DEFAULT_REPO_LOCAL_WRAPPER_PATH = 'tools/modly_mcp/run_server.mjs';
 const DEFAULT_LOCAL_ENV_PATH = 'tools/_tmp/modly_mcp/local.env';
 const DEFAULT_GLOBAL_COMMAND = ['modly-mcp'];
 const DEFAULT_RECIPE_TOOL_ID = 'modly.recipe.execute';
 const DEFAULT_RECIPE_FLAG = 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE';
 const WRAPPER_ENV_PATH_FRAGMENTS = ["'tools'", "'_tmp'", "'modly_mcp'", "'local.env'"];
+const CANONICAL_RECOVERY_SURFACES = Object.freeze({
+  cliGroups: Object.freeze(['workflow-run', 'process-run']),
+  mcpToolIds: Object.freeze([
+    'modly.workflowRun.status',
+    'modly.workflowRun.wait',
+    'modly.processRun.status',
+    'modly.processRun.wait',
+  ]),
+});
 
 function extractObjectLiteralBlock(source, declarationName) {
   const declarationIndex = source.indexOf(`const ${declarationName} = {`);
@@ -99,6 +110,73 @@ function includesLocalFirstGlobalFallback(text) {
   return /local-first/iu.test(text) && /global-fallback|falls back to a global|fallback to a global/iu.test(text);
 }
 
+function collectMissingExecutionTaxonomyTokens(text, { requireLegacy = false } = {}) {
+  const missing = [];
+
+  if (!/canonical run primitive/iu.test(text) || !/workflow-run/u.test(text) || !/process-run/u.test(text)) {
+    missing.push('canonical-run-primitive');
+  }
+
+  if (!/orchestration wrapper/iu.test(text) || !/modly\.capability\.execute/u.test(text)) {
+    missing.push('orchestration-wrapper');
+  }
+
+  if (
+    requireLegacy
+    && (!/legacy compatibility/iu.test(text) || (!/generate/u.test(text) && !/modly\.job\.status/u.test(text)) || !/job/u.test(text))
+  ) {
+    missing.push('legacy-compatibility');
+  }
+
+  return missing;
+}
+
+function collectTaxonomyOverlapSurfaces(taxonomy) {
+  const categoryEntries = Object.entries(taxonomy ?? {});
+  const seenSurfaces = new Map();
+  const overlaps = [];
+
+  for (const [, entry] of categoryEntries) {
+    for (const surface of [...(entry?.cliGroups ?? []), ...(entry?.mcpToolIds ?? [])]) {
+      const firstCategory = seenSurfaces.get(surface);
+
+      if (firstCategory) {
+        overlaps.push(surface);
+        continue;
+      }
+
+      seenSurfaces.set(surface, true);
+    }
+  }
+
+  return [...new Set(overlaps)].sort();
+}
+
+function includesLegacyPromotion(helpText, legacyCliGroups) {
+  return legacyCliGroups.length > 0 && /ruta principal de ejecución|superficies run principales.*generate\/job|generate\/job.*principal/iu.test(helpText);
+}
+
+function includesWrapperPromotion(helpText, wrapperSurfaces) {
+  if (wrapperSurfaces.length === 0) {
+    return false;
+  }
+
+  return wrapperSurfaces.some(
+    (surface) => new RegExp(`${surface.replaceAll('.', '\\.')}.*superficie principal|superficie principal.*${surface.replaceAll('.', '\\.')}`, 'iu').test(helpText),
+  );
+}
+
+function collectMissingCanonicalRecoveryTokens(helpText, canonicalRecovery) {
+  const cliGroups = canonicalRecovery?.cliGroups ?? [];
+  const hasCanonicalRecoveryNarrative = /workflow-run y process-run son las superficies run principales/iu.test(helpText);
+
+  if (hasCanonicalRecoveryNarrative) {
+    return [];
+  }
+
+  return [...cliGroups];
+}
+
 export function buildObservableContract({
   packageJson,
   cliIndexSource,
@@ -132,6 +210,10 @@ export function buildObservableContract({
       envFlag: DEFAULT_RECIPE_FLAG,
       hiddenByDefault: !publicCatalog.some((tool) => tool.name === DEFAULT_RECIPE_TOOL_ID),
     },
+    executionSurfaces: {
+      taxonomy: EXECUTION_SURFACE_TAXONOMY,
+      canonicalRecovery: CANONICAL_RECOVERY_SURFACES,
+    },
   };
 }
 
@@ -142,6 +224,16 @@ export function detectVisibleContractDrift({
   helpText,
 }) {
   const drifts = [];
+  const taxonomyOverlaps = collectTaxonomyOverlapSurfaces(observableContract.executionSurfaces?.taxonomy);
+
+  if (taxonomyOverlaps.length > 0) {
+    drifts.push({
+      code: 'contracts.execution-surface-taxonomy.overlap',
+      source: 'src/core/public-contract-observable.mjs',
+      surfaces: taxonomyOverlaps,
+    });
+  }
+
   const missingCommandGroups = difference(observableContract.cliGroups, commandGroups);
 
   if (missingCommandGroups.length > 0) {
@@ -213,6 +305,36 @@ export function detectVisibleContractDrift({
     });
   }
 
+  const legacyCliGroups = observableContract.executionSurfaces?.taxonomy?.legacy?.cliGroups ?? [];
+  if (includesLegacyPromotion(helpText, legacyCliGroups)) {
+    drifts.push({
+      code: 'help.execution-surfaces.legacy-promoted',
+      source: 'src/cli/help.mjs',
+      legacySurfaces: legacyCliGroups,
+    });
+  }
+
+  const wrapperMcpToolIds = observableContract.executionSurfaces?.taxonomy?.wrapper?.mcpToolIds ?? [];
+  if (includesWrapperPromotion(helpText, wrapperMcpToolIds)) {
+    drifts.push({
+      code: 'help.execution-surfaces.wrapper-promoted',
+      source: 'src/cli/help.mjs',
+      wrapperSurfaces: wrapperMcpToolIds,
+    });
+  }
+
+  const missingCanonicalRecovery = collectMissingCanonicalRecoveryTokens(
+    helpText,
+    observableContract.executionSurfaces?.canonicalRecovery,
+  );
+  if (missingCanonicalRecovery.length > 0) {
+    drifts.push({
+      code: 'help.execution-surfaces.canonical-recovery-missing',
+      source: 'src/cli/help.mjs',
+      missing: missingCanonicalRecovery,
+    });
+  }
+
   return drifts;
 }
 
@@ -281,6 +403,16 @@ export function detectDocumentationContractDrift({
     });
   }
 
+  const missingReadmeExecutionTaxonomy = collectMissingExecutionTaxonomyTokens(readmeText);
+
+  if (missingReadmeExecutionTaxonomy.length > 0) {
+    drifts.push({
+      code: 'readme.execution-taxonomy.missing',
+      source: 'README.md',
+      missing: missingReadmeExecutionTaxonomy,
+    });
+  }
+
   const readmeRecipeTokens = [
     observableContract.recipeGating.toolId,
     'experimental',
@@ -322,6 +454,16 @@ export function detectDocumentationContractDrift({
     });
   }
 
+  const missingGlobalExecutionTaxonomy = collectMissingExecutionTaxonomyTokens(globalInstallDocText, { requireLegacy: true });
+
+  if (missingGlobalExecutionTaxonomy.length > 0) {
+    drifts.push({
+      code: 'global-install.execution-taxonomy.missing',
+      source: 'docs/install/global.md',
+      missing: missingGlobalExecutionTaxonomy,
+    });
+  }
+
   const missingRepoLocalContract = [];
   if (!repoLocalInstallDocText.includes(observableContract.installModes.repoLocal.wrapperPath)) {
     missingRepoLocalContract.push(observableContract.installModes.repoLocal.wrapperPath);
@@ -341,6 +483,16 @@ export function detectDocumentationContractDrift({
       code: 'repo-local.wrapper-contract.missing',
       source: 'docs/install/repo-local.md',
       missing: missingRepoLocalContract,
+    });
+  }
+
+  const missingRepoLocalExecutionTaxonomy = collectMissingExecutionTaxonomyTokens(repoLocalInstallDocText, { requireLegacy: true });
+
+  if (missingRepoLocalExecutionTaxonomy.length > 0) {
+    drifts.push({
+      code: 'repo-local.execution-taxonomy.missing',
+      source: 'docs/install/repo-local.md',
+      missing: missingRepoLocalExecutionTaxonomy,
     });
   }
 
@@ -425,6 +577,16 @@ export function detectDocumentationContractDrift({
         code: 'mvp-spec.execution-boundaries.missing',
         source: 'docs/specs/modly-cli-mvp.md',
         missing: missingSpecExecutionBoundaries,
+      });
+    }
+
+    const missingSpecExecutionTaxonomy = collectMissingExecutionTaxonomyTokens(mvpSpecText);
+
+    if (missingSpecExecutionTaxonomy.length > 0) {
+      drifts.push({
+        code: 'mvp-spec.execution-taxonomy.missing',
+        source: 'docs/specs/modly-cli-mvp.md',
+        missing: missingSpecExecutionTaxonomy,
       });
     }
 

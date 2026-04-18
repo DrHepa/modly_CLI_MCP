@@ -10,10 +10,10 @@ Grupos disponibles:
   capabilities              Descubre capabilities de automatización
   health                    Verifica GET /health
   model <subcomando>        list | current | params | switch | unload-all | download
-  generate <subcomando>     from-image
-  job <subcomando>          status | wait | cancel
   process-run <subcomando>  create | status | wait | cancel
   workflow-run <subcomando> from-image | status | wait | cancel
+  generate <subcomando>     from-image
+  job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
   ext <subcomando>          reload | errors
   config <subcomando>       paths get | paths set
@@ -25,7 +25,8 @@ Flags globales:
 
 Estado del bootstrap:
   - capabilities, health, model, generate, job, workflow-run, process-run, mesh, ext y config ya son funcionales
-  - workflow-run y process-run son las superficies run principales
+  - workflow-run y process-run son las superficies run principales y canónicas para recovery/polling
+  - modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.
   - generate/job se mantienen como compatibilidad observable actual
   - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
 `;
@@ -77,11 +78,14 @@ Subcomandos disponibles:
   status <job-id>            Muestra el estado actual de un job
   wait <job-id>              Hace polling hasta done, error o cancelled
   cancel <job-id>            Solicita la cancelación del job
+
+Notas:
+  - Superficie legacy de compatibilidad visible; no sustituye a workflow-run/process-run como ruta canónica
 `;
 }
 
 export function renderProcessRunHelp() {
-  return `modly process-run — process runs mesh-only
+  return `modly process-run — process runs canónicos mesh-only
 
 Uso:
   modly process-run create --process-id <id> --params-json '{...}' [--workspace-path <path>] [--output-path <path>] [--api-url <url>] [--json]
@@ -96,6 +100,8 @@ Subcomandos disponibles:
   cancel <run-id>           Solicita la cancelación del process run
 
 Notas:
+  - Primitive canónica de ejecución para procesos publicados
+  - status/wait preservan la ruta de recovery/polling sobre el mismo runId
   - Hace preflight GET /health antes de operaciones de negocio
   - Solo soporta procesos mesh-only ya publicados por capabilities.processes
   - --workspace-path y --output-path deben ser workspace-relative
@@ -110,11 +116,14 @@ Uso:
 
 Subcomandos disponibles:
   from-image                 Crea un job de generación desde una imagen
+
+Notas:
+  - Superficie legacy de compatibilidad observable; workflow-run es la ruta run canónica para nueva recuperación/polling
 `;
 }
 
 export function renderWorkflowRunHelp() {
-  return `modly workflow-run — runs headless desde imagen
+  return `modly workflow-run — runs canónicos headless desde imagen
 
 Uso:
   modly workflow-run from-image --image <path> --model <id> [--params-json '{...}'] [--api-url <url>] [--json]
@@ -127,6 +136,10 @@ Subcomandos disponibles:
   status <run-id>           Muestra el estado actual del run
   wait <run-id>             Hace polling hasta done, error o cancelled
   cancel <run-id>           Solicita la cancelación del run
+
+Notas:
+  - Primitive canónica de ejecución para runs desde imagen
+  - status/wait preservan la ruta de recovery/polling sobre el mismo runId
 `;
 }
 

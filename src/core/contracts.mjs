@@ -24,6 +24,33 @@ export const COMMAND_GROUPS = Object.freeze([
   'config',
 ]);
 
+export const EXECUTION_SURFACE_TAXONOMY = Object.freeze({
+  canonical: Object.freeze({
+    label: 'canonical run primitive',
+    cliGroups: Object.freeze(['process-run', 'workflow-run']),
+    mcpToolIds: Object.freeze([
+      'modly.workflowRun.createFromImage',
+      'modly.workflowRun.status',
+      'modly.workflowRun.cancel',
+      'modly.workflowRun.wait',
+      'modly.processRun.create',
+      'modly.processRun.status',
+      'modly.processRun.wait',
+      'modly.processRun.cancel',
+    ]),
+  }),
+  wrapper: Object.freeze({
+    label: 'orchestration wrapper',
+    cliGroups: Object.freeze([]),
+    mcpToolIds: Object.freeze(['modly.capability.execute', 'modly.recipe.execute']),
+  }),
+  legacy: Object.freeze({
+    label: 'legacy compatibility',
+    cliGroups: Object.freeze(['generate', 'job']),
+    mcpToolIds: Object.freeze(['modly.job.status']),
+  }),
+});
+
 export const MODLY_API_CONTRACT = Object.freeze({
   health: { method: 'GET', path: '/health' },
   getAutomationCapabilities: { method: 'GET', path: '/automation/capabilities' },

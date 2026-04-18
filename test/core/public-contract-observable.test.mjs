@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 
 import { renderHelp } from '../../src/cli/help.mjs';
-import { COMMAND_GROUPS, MCP_TOOL_IDS } from '../../src/core/contracts.mjs';
+import { COMMAND_GROUPS, EXECUTION_SURFACE_TAXONOMY, MCP_TOOL_IDS } from '../../src/core/contracts.mjs';
 import {
   buildObservableContract,
   detectDocumentationContractDrift,
@@ -117,6 +117,146 @@ test('buildObservableContract freezes bins, groups, install modes, and default p
     envFlag: 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE',
     hiddenByDefault: true,
   });
+  assert.deepEqual(observableContract.executionSurfaces, {
+    taxonomy: EXECUTION_SURFACE_TAXONOMY,
+    canonicalRecovery: {
+      cliGroups: ['workflow-run', 'process-run'],
+      mcpToolIds: [
+        'modly.workflowRun.status',
+        'modly.workflowRun.wait',
+        'modly.processRun.status',
+        'modly.processRun.wait',
+      ],
+    },
+  });
+});
+
+test('detectVisibleContractDrift flags taxonomy overlap and legacy promotion', () => {
+  const overlappingObservableContract = {
+    cliGroups: EXPECTED_CLI_GROUPS,
+    mcp: {
+      defaultPublicToolIds: EXPECTED_DEFAULT_PUBLIC_TOOLS,
+    },
+    recipeGating: {
+      toolId: 'modly.recipe.execute',
+      envFlag: 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE',
+      hiddenByDefault: true,
+    },
+    executionSurfaces: {
+      taxonomy: {
+        canonical: {
+          label: 'canonical run primitive',
+          cliGroups: ['workflow-run', 'job'],
+          mcpToolIds: ['modly.workflowRun.status', 'modly.job.status'],
+        },
+        wrapper: {
+          label: 'orchestration wrapper',
+          cliGroups: [],
+          mcpToolIds: ['modly.capability.execute', 'modly.recipe.execute'],
+        },
+        legacy: {
+          label: 'legacy compatibility',
+          cliGroups: ['generate', 'job'],
+          mcpToolIds: ['modly.job.status'],
+        },
+      },
+      canonicalRecovery: {
+        cliGroups: ['workflow-run', 'process-run'],
+        mcpToolIds: ['modly.workflowRun.status', 'modly.processRun.status'],
+      },
+    },
+  };
+
+  const helpText = `modly — CLI headless para Modly
+
+Grupos disponibles:
+  capabilities
+  health
+  model
+  generate
+  job
+  process-run
+  workflow-run
+  mesh
+  ext
+  config
+
+Notas:
+  - workflow-run y process-run son las superficies run principales
+  - generate/job ahora son la ruta principal de ejecución
+  - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
+`;
+
+  assert.deepEqual(
+    detectVisibleContractDrift({
+      observableContract: overlappingObservableContract,
+      commandGroups: EXPECTED_CLI_GROUPS,
+      mcpToolIds: EXPECTED_DEFAULT_PUBLIC_TOOLS,
+      helpText,
+    }),
+    [
+      {
+        code: 'contracts.execution-surface-taxonomy.overlap',
+        source: 'src/core/public-contract-observable.mjs',
+        surfaces: ['job', 'modly.job.status'],
+      },
+      {
+        code: 'help.execution-surfaces.legacy-promoted',
+        source: 'src/cli/help.mjs',
+        legacySurfaces: ['generate', 'job'],
+      },
+    ],
+  );
+});
+
+test('detectVisibleContractDrift flags wrapper promotion and missing canonical recovery language', () => {
+  const observableContract = buildObservableContract({
+    packageJson: readJson('package.json'),
+    cliIndexSource: readText('src/cli/index.mjs'),
+    wrapperSource: readText('templates/opencode/run_server.mjs'),
+    publicCatalog: createPublicCatalog({ catalog: MCP_TOOL_CATALOG }),
+  });
+
+  const helpText = `modly — CLI headless para Modly
+
+Grupos disponibles:
+  capabilities
+  health
+  model
+  generate
+  job
+  process-run
+  workflow-run
+  mesh
+  ext
+  config
+
+Notas:
+  - modly.capability.execute ahora es la superficie principal de ejecución
+  - generate/job se mantienen como compatibilidad observable actual
+  - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
+`;
+
+  assert.deepEqual(
+    detectVisibleContractDrift({
+      observableContract,
+      commandGroups: EXPECTED_CLI_GROUPS,
+      mcpToolIds: EXPECTED_DEFAULT_PUBLIC_TOOLS,
+      helpText,
+    }),
+    [
+      {
+        code: 'help.execution-surfaces.wrapper-promoted',
+        source: 'src/cli/help.mjs',
+        wrapperSurfaces: ['modly.capability.execute', 'modly.recipe.execute'],
+      },
+      {
+        code: 'help.execution-surfaces.canonical-recovery-missing',
+        source: 'src/cli/help.mjs',
+        missing: ['workflow-run', 'process-run'],
+      },
+    ],
+  );
 });
 
 test('buildObservableContract includes recipe execution only in the opt-in public catalog', () => {
@@ -262,6 +402,11 @@ Estado del bootstrap:
           'MODLY_EXPERIMENTAL_RECIPE_EXECUTE',
         ],
       },
+      {
+        code: 'help.execution-surfaces.canonical-recovery-missing',
+        source: 'src/cli/help.mjs',
+        missing: ['workflow-run', 'process-run'],
+      },
     ],
   );
 });
@@ -289,6 +434,8 @@ Grupos disponibles:
   config
 
 Notas:
+  - workflow-run y process-run son las superficies run principales
+  - generate/job se mantienen como compatibilidad observable actual
   - modly.recipe.execute es experimental, opt-in y hidden by default.
   - Requiere MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
 `;
@@ -330,9 +477,30 @@ test('renderHelp describes workflow/process runs as primary and recipe execution
   assert.equal(helpText.includes('workflow-run y process-run son las superficies run principales'), true);
   assert.equal(helpText.includes('generate/job se mantienen como compatibilidad observable actual'), true);
   assert.equal(
+    helpText.includes('modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.'),
+    true,
+  );
+  assert.equal(
     helpText.includes('modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.'),
     true,
   );
+  assert.equal(helpText.indexOf('process-run <subcomando>') < helpText.indexOf('generate <subcomando>'), true);
+  assert.equal(helpText.indexOf('workflow-run <subcomando>') < helpText.indexOf('job <subcomando>'), true);
+});
+
+test('MCP tool catalog uses taxonomy wording for canonical runs, wrappers, and legacy compatibility', () => {
+  const workflowStatusTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.workflowRun.status');
+  const processStatusTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.processRun.status');
+  const capabilityExecuteTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.capability.execute');
+  const recipeExecuteTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.recipe.execute');
+  const jobStatusTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.job.status');
+
+  assert.match(workflowStatusTool.description, /canonical run primitive/u);
+  assert.match(processStatusTool.description, /canonical run primitive/u);
+  assert.match(capabilityExecuteTool.description, /orchestration wrapper/iu);
+  assert.match(capabilityExecuteTool.description, /canonical recovery surface/iu);
+  assert.match(recipeExecuteTool.description, /experimental orchestration wrapper/iu);
+  assert.match(jobStatusTool.description, /legacy compatibility surface/iu);
 });
 
 test('detectDocumentationContractDrift enumerates Batch 3 doc drift when stale docs are provided', () => {
@@ -392,6 +560,11 @@ Use any local script.
         missing: ['workflow-process-primary', 'generate-job-compatibility'],
       },
       {
+        code: 'readme.execution-taxonomy.missing',
+        source: 'README.md',
+        missing: ['canonical-run-primitive', 'orchestration-wrapper'],
+      },
+      {
         code: 'readme.recipe-gating.missing',
         source: 'README.md',
         missing: ['modly.recipe.execute', 'experimental', 'opt-in', 'hidden by default', 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE'],
@@ -408,9 +581,19 @@ Use any local script.
         missing: ['MODLY_API_URL', 'MODLY_AUTOMATION_URL', 'MODLY_PROCESS_URL'],
       },
       {
+        code: 'global-install.execution-taxonomy.missing',
+        source: 'docs/install/global.md',
+        missing: ['canonical-run-primitive', 'orchestration-wrapper', 'legacy-compatibility'],
+      },
+      {
         code: 'repo-local.wrapper-contract.missing',
         source: 'docs/install/repo-local.md',
         missing: ['tools/modly_mcp/run_server.mjs', '--check', 'tools/_tmp/modly_mcp/local.env', 'local-first-global-fallback'],
+      },
+      {
+        code: 'repo-local.execution-taxonomy.missing',
+        source: 'docs/install/repo-local.md',
+        missing: ['canonical-run-primitive', 'orchestration-wrapper', 'legacy-compatibility'],
       },
       {
         code: 'repo-local.unsupported-source-checkout.missing',
@@ -480,6 +663,11 @@ Use any checkout-based setup you want.
         code: 'mvp-spec.execution-boundaries.missing',
         source: 'docs/specs/modly-cli-mvp.md',
         missing: ['workflow-process-primary', 'generate-job-compatibility'],
+      },
+      {
+        code: 'mvp-spec.execution-taxonomy.missing',
+        source: 'docs/specs/modly-cli-mvp.md',
+        missing: ['canonical-run-primitive', 'orchestration-wrapper'],
       },
       {
         code: 'mvp-spec.recipe-gating.missing',

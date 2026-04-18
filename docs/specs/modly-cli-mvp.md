@@ -103,6 +103,13 @@ The default public MCP catalog is intentionally smaller than the full CLI surfac
 
 `workflow-run` / `process-run` are the primary run surfaces.
 
+### Execution surface taxonomy
+
+- `workflow-run` / `process-run` and `modly.workflowRun.*` / `modly.processRun.*` are the visible **canonical run primitive** surfaces.
+- `modly.capability.execute` is an **orchestration wrapper** over those run primitives; recovery/polling remains on the canonical run status surfaces.
+- `modly.recipe.execute` is an experimental **orchestration wrapper** over the same run primitives and stays opt-in/hidden by default.
+- `generate` / `job` and `modly.job.status` remain visible **legacy compatibility** surfaces.
+
 `generate` / `job` remain observable compatibility surfaces.
 
 `wait` remains a bounded convenience wrapper over status polling. Polling-first agents should prefer create/status loops over long blocking waits.

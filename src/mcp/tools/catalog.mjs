@@ -130,7 +130,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[29],
     title: 'Execute Smart Capability',
-    description: 'Plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize and mesh-exporter/export (default_backend output only; explicit outputPath unsupported) to modly.processRun.create.',
+    description: 'Orchestration wrapper that plans a known capability against live discovery and, in this first executable MVP cut, dispatches supported image input to modly.workflowRun.createFromImage plus ONLY mesh-optimizer/optimize and mesh-exporter/export (default_backend output only; explicit outputPath unsupported) to modly.processRun.create. The canonical recovery surface remains modly.workflowRun.status/modly.processRun.status.',
     inputSchema: {
       type: 'object',
       required: ['capability', 'input'],
@@ -145,7 +145,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[31],
     title: 'Execute Guided Recipe',
-    description: 'Executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
+    description: 'Experimental orchestration wrapper that executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
     inputSchema: {
       type: 'object',
       required: ['recipe', 'input'],
@@ -210,7 +210,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[11],
     title: 'Job Status',
-    description: 'Gets the current job state.',
+    description: 'Gets the current job state as a legacy compatibility surface; canonical recovery remains on workflow-run/process-run.',
     inputSchema: {
       type: 'object',
       required: ['jobId'],
@@ -221,7 +221,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[14],
     title: 'Create Workflow Run From Image',
-    description: 'Creates a workflow run from an input image and returns recovery metadata so clients can continue polling the same runId via modly.workflowRun.status.',
+    description: 'Creates a workflow run from an input image as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.workflowRun.status.',
     inputSchema: {
       type: 'object',
       required: ['imagePath', 'modelId'],
@@ -236,7 +236,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[15],
     title: 'Workflow Run Status',
-    description: 'Gets the latest workflow run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.',
+    description: 'Gets the latest workflow run state for this canonical run primitive. This is the preferred polling-first recovery tool for long-running agents using the same runId.',
     inputSchema: {
       type: 'object',
       required: ['runId'],
@@ -258,7 +258,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[28],
     title: 'Wait For Workflow Run',
-    description: 'Bounded convenience wrapper around workflow status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.',
+    description: 'Bounded convenience wrapper around canonical workflow-run status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.',
     inputSchema: {
       type: 'object',
       required: ['runId'],
@@ -273,7 +273,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[17],
     title: 'Create Process Run',
-    description: 'Creates a process run and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.',
+    description: 'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.',
     inputSchema: {
       type: 'object',
       required: ['process_id', 'params'],
@@ -289,7 +289,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[18],
     title: 'Process Run Status',
-    description: 'Gets the latest process run state. This is the preferred polling-first recovery tool for long-running agents using the same runId.',
+    description: 'Gets the latest process run state for this canonical run primitive. This is the preferred polling-first recovery tool for long-running agents using the same runId.',
     inputSchema: {
       type: 'object',
       required: ['runId'],
@@ -300,7 +300,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[19],
     title: 'Wait For Process Run',
-    description: 'Bounded convenience wrapper around process status polling; prefer modly.processRun.status for recovery and use short timeout windows when you cannot poll yourself.',
+    description: 'Bounded convenience wrapper around canonical process-run status polling; prefer modly.processRun.status for recovery and use short timeout windows when you cannot poll yourself.',
     inputSchema: {
       type: 'object',
       required: ['runId'],

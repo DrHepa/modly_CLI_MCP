@@ -79,6 +79,13 @@ This repository keeps the operational automation layer **outside** the upstream 
   - `modly.processRun.wait`
   - `modly.capability.execute`
 
+### Execution surface taxonomy
+
+- `workflow-run` / `process-run` and `modly.workflowRun.*` / `modly.processRun.*` are the **canonical run primitive** surfaces.
+- `modly.capability.execute` is an **orchestration wrapper** over those canonical run primitives; recovery and polling stay anchored on `workflow-run` / `process-run` status surfaces.
+- `modly.recipe.execute` is an experimental **orchestration wrapper** over the same run primitives; it remains opt-in and never replaces canonical recovery.
+- `generate` / `job` and `modly.job.status` remain **legacy compatibility** surfaces.
+
 ## Explicitly out of scope
 
 This repository does **not** pretend to support:
@@ -234,6 +241,7 @@ See:
 - Both surfaces rely on the existing workflow-run status endpoint plus the required `GET /health` readiness check before business operations.
 - This does **not** add workflow CRUD/management, real scene mutation, or `--wait` support to `workflow-run from-image`.
 - `workflow-run` / `process-run` are the primary run surfaces.
+- `workflow-run` / `process-run` remain the canonical run primitive recovery path for long-running execution.
 - `generate` / `job` remain observable compatibility surfaces.
 
 ## Recommended long-running pattern
