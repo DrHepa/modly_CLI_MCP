@@ -19,7 +19,7 @@ const WORKFLOW_STATUS_DESCRIPTION =
 const WORKFLOW_WAIT_DESCRIPTION =
   'Bounded convenience wrapper around canonical workflow-run status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.';
 const PROCESS_CREATE_DESCRIPTION =
-  'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.';
+  'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path. For mesh-optimizer/optimize and mesh-exporter/export, workspace_path is normalized to the mesh file and parent-directory input is autocorrected only when params.mesh_path identifies the local file unambiguously.';
 const PROCESS_STATUS_DESCRIPTION =
   'Gets the latest process run state for this canonical run primitive. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
 const PROCESS_WAIT_DESCRIPTION =
@@ -464,7 +464,7 @@ test('modly.capability.execute dispatches optimizer input to processRun.create w
           target_faces: 12000,
           output_path: 'meshes/out.glb',
         },
-        workspace_path: 'workspace',
+        workspace_path: 'meshes/in.glb',
       });
       return jsonResponse({
         run_id: 'optimizer-run-123',
@@ -475,7 +475,7 @@ test('modly.capability.execute dispatches optimizer input to processRun.create w
           target_faces: 12000,
           output_path: 'meshes/out.glb',
         },
-        workspace_path: 'workspace',
+        workspace_path: 'meshes/in.glb',
       });
     }
 
@@ -536,7 +536,7 @@ test('modly.capability.execute dispatches optimizer input to processRun.create w
             target_faces: 12000,
             output_path: 'meshes/out.glb',
           },
-          workspace_path: 'workspace',
+          workspace_path: 'meshes/in.glb',
         },
       },
       run: {
@@ -550,8 +550,8 @@ test('modly.capability.execute dispatches optimizer input to processRun.create w
           target_faces: 12000,
           output_path: 'meshes/out.glb',
         },
-        workspace_path: 'workspace',
-        workspacePath: 'workspace',
+        workspace_path: 'meshes/in.glb',
+        workspacePath: 'meshes/in.glb',
         outputUrl: undefined,
         error: undefined,
       },
@@ -691,7 +691,7 @@ test('modly.capability.execute preserves transparent envelope when optimizer bac
           target_faces: 12000,
           output_path: 'meshes/out.glb',
         },
-        workspace_path: 'workspace',
+        workspace_path: 'meshes/in.glb',
       });
       return jsonResponse(
         {
@@ -761,7 +761,7 @@ test('modly.capability.execute preserves transparent envelope when optimizer bac
             target_faces: 12000,
             output_path: 'meshes/out.glb',
           },
-          workspace_path: 'workspace',
+          workspace_path: 'meshes/in.glb',
         },
       },
       run: null,
@@ -862,7 +862,7 @@ test('modly.diagnostic.guidance consumes a real modly.capability.execute diagnos
           mesh_path: 'meshes/in.glb',
           target_faces: 12000,
         },
-        workspace_path: 'workspace',
+        workspace_path: 'meshes/in.glb',
       });
 
       const error = new Error('fetch failed');
@@ -2770,7 +2770,7 @@ test('modly.capability.execute dispatches exporter through processRun.create wit
           mesh_path: 'meshes/in.glb',
           output_format: 'glb',
         },
-        workspace_path: 'workspace',
+        workspace_path: 'meshes/in.glb',
       });
       return jsonResponse({
         run_id: 'exporter-run-123',
@@ -2780,7 +2780,7 @@ test('modly.capability.execute dispatches exporter through processRun.create wit
           mesh_path: 'meshes/in.glb',
           output_format: 'glb',
         },
-        workspace_path: 'workspace',
+        workspace_path: 'meshes/in.glb',
       });
     }
 
@@ -2809,7 +2809,7 @@ test('modly.capability.execute dispatches exporter through processRun.create wit
       mesh_path: 'meshes/in.glb',
       output_format: 'glb',
     },
-    workspace_path: 'workspace',
+    workspace_path: 'meshes/in.glb',
   });
   assert.equal('outputPath' in result.structuredContent.data.execution.arguments, false);
   assert.equal('output_path' in result.structuredContent.data.execution.arguments.params, false);

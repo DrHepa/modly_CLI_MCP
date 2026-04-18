@@ -273,7 +273,7 @@ export const MCP_TOOL_CATALOG = [
   {
     name: MCP_TOOL_IDS[17],
     title: 'Create Process Run',
-    description: 'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path.',
+    description: 'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path. For mesh-optimizer/optimize and mesh-exporter/export, workspace_path is normalized to the mesh file and parent-directory input is autocorrected only when params.mesh_path identifies the local file unambiguously.',
     inputSchema: {
       type: 'object',
       required: ['process_id', 'params'],

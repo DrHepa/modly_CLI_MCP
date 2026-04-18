@@ -107,6 +107,8 @@ This repository does **not** pretend to support:
 
 It does **not** execute unknown capabilities, UI-only nodes, `UniRig`, generic process chains, or explicit exporter output-path requests. `input.outputPath` and `params.output_path` remain outside this MVP and are rejected locally.
 
+For direct `processRun.create` calls targeting `mesh-optimizer/optimize` or `mesh-exporter/export`, `workspace_path` is normalized to the mesh file itself. If the client receives only the parent directory but `params.mesh_path` identifies the local mesh file unambiguously, it autocorrects to the full file path before dispatch.
+
 `scene_candidate` is treated as **descriptive output only**, not as a scene mutation.
 
 `modly.recipe.execute` is the guided orchestration layer for the MVP, and it remains EXPERIMENTAL and default-off.

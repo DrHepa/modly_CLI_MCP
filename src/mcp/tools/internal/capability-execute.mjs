@@ -207,7 +207,7 @@ export function resolveProcessCapabilityExecutionInput(input, plan) {
   const executionScope = getProcessExecutionScope(processId);
 
   if (executionScope === 'optimizer') {
-    const resolvedInput = prepareCapabilityProcessInput(input);
+    const resolvedInput = prepareCapabilityProcessInput(input, { processId });
     const executionInput = {
       process_id: processId,
       params: {

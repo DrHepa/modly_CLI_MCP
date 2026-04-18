@@ -260,6 +260,112 @@ test('process-run create omits params.output_path when --output-path is missing 
   });
 });
 
+test('process-run create corrects parent-directory workspace_path for canonical mesh processes', async () => {
+  const calls = [];
+
+  const result = await runProcessRunCommand({
+    args: [
+      'create',
+      '--process-id',
+      'mesh-optimizer/optimize',
+      '--workspace-path',
+      'Workflows',
+      '--params-json',
+      '{"mesh_path":"Workflows/1776513961_ea0e6f61.glb","target_faces":12000}',
+    ],
+    client: {
+      async health() {
+        calls.push('health');
+        return { status: 'ok' };
+      },
+      async getAutomationCapabilities() {
+        calls.push('getAutomationCapabilities');
+        return { processes: [{ id: 'mesh-optimizer/optimize' }] };
+      },
+      async createProcessRun(payload) {
+        calls.push(['createProcessRun', payload]);
+        return {
+          run_id: 'process-run-corrected-workspace',
+          process_id: payload.process_id,
+          status: 'accepted',
+          params: payload.params,
+          workspace_path: payload.workspace_path,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    'health',
+    'getAutomationCapabilities',
+    [
+      'createProcessRun',
+      {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'Workflows/1776513961_ea0e6f61.glb',
+          target_faces: 12000,
+        },
+        workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+      },
+    ],
+  ]);
+  assert.equal(result.data.run.workspacePath, 'Workflows/1776513961_ea0e6f61.glb');
+});
+
+test('process-run create corrects directory workspace_path when canonical mesh params.mesh_path is only a basename', async () => {
+  const calls = [];
+
+  const result = await runProcessRunCommand({
+    args: [
+      'create',
+      '--process-id',
+      'mesh-optimizer/optimize',
+      '--workspace-path',
+      'Workflows',
+      '--params-json',
+      '{"mesh_path":"1776513961_ea0e6f61.glb","target_faces":12000}',
+    ],
+    client: {
+      async health() {
+        calls.push('health');
+        return { status: 'ok' };
+      },
+      async getAutomationCapabilities() {
+        calls.push('getAutomationCapabilities');
+        return { processes: [{ id: 'mesh-optimizer/optimize' }] };
+      },
+      async createProcessRun(payload) {
+        calls.push(['createProcessRun', payload]);
+        return {
+          run_id: 'process-run-corrected-basename-workspace',
+          process_id: payload.process_id,
+          status: 'accepted',
+          params: payload.params,
+          workspace_path: payload.workspace_path,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    'health',
+    'getAutomationCapabilities',
+    [
+      'createProcessRun',
+      {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: '1776513961_ea0e6f61.glb',
+          target_faces: 12000,
+        },
+        workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+      },
+    ],
+  ]);
+  assert.equal(result.data.run.workspacePath, 'Workflows/1776513961_ea0e6f61.glb');
+});
+
 test('process-run create without --output-path reaches default export flow over HTTP harness', async (t) => {
   const fastApi = await startJsonServer(t, ({ method, path: requestPath }) => {
     assert.equal(method, 'GET');

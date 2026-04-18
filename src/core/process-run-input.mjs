@@ -3,6 +3,7 @@ import { ValidationError } from './errors.mjs';
 import { getCanonicalProcessIds } from './modly-normalizers.mjs';
 
 const EXPORTER_PROCESS_ID = 'mesh-exporter/export';
+const FILE_WORKSPACE_PROCESS_IDS = new Set(['mesh-optimizer/optimize', EXPORTER_PROCESS_ID]);
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -75,6 +76,53 @@ function hasOwn(object, key) {
   return isObject(object) && Object.prototype.hasOwnProperty.call(object, key);
 }
 
+function normalizeProcessMeshPath(params, processId) {
+  if (!FILE_WORKSPACE_PROCESS_IDS.has(processId) || !hasOwn(params, 'mesh_path') || params.mesh_path === undefined) {
+    return undefined;
+  }
+
+  return normalizeWorkspaceRelativePath(params.mesh_path, 'params.mesh_path');
+}
+
+function isLikelyDirectoryWorkspacePath(workspacePath) {
+  return path.posix.extname(workspacePath) === '';
+}
+
+function resolveProcessWorkspacePath(processId, workspacePath, meshPath) {
+  if (!FILE_WORKSPACE_PROCESS_IDS.has(processId) || meshPath === undefined) {
+    return workspacePath;
+  }
+
+  if (workspacePath === undefined || workspacePath === meshPath) {
+    return meshPath;
+  }
+
+  if (path.posix.basename(workspacePath) === meshPath) {
+    return workspacePath;
+  }
+
+  if (path.posix.dirname(meshPath) === workspacePath) {
+    return meshPath;
+  }
+
+  if (path.posix.basename(meshPath) === meshPath && isLikelyDirectoryWorkspacePath(workspacePath)) {
+    return path.posix.join(workspacePath, meshPath);
+  }
+
+  throw new ValidationError(
+    `workspace_path must point to the same mesh file as params.mesh_path for ${processId}. Use ${meshPath}.`,
+    {
+      details: {
+        field: 'workspace_path',
+        reason: 'workspace_path_must_match_mesh_file',
+        process_id: processId,
+        workspace_path: workspacePath,
+        mesh_path: meshPath,
+      },
+    },
+  );
+}
+
 function validateCapabilityProcessBaseInput(input) {
   if (!isObject(input)) {
     throw new ValidationError('input must be a JSON object.', {
@@ -130,6 +178,7 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
 
   const workspacePath = normalizeWorkspaceRelativePath(input.workspace_path, 'workspace_path');
   const params = { ...input.params };
+  const meshPath = normalizeProcessMeshPath(params, processId);
   const explicitOutputPath = normalizeWorkspaceRelativePath(params.output_path, 'params.output_path', {
     omitIfEmpty: true,
   });
@@ -161,7 +210,9 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
   };
 
   if (workspacePath !== undefined) {
-    payload.workspace_path = workspacePath;
+    payload.workspace_path = resolveProcessWorkspacePath(processId, workspacePath, meshPath);
+  } else if (meshPath !== undefined) {
+    payload.workspace_path = resolveProcessWorkspacePath(processId, workspacePath, meshPath);
   }
 
   delete payload.outputPath;
@@ -171,6 +222,7 @@ export function prepareProcessRunCreateInput(input, { capabilities } = {}) {
 
 export function prepareCapabilityProcessInput(input, { processId, params } = {}) {
   const { kind, meshPath, workspacePath } = validateCapabilityProcessBaseInput(input);
+  const resolvedWorkspacePath = FILE_WORKSPACE_PROCESS_IDS.has(processId) ? meshPath : workspacePath;
 
   if (processId === EXPORTER_PROCESS_ID) {
     if (hasOwn(input, 'outputPath')) {
@@ -189,7 +241,7 @@ export function prepareCapabilityProcessInput(input, { processId, params } = {})
 
     const preparedInput = {
       meshPath,
-      workspacePath,
+      workspacePath: resolvedWorkspacePath,
       params: {},
     };
 
@@ -207,7 +259,7 @@ export function prepareCapabilityProcessInput(input, { processId, params } = {})
   const outputPath = normalizeWorkspaceRelativePath(input.outputPath, 'input.outputPath', { omitIfEmpty: true });
   const preparedInput = {
     meshPath,
-    workspacePath,
+    workspacePath: resolvedWorkspacePath,
     outputPath,
   };
 

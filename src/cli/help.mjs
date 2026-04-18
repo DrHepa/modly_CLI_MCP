@@ -105,6 +105,7 @@ Notas:
   - Hace preflight GET /health antes de operaciones de negocio
   - Solo soporta procesos mesh-only ya publicados por capabilities.processes
   - --workspace-path y --output-path deben ser workspace-relative
+  - Para mesh-optimizer/optimize y mesh-exporter/export, --workspace-path se normaliza al archivo mesh; si llega el directorio padre y params.mesh_path identifica el basename local, se autocorrige
 `;
 }
 

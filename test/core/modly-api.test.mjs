@@ -979,6 +979,86 @@ test('prepareProcessRunCreateInput preserves explicit normalized output paths an
   );
 });
 
+test('prepareProcessRunCreateInput preserves file workspace_path for canonical mesh processes', () => {
+  const capabilities = { processes: [{ id: 'mesh-optimizer/optimize' }] };
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-optimizer/optimize',
+        params: { mesh_path: 'Workflows/1776513961_ea0e6f61.glb', target_faces: 12000 },
+        workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-optimizer/optimize',
+      params: { mesh_path: 'Workflows/1776513961_ea0e6f61.glb', target_faces: 12000 },
+      workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+    },
+  );
+});
+
+test('prepareProcessRunCreateInput preserves canonical mesh workspace_path when params.mesh_path is only a local basename', () => {
+  const capabilities = { processes: [{ id: 'mesh-optimizer/optimize' }] };
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-optimizer/optimize',
+        params: { mesh_path: '1776513961_ea0e6f61.glb', target_faces: 12000 },
+        workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-optimizer/optimize',
+      params: { mesh_path: '1776513961_ea0e6f61.glb', target_faces: 12000 },
+      workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+    },
+  );
+});
+
+test('prepareProcessRunCreateInput corrects canonical mesh process workspace_path when only the parent directory was provided', () => {
+  const capabilities = { processes: [{ id: 'mesh-optimizer/optimize' }] };
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-optimizer/optimize',
+        params: { mesh_path: 'Workflows/1776513961_ea0e6f61.glb', target_faces: 12000 },
+        workspace_path: 'Workflows',
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-optimizer/optimize',
+      params: { mesh_path: 'Workflows/1776513961_ea0e6f61.glb', target_faces: 12000 },
+      workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+    },
+  );
+});
+
+test('prepareProcessRunCreateInput corrects canonical mesh process workspace_path when params.mesh_path is only a local basename', () => {
+  const capabilities = { processes: [{ id: 'mesh-exporter/export' }] };
+
+  assert.deepEqual(
+    prepareProcessRunCreateInput(
+      {
+        process_id: 'mesh-exporter/export',
+        params: { mesh_path: '1776513961_ea0e6f61.glb', output_format: 'glb' },
+        workspace_path: 'Workflows',
+      },
+      { capabilities },
+    ),
+    {
+      process_id: 'mesh-exporter/export',
+      params: { mesh_path: '1776513961_ea0e6f61.glb', output_format: 'glb' },
+      workspace_path: 'Workflows/1776513961_ea0e6f61.glb',
+    },
+  );
+});
+
 test('prepareProcessRunCreateInput rejects invalid params, traversal paths and conflicting output paths', () => {
   assert.throws(
     () => prepareProcessRunCreateInput({ process_id: 'mesh-simplify', params: [] }),
@@ -1000,6 +1080,18 @@ test('prepareProcessRunCreateInput rejects invalid params, traversal paths and c
       ),
     /Unknown canonical process_id: mesh-unknown/,
   );
+
+  assert.throws(
+    () => prepareProcessRunCreateInput(
+        {
+          process_id: 'mesh-optimizer/optimize',
+          params: { mesh_path: 'Workflows/1776513961_ea0e6f61.glb' },
+          workspace_path: 'Different/place.glb',
+        },
+        { capabilities: { processes: [{ id: 'mesh-optimizer/optimize' }] } },
+      ),
+    /workspace_path must point to the same mesh file as params\.mesh_path for mesh-optimizer\/optimize/,
+  );
 });
 
 test('prepareCapabilityProcessInput keeps exporter payload in default-output-only shape', () => {
@@ -1018,7 +1110,7 @@ test('prepareCapabilityProcessInput keeps exporter payload in default-output-onl
   assert.deepEqual(prepared, {
     kind: 'mesh',
     meshPath: 'meshes/in.glb',
-    workspacePath: 'workspace',
+    workspacePath: 'meshes/in.glb',
     params: { output_format: 'glb' },
   });
 });
