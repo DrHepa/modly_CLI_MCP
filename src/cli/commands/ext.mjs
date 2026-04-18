@@ -1,11 +1,14 @@
 import { UnsupportedOperationError, UsageError } from '../../core/errors.mjs';
+import { applyStagedExtension } from '../../core/extension-apply.mjs';
 import { stageGitHubExtension } from '../../core/github-extension-staging.mjs';
 import { normalizeErrors } from '../../core/modly-normalizers.mjs';
 import { assertExactPositionals, parseCommandArgs } from './shared.mjs';
 
-const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github'];
+const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply'];
 const STAGE_GITHUB_USAGE =
   'Usage: modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]';
+const APPLY_USAGE =
+  'Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
 
 async function runReload(context, args) {
   if (args.length !== 0) {
@@ -97,6 +100,68 @@ async function runStage(context, args) {
   return runStageGithub(context, rest);
 }
 
+function renderApplyHumanMessage(apply) {
+  const runtimeErrorCount = Array.isArray(apply.errors?.matched) ? apply.errors.matched.length : 0;
+  const lines = [
+    `CLI-only apply over prepared stage: ${apply.status} for ${apply.manifest?.id ?? '<unknown>'}.`,
+    `stagePath: ${apply.stagePath}`,
+    `extensionsDir: ${apply.resolution?.extensionsDir ?? '<unknown>'}`,
+    `destination: ${apply.destination?.path ?? '<unknown>'}`,
+    'No GitHub fetch, install, build, or repair was attempted.',
+  ];
+
+  if (apply.backup?.created && apply.backup.path) {
+    lines.push(`backup: ${apply.backup.path}`);
+  }
+
+  if (apply.reload?.requested) {
+    lines.push(`reload: ${apply.reload.succeeded ? 'requested and observed' : 'requested but degraded'}`);
+  }
+
+  if (runtimeErrorCount > 0) {
+    lines.push(`runtime errors: ${runtimeErrorCount}`);
+  }
+
+  if (Array.isArray(apply.warnings) && apply.warnings.length > 0) {
+    lines.push(`warnings: ${apply.warnings.length}`);
+  }
+
+  return lines.join('\n');
+}
+
+async function runApply(context, args) {
+  const { positionals, options } = parseCommandArgs(args, {
+    usage: APPLY_USAGE,
+    valueFlags: ['--stage-path', '--extensions-dir', '--source-repo', '--source-ref', '--source-commit'],
+  });
+  assertExactPositionals(positionals, 0, APPLY_USAGE);
+
+  if (!options['--stage-path']) {
+    throw new UsageError(APPLY_USAGE);
+  }
+
+  const apply = context.applyStagedExtension ?? applyStagedExtension;
+  const result = await apply(
+    {
+      stagePath: options['--stage-path'],
+      extensionsDir: options['--extensions-dir'],
+      sourceRepo: options['--source-repo'],
+      sourceRef: options['--source-ref'],
+      sourceCommit: options['--source-commit'],
+    },
+    {
+      cwd: context.cwd,
+      reloadExtensions: context.client.reloadExtensions?.bind(context.client),
+      getExtensionErrors: context.client.getExtensionErrors?.bind(context.client),
+    },
+  );
+
+  return {
+    data: { apply: result },
+    humanMessage: renderApplyHumanMessage(result),
+  };
+}
+
 export async function runExtCommand(context) {
   const [subcommand = 'reload', ...args] = context.args;
 
@@ -108,11 +173,12 @@ export async function runExtCommand(context) {
     case 'stage':
       return runStage(context, args);
     case 'install':
-    case 'apply':
       throw new UnsupportedOperationError(
-        'Live extension install/apply is out of scope for this CLI seam. Use `modly ext stage github` for staging/preflight only.',
+        'Live extension install is out of scope for this CLI seam. Use `modly ext stage github` to prepare a stage first.',
         { code: 'EXT_LIVE_INSTALL_OUT_OF_SCOPE' },
       );
+    case 'apply':
+      return runApply(context, args);
     default:
       throw new UsageError(`Unknown ext subcommand: ${subcommand}. Available: ${EXT_SUBCOMMANDS.join(', ')}.`);
   }

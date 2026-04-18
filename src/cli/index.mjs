@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs';
 
 import { resolveRuntimeConfig } from '../core/config.mjs';
 import { EXIT_CODES } from '../core/contracts.mjs';
-import { NotFoundError, UsageError, normalizeError } from '../core/errors.mjs';
+import { NotFoundError, UsageError, extractErrorEnvelope, normalizeError } from '../core/errors.mjs';
 import { createModlyApiClient } from '../core/modly-api.mjs';
 import { runCapabilitiesCommand } from './commands/capabilities.mjs';
 import { runConfigCommand } from './commands/config.mjs';
@@ -76,11 +76,13 @@ function emitSuccess(result, config, { stdout = process.stdout } = {}) {
 
 function emitError(error, config, { stdout = process.stdout, stderr = process.stderr } = {}) {
   if (config.json) {
+    const envelope = extractErrorEnvelope(error);
     writeJson({
       ok: false,
       error: {
-        code: error.code,
-        message: error.message,
+        code: envelope.code,
+        message: envelope.message,
+        ...(Object.keys(envelope.details).length > 0 ? { details: envelope.details } : {}),
       },
       meta: {
         apiUrl: config.apiUrl,
@@ -131,6 +133,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     env,
     platform: deps.platform ?? process.platform,
     stageGitHubExtension: deps.stageGitHubExtension,
+    applyStagedExtension: deps.applyStagedExtension,
     tmpdir: deps.tmpdir,
     spawnImpl: deps.spawnImpl,
   });

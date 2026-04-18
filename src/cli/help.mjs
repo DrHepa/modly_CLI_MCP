@@ -15,7 +15,7 @@ Grupos disponibles:
   generate <subcomando>     from-image
   job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
-  ext <subcomando>          reload | errors | stage github
+  ext <subcomando>          reload | errors | stage github | apply
   config <subcomando>       paths get | paths set | launcher locate | launcher open
 
 Nota launcher:
@@ -33,6 +33,7 @@ Estado del bootstrap:
   - generate/job se mantienen como compatibilidad observable actual
   - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
   - ext stage github             Stage/preflight only desde GitHub; NO instala ni aplica en vivo.
+  - ext apply                    Promueve un stage YA preparado; NO hace fetch GitHub, install, build ni repair.
 `;
 }
 
@@ -170,15 +171,19 @@ Uso:
   modly ext reload [--api-url <url>] [--json]
   modly ext errors [--api-url <url>] [--json]
   modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]
+  modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]
 
 Subcomandos disponibles:
   reload                    Recarga el registro de extensiones
   errors                    Muestra errores capturados al cargar extensiones
   stage github              staging/preflight only desde GitHub; NO instala ni aplica en vivo
+  apply                     apply sobre un stage ya preparado; requiere --stage-path y --extensions-dir explícitos
 
 Notas:
-  - Esta surface CLI solo prepara un stage aislado e inspeccionable.
-  - No expone capability MCP estable ni hace install/apply headless.
+  - Esta surface CLI prepara un stage aislado e inspeccionable o promueve uno YA preparado.
+  - ext apply promueve solo un stage ya preparado al directorio real de extensiones.
+  - NO hace fetch GitHub, install, build ni repair.
+  - No expone capability MCP estable ni hace install/apply headless desde GitHub.
 `;
 }
 

@@ -149,7 +149,7 @@ function createInspectionArtifacts({ manifestSummary, dependencyMarkers, buildMa
   };
 }
 
-async function inspectStagedExtension(stagePath) {
+export async function inspectStagedExtension(stagePath) {
   const manifestPath = path.join(stagePath, 'manifest.json');
   const entries = (await readdir(stagePath)).sort();
   const dependencyMarkers = collectDependencyMarkers(entries);

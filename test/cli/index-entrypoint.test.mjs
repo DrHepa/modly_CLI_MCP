@@ -31,3 +31,32 @@ test('CLI entrypoint autoejecuta correctamente cuando se invoca mediante symlink
   assert.match(result.stdout, /modly/u);
   assert.match(result.stdout, /capabilities/u);
 });
+
+test('CLI entrypoint emite error.details aditivo en JSON para fallos bloqueantes de ext apply', (t) => {
+  const tempRoot = createTempRoot(t);
+  const missingStage = path.join(tempRoot, 'missing-stage');
+
+  const result = spawnSync(process.execPath, [
+    cliEntry,
+    '--json',
+    'ext',
+    'apply',
+    '--stage-path',
+    missingStage,
+    '--extensions-dir',
+    tempRoot,
+  ], {
+    cwd: tempRoot,
+    env: { ...process.env },
+    encoding: 'utf8',
+  });
+
+  assert.notEqual(result.status, 0);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error.code, 'APPLY_STAGE_INVALID');
+  assert.equal(payload.error.details.apply.code, 'APPLY_STAGE_INVALID');
+  assert.equal(payload.error.details.apply.phase, 'preflight');
+  assert.equal(payload.error.details.apply.stagePath, missingStage);
+  assert.equal(payload.meta.apiUrl, 'http://127.0.0.1:8765');
+});
