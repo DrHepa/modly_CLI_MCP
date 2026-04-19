@@ -116,6 +116,7 @@ function createSetupResult(overrides = {}) {
   return {
     status: 'configured',
     blocked: false,
+    catalogStatus: 'known',
     stagePath: '/tmp/modly-ext-stage-123',
     plan: {
       consentGranted: true,
@@ -125,7 +126,9 @@ function createSetupResult(overrides = {}) {
       setupContract: {
         kind: 'python-root-setup-py',
         entry: 'setup.py',
-        requiredInputs: ['apiBaseUrl'],
+        catalogStatus: 'known',
+        requiredPayloadInputs: ['apiBaseUrl'],
+        injectedInputs: ['python_exe', 'ext_dir'],
       },
     },
     blockers: [],
@@ -145,7 +148,9 @@ function createSetupResult(overrides = {}) {
         setupContract: {
           kind: 'python-root-setup-py',
           entry: 'setup.py',
-          requiredInputs: ['apiBaseUrl'],
+          catalogStatus: 'known',
+          requiredPayloadInputs: ['apiBaseUrl'],
+          injectedInputs: ['python_exe', 'ext_dir'],
         },
       },
       after: {
@@ -155,13 +160,90 @@ function createSetupResult(overrides = {}) {
         setupContract: {
           kind: 'python-root-setup-py',
           entry: 'setup.py',
-          requiredInputs: ['apiBaseUrl'],
+          catalogStatus: 'known',
+          requiredPayloadInputs: ['apiBaseUrl'],
+          injectedInputs: ['python_exe', 'ext_dir'],
         },
       },
     },
     ...overrides,
   };
 }
+
+test('runExtCommand surfaces catalog status and missing required inputs honestly for blocked setup', async () => {
+  const setup = createSetupResult({
+    status: 'blocked',
+    blocked: true,
+    blockers: [
+      {
+        code: 'SETUP_INPUT_REQUIRED',
+        message: 'The staged setup contract requires explicit setup payload inputs before execution.',
+        detail: ['gpu_sm'],
+      },
+    ],
+    execution: null,
+    plan: {
+      consentGranted: true,
+      cwd: '/tmp/modly-ext-stage-123',
+      command: 'python3',
+      args: ['setup.py', '{}'],
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        requiredPayloadInputs: ['gpu_sm'],
+        injectedInputs: ['python_exe', 'ext_dir'],
+      },
+    },
+  });
+
+  const result = await runExtCommand({
+    args: ['setup', '--stage-path', 'tmp/stage/hunyuan3d-mini', '--python-exe', 'python3', '--allow-third-party'],
+    config: {},
+    client: {},
+    async configureStagedExtension() {
+      return setup;
+    },
+  });
+
+  assert.equal(result.data.setup.catalogStatus, 'known');
+  assert.match(result.humanMessage, /catalog support: known/u);
+  assert.match(result.humanMessage, /missing setup inputs: gpu_sm/u);
+  assert.match(result.humanMessage, /blockers: 1/u);
+});
+
+test('runExtCommand marks unknown setup contracts as limited support instead of universal support', async () => {
+  const setup = createSetupResult({
+    catalogStatus: 'unknown',
+    plan: {
+      consentGranted: true,
+      cwd: '/tmp/modly-ext-stage-123',
+      command: 'python3',
+      args: ['setup.py', '{}'],
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'unknown',
+        requiredPayloadInputs: [],
+        injectedInputs: ['python_exe', 'ext_dir'],
+      },
+    },
+  });
+
+  const result = await runExtCommand({
+    args: ['setup', '--stage-path', 'tmp/stage/random.setup', '--python-exe', 'python3', '--allow-third-party'],
+    config: {},
+    client: {},
+    async configureStagedExtension() {
+      return setup;
+    },
+  });
+
+  assert.equal(result.data.setup.catalogStatus, 'unknown');
+  assert.match(result.humanMessage, /catalog support: unknown/u);
+  assert.match(result.humanMessage, /limited catalog support; not universal setup compatibility/u);
+  assert.doesNotMatch(result.humanMessage, /compatible with any extension|universal support/u);
+});
 
 test('help advertises ext stage github, ext apply, ext setup, and ext repair with honest guardrails', () => {
   const globalHelp = renderHelp();
@@ -180,6 +262,8 @@ test('help advertises ext stage github, ext apply, ext setup, and ext repair wit
   assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path>/u);
   assert.match(extHelp, /apply sobre un stage ya preparado/u);
   assert.match(extHelp, /setup CLI-only sobre un stage ya preparado/u);
+  assert.match(extHelp, /soporte catalogado y limitado; no promete compatibilidad universal/u);
+  assert.match(extHelp, /python_exe y ext_dir se auto-inyectan desde la CLI y el stage/u);
   assert.match(extHelp, /requiere consentimiento explícito porque ejecuta código de terceros/u);
   assert.match(extHelp, /repair como reapply CLI-only sobre un stage ya preparado/u);
   assert.match(extHelp, /NO hace fetch GitHub, install, setup implícito, build ni health-fix general/u);

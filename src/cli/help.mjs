@@ -34,7 +34,7 @@ Estado del bootstrap:
   - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
   - ext stage github             Stage/preflight only desde GitHub; NO instala ni aplica en vivo.
   - ext apply                    Promueve un stage YA preparado; NO hace fetch GitHub, install, build ni repair.
-  - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; requiere consentimiento explícito porque ejecuta código de terceros.
+  - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext repair                   Reaplica un stage YA preparado; NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
 `;
 }
@@ -188,7 +188,8 @@ Subcomandos disponibles:
 Notas:
   - Esta surface CLI prepara un stage aislado e inspeccionable o promueve uno YA preparado.
   - ext apply promueve solo un stage ya preparado al directorio real de extensiones.
-  - ext setup ejecuta SOLO un contrato explícito soportado y requiere consentimiento explícito porque ejecuta código de terceros.
+  - ext setup ejecuta SOLO un contrato explícito soportado; soporte catalogado y limitado; no promete compatibilidad universal; requiere consentimiento explícito porque ejecuta código de terceros.
+  - ext setup: python_exe y ext_dir se auto-inyectan desde la CLI y el stage; el payload JSON no debe intentar sobrescribirlos.
   - ext repair reaplica solo un stage ya preparado al directorio real de extensiones.
   - NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
   - No expone capability MCP estable ni hace install/apply headless desde GitHub.

@@ -58,6 +58,16 @@ function normalizeSetupPayload(setupPayload) {
   return setupPayload;
 }
 
+function buildFinalSetupPayload({ setupPayload, pythonExe, stagePath }) {
+  const { python_exe: _ignoredPythonExe, ext_dir: _ignoredExtDir, ...userPayloadSansReserved } = setupPayload;
+
+  return {
+    ...userPayloadSansReserved,
+    python_exe: pythonExe,
+    ext_dir: stagePath,
+  };
+}
+
 function buildPlan({ stagePath, pythonExe, allowThirdParty, payload, setupContract }) {
   if (!setupContract) {
     return {
@@ -78,10 +88,15 @@ function buildPlan({ stagePath, pythonExe, allowThirdParty, payload, setupContra
   };
 }
 
+function resolveCatalogStatus(setupContract) {
+  return setupContract?.catalogStatus ?? null;
+}
+
 function buildBlockedResult({ stagePath, plan, inspection, blockers }) {
   return {
     status: 'blocked',
     blocked: true,
+    catalogStatus: resolveCatalogStatus(plan?.setupContract),
     stagePath,
     plan,
     blockers,
@@ -97,6 +112,7 @@ function buildResult({ status, stagePath, plan, blockers = [], execution, before
   return {
     status,
     blocked: status === 'blocked',
+    catalogStatus: resolveCatalogStatus(plan?.setupContract),
     stagePath,
     plan,
     blockers,
@@ -108,8 +124,21 @@ function buildResult({ status, stagePath, plan, blockers = [], execution, before
   };
 }
 
-function findMissingRequiredInputs(requiredInputs, payload) {
-  return requiredInputs.filter((key) => !(key in payload));
+function resolveRequiredPayloadInputs(setupContract) {
+  if (Array.isArray(setupContract?.requiredPayloadInputs)) {
+    return setupContract.requiredPayloadInputs;
+  }
+
+  if (Array.isArray(setupContract?.requiredInputs)) {
+    return setupContract.requiredInputs;
+  }
+
+  return [];
+}
+
+function findMissingRequiredInputs({ setupContract, payload }) {
+  const injectedInputs = new Set(Array.isArray(setupContract?.injectedInputs) ? setupContract.injectedInputs : []);
+  return resolveRequiredPayloadInputs(setupContract).filter((key) => !injectedInputs.has(key) && !(key in payload));
 }
 
 function hasNewWarnings(beforeWarnings = [], afterWarnings = []) {
@@ -178,6 +207,11 @@ export async function configureStagedExtension(input = {}, deps = {}) {
   const pythonExe = normalizePythonExe(input.pythonExe);
   const allowThirdParty = input.allowThirdParty === true;
   const setupPayload = normalizeSetupPayload(input.setupPayload);
+  const finalPayload = buildFinalSetupPayload({
+    setupPayload,
+    pythonExe,
+    stagePath,
+  });
   const inspection = await inspectStage(stagePath);
   const setupContract = inspection.setupContract ?? null;
   const blockers = [];
@@ -204,7 +238,10 @@ export async function configureStagedExtension(input = {}, deps = {}) {
     });
   }
 
-  const missingInputs = findMissingRequiredInputs(setupContract?.requiredInputs ?? [], setupPayload);
+  const missingInputs = findMissingRequiredInputs({
+    setupContract,
+    payload: finalPayload,
+  });
 
   if (missingInputs.length > 0) {
     blockers.push({
@@ -218,7 +255,7 @@ export async function configureStagedExtension(input = {}, deps = {}) {
     stagePath,
     pythonExe,
     allowThirdParty,
-    payload: setupPayload,
+    payload: finalPayload,
     setupContract,
   });
 

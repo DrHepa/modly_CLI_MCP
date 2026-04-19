@@ -78,11 +78,15 @@ test('configureStagedExtension blocks when third-party consent is missing even i
     consentGranted: false,
     cwd: stagePath,
     command: 'python3',
-    args: ['setup.py', '{}'],
+    args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
     setupContract: {
       kind: 'python-root-setup-py',
       entry: 'setup.py',
+      catalogStatus: 'unknown',
+      injectedInputs: ['python_exe', 'ext_dir'],
       requiredInputs: [],
+      requiredPayloadInputs: [],
+      optionalPayloadInputs: [],
     },
   });
   assert.equal(result.execution, null);
@@ -112,6 +116,7 @@ test('configureStagedExtension blocks when the stage has no supported explicit s
   });
 
   assert.equal(result.status, 'blocked');
+  assert.equal(result.catalogStatus, null);
   assert.deepEqual(result.plan, {
     consentGranted: true,
     cwd: stagePath,
@@ -129,7 +134,7 @@ test('configureStagedExtension blocks when the stage has no supported explicit s
   assert.equal(result.artifacts.before.setupContract, null);
 });
 
-test('configureStagedExtension blocks when a required explicit setup input is missing from the payload', async () => {
+test('configureStagedExtension blocks known catalog setup before spawn when gpu_sm is missing from requiredPayloadInputs', async () => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
   const stagePath = '/tmp/virtual-stage';
   const result = await configureStagedExtension(
@@ -157,32 +162,131 @@ test('configureStagedExtension blocks when a required explicit setup input is mi
         setupContract: {
           kind: 'python-root-setup-py',
           entry: 'setup.py',
-          requiredInputs: ['token'],
+          catalogStatus: 'known',
+          injectedInputs: ['python_exe', 'ext_dir'],
+          requiredInputs: [],
+          requiredPayloadInputs: ['gpu_sm'],
+          optionalPayloadInputs: ['cuda_version'],
         },
       }),
+      spawnImpl: () => {
+        throw new Error('spawn should not execute when required payload inputs are missing');
+      },
     },
   );
 
   assert.equal(result.status, 'blocked');
+  assert.equal(result.catalogStatus, 'known');
   assert.deepEqual(result.plan, {
     consentGranted: true,
     cwd: stagePath,
     command: 'python3',
-    args: ['setup.py', '{}'],
+    args: ['setup.py', '{"python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
     setupContract: {
       kind: 'python-root-setup-py',
       entry: 'setup.py',
-      requiredInputs: ['token'],
+      catalogStatus: 'known',
+      injectedInputs: ['python_exe', 'ext_dir'],
+      requiredInputs: [],
+      requiredPayloadInputs: ['gpu_sm'],
+      optionalPayloadInputs: ['cuda_version'],
     },
   });
   assert.deepEqual(result.blockers, [
     {
       code: 'SETUP_INPUT_REQUIRED',
       message: 'The staged setup contract requires explicit setup payload inputs before execution.',
-      detail: ['token'],
+      detail: ['gpu_sm'],
     },
   ]);
   assert.equal(result.execution, null);
+});
+
+test('configureStagedExtension does not require optional gpu_sm for tolerant catalog contracts and keeps catalogStatus observable', async () => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const stagePath = '/tmp/virtual-stage';
+  const inspections = [
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+      },
+    },
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+      },
+    },
+  ];
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async () => inspections.shift(),
+      spawnImpl: createSpawnImpl([
+        {
+          command: 'python3.11',
+          args: ['setup.py', '{"python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}'],
+          cwd: stagePath,
+          exitCode: 0,
+        },
+      ]),
+      now: (() => {
+        const values = [70, 85];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  assert.equal(result.status, 'configured');
+  assert.equal(result.blocked, false);
+  assert.equal(result.catalogStatus, 'known');
+  assert.equal(result.plan.setupContract.catalogStatus, 'known');
+  assert.deepEqual(result.plan.setupContract.requiredPayloadInputs, []);
+  assert.deepEqual(result.plan.args, ['setup.py', '{"python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
 });
 
 test('configureStagedExtension executes the explicit setup contract with observable plan and execution evidence', async () => {
@@ -233,7 +337,7 @@ test('configureStagedExtension executes the explicit setup contract with observa
   const spawnSteps = [
     {
       command: 'python3',
-      args: ['setup.py', '{"token":"abc"}'],
+      args: ['setup.py', '{"token":"abc","python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
       cwd: stagePath,
       stdout: 'configured ok\n',
       stderr: 'warning line\n',
@@ -263,7 +367,7 @@ test('configureStagedExtension executes the explicit setup contract with observa
     consentGranted: true,
     cwd: stagePath,
     command: 'python3',
-    args: ['setup.py', '{"token":"abc"}'],
+    args: ['setup.py', '{"token":"abc","python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
     setupContract: {
       kind: 'python-root-setup-py',
       entry: 'setup.py',
@@ -280,6 +384,176 @@ test('configureStagedExtension executes the explicit setup contract with observa
   });
   assert.equal(result.artifacts.before.status, 'prepared');
   assert.equal(result.artifacts.after.status, 'prepared');
+});
+
+test('configureStagedExtension injects reserved python_exe and ext_dir into the final payload', async () => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const stagePath = '/tmp/virtual-stage';
+  const inspections = [
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+      },
+    },
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+      },
+    },
+  ];
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: { gpu_sm: '89' },
+    },
+    {
+      inspectStage: async () => inspections.shift(),
+      spawnImpl: createSpawnImpl([
+        {
+          command: 'python3.11',
+          args: ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}'],
+          cwd: stagePath,
+          exitCode: 0,
+        },
+      ]),
+      now: (() => {
+        const values = [10, 25];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  assert.equal(result.status, 'configured');
+  assert.deepEqual(result.plan.args, ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
+});
+
+test('configureStagedExtension prevents setup payload from overriding reserved injected inputs', async () => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const stagePath = '/tmp/virtual-stage';
+  const inspections = [
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+      },
+    },
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+      },
+    },
+  ];
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: {
+        gpu_sm: '89',
+        python_exe: 'python-malicious',
+        ext_dir: '/tmp/evil',
+      },
+    },
+    {
+      inspectStage: async () => inspections.shift(),
+      spawnImpl: createSpawnImpl([
+        {
+          command: 'python3.11',
+          args: ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}'],
+          cwd: stagePath,
+          exitCode: 0,
+        },
+      ]),
+      now: (() => {
+        const values = [30, 55];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  assert.equal(result.status, 'configured');
+  assert.deepEqual(result.plan.args, ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
 });
 
 test('configureStagedExtension reports configured_degraded when setup exits successfully but post-setup inspection degrades', async () => {
@@ -350,7 +624,7 @@ test('configureStagedExtension reports configured_degraded when setup exits succ
       spawnImpl: createSpawnImpl([
         {
           command: 'python3',
-          args: ['setup.py', '{}'],
+          args: ['setup.py', '{"python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
           cwd: stagePath,
           exitCode: 0,
         },
@@ -411,7 +685,7 @@ test('configureStagedExtension blocks with execution evidence when the explicit 
       spawnImpl: createSpawnImpl([
         {
           command: 'python3',
-          args: ['setup.py', '{}'],
+          args: ['setup.py', '{"python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
           cwd: stagePath,
           stdout: 'starting\n',
           stderr: 'boom\n',

@@ -172,9 +172,14 @@ function renderSetupHumanMessage(setup) {
     `CLI-only staged setup: ${setup.status}.`,
     `stagePath: ${setup.stagePath}`,
     `contract: ${setup.plan?.setupContract?.kind ?? '<unsupported>'}`,
+    `catalog support: ${setup.catalogStatus ?? setup.plan?.setupContract?.catalogStatus ?? 'unknown'}`,
     `third-party execution: ${setup.plan?.consentGranted ? 'consent granted explicitly' : 'consent NOT granted'}`,
     'No install completo, apply, repair, ni build implícito fue intentado.',
   ];
+
+  if ((setup.catalogStatus ?? setup.plan?.setupContract?.catalogStatus) === 'unknown') {
+    lines.push('limited catalog support; not universal setup compatibility');
+  }
 
   if (typeof setup.execution?.exitCode === 'number') {
     lines.push(`exitCode: ${setup.execution.exitCode}`);
@@ -182,6 +187,15 @@ function renderSetupHumanMessage(setup) {
 
   if (Array.isArray(setup.blockers) && setup.blockers.length > 0) {
     lines.push(`blockers: ${setup.blockers.length}`);
+
+    const missingInputs = setup.blockers
+      .filter((blocker) => blocker?.code === 'SETUP_INPUT_REQUIRED' && Array.isArray(blocker.detail))
+      .flatMap((blocker) => blocker.detail)
+      .filter((value, index, values) => typeof value === 'string' && values.indexOf(value) === index);
+
+    if (missingInputs.length > 0) {
+      lines.push(`missing setup inputs: ${missingInputs.join(', ')}`);
+    }
   }
 
   if (Array.isArray(setup.artifacts?.after?.warnings) && setup.artifacts.after.warnings.length > 0) {

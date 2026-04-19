@@ -7,6 +7,25 @@ import { UsageError } from './errors.mjs';
 
 const DEFAULT_STAGE_PREFIX = 'modly-ext-stage-';
 const GITHUB_REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+const INJECTED_SETUP_INPUTS = ['python_exe', 'ext_dir'];
+const SETUP_CONTRACT_CATALOG = {
+  'hunyuan3d-mini': {
+    requiredPayloadInputs: ['gpu_sm'],
+    optionalPayloadInputs: ['cuda_version'],
+  },
+  'modly.ultrashape-refiner-process': {
+    requiredPayloadInputs: ['gpu_sm'],
+    optionalPayloadInputs: ['cuda_version', 'required_weight_path', 'weight_repo_id', 'weight_repo_revision', 'weight_hf_token'],
+  },
+  'triposg': {
+    requiredPayloadInputs: [],
+    optionalPayloadInputs: ['gpu_sm', 'cuda_version'],
+  },
+  'unirig-process-extension': {
+    requiredPayloadInputs: [],
+    optionalPayloadInputs: ['unirig_ref', 'unirig_source_dir', 'unirig_source_zip', 'blender_exe'],
+  },
+};
 
 function buildEmptyManifestSummary() {
   return {
@@ -105,15 +124,21 @@ function createCheck(id, status, detail) {
   return detail === undefined ? { id, status } : { id, status, detail };
 }
 
-function detectSetupContract(entries) {
+function detectSetupContract(entries, manifestId) {
   if (!entries.includes('setup.py')) {
     return null;
   }
+
+  const catalogEntry = manifestId ? SETUP_CONTRACT_CATALOG[manifestId] : null;
 
   return {
     kind: 'python-root-setup-py',
     entry: 'setup.py',
     requiredInputs: [],
+    catalogStatus: catalogEntry ? 'known' : 'unknown',
+    injectedInputs: [...INJECTED_SETUP_INPUTS],
+    requiredPayloadInputs: catalogEntry?.requiredPayloadInputs ? [...catalogEntry.requiredPayloadInputs] : [],
+    optionalPayloadInputs: catalogEntry?.optionalPayloadInputs ? [...catalogEntry.optionalPayloadInputs] : [],
   };
 }
 
@@ -167,7 +192,6 @@ export async function inspectStagedExtension(stagePath) {
   const entries = (await readdir(stagePath)).sort();
   const dependencyMarkers = collectDependencyMarkers(entries);
   const buildMarkers = collectBuildMarkers(entries);
-  const setupContract = detectSetupContract(entries);
   const manifestSummary = buildEmptyManifestSummary();
 
   try {
@@ -181,6 +205,8 @@ export async function inspectStagedExtension(stagePath) {
       manifestSummary.readable = true;
     } catch {
       manifestSummary.readable = false;
+      manifestSummary.extensionType = classifyExtensionType(entries);
+      const setupContract = detectSetupContract(entries, manifestSummary.id);
       const artifacts = createInspectionArtifacts({ manifestSummary, dependencyMarkers, buildMarkers });
       return {
         status: 'failed',
@@ -199,6 +225,7 @@ export async function inspectStagedExtension(stagePath) {
     manifestSummary.name = typeof manifest?.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : null;
     manifestSummary.version = typeof manifest?.version === 'string' && manifest.version.trim() !== '' ? manifest.version.trim() : null;
     manifestSummary.extensionType = classifyExtensionType(entries);
+    const setupContract = detectSetupContract(entries, manifestSummary.id);
 
     const artifacts = createInspectionArtifacts({ manifestSummary, dependencyMarkers, buildMarkers });
 
@@ -231,6 +258,7 @@ export async function inspectStagedExtension(stagePath) {
     manifestSummary.present = false;
     manifestSummary.readable = false;
     manifestSummary.extensionType = classifyExtensionType(entries);
+    const setupContract = detectSetupContract(entries, manifestSummary.id);
     const artifacts = createInspectionArtifacts({ manifestSummary, dependencyMarkers, buildMarkers });
 
     return {

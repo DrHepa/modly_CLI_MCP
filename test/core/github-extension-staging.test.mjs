@@ -66,11 +66,11 @@ function writeStageFiles(stagePath, files) {
   }
 }
 
-test('inspectStagedExtension exposes a root setup.py contract without promoting implicit setup flows', async (t) => {
+test('inspectStagedExtension exposes catalog metadata for a known root setup.py contract', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');
   writeStageFiles(stagePath, {
-    'manifest.json': JSON.stringify({ id: 'octo.python', name: 'Octo Python', version: '1.0.0' }),
+    'manifest.json': JSON.stringify({ id: 'hunyuan3d-mini', name: 'Hunyuan', version: '1.0.0' }),
     'setup.py': 'print("setup")\n',
     'requirements.txt': 'requests==2.0.0\n',
   });
@@ -82,7 +82,11 @@ test('inspectStagedExtension exposes a root setup.py contract without promoting 
   assert.deepEqual(result.setupContract, {
     kind: 'python-root-setup-py',
     entry: 'setup.py',
+    catalogStatus: 'known',
+    injectedInputs: ['python_exe', 'ext_dir'],
     requiredInputs: [],
+    requiredPayloadInputs: ['gpu_sm'],
+    optionalPayloadInputs: ['cuda_version'],
   });
   assert.deepEqual(result.checks[4], {
     id: 'dependency.markers',
@@ -96,6 +100,29 @@ test('inspectStagedExtension exposes a root setup.py contract without promoting 
       detail: ['setup.py', 'requirements.txt'],
     },
   ]);
+});
+
+test('inspectStagedExtension marks unknown root setup.py contracts as limited catalog support', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  writeStageFiles(stagePath, {
+    'manifest.json': JSON.stringify({ id: 'octo.python', name: 'Octo Python', version: '1.0.0' }),
+    'setup.py': 'print("setup")\n',
+  });
+
+  const { inspectStagedExtension } = await loadModule();
+  const result = await inspectStagedExtension(stagePath);
+
+  assert.equal(result.status, 'prepared');
+  assert.deepEqual(result.setupContract, {
+    kind: 'python-root-setup-py',
+    entry: 'setup.py',
+    catalogStatus: 'unknown',
+    injectedInputs: ['python_exe', 'ext_dir'],
+    requiredInputs: [],
+    requiredPayloadInputs: [],
+    optionalPayloadInputs: [],
+  });
 });
 
 test('inspectStagedExtension keeps vague python markers observable but unsupported when no root setup.py exists', async (t) => {
