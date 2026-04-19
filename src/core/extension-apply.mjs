@@ -83,12 +83,7 @@ function getTrustedManifestSource(input) {
   const commit = normalizeTrustedSourceValue(input.sourceCommit);
 
   if (repo && ref && commit) {
-    return {
-      kind: 'github',
-      repo,
-      ref,
-      commit,
-    };
+    return `https://github.com/${repo}`;
   }
 
   return null;

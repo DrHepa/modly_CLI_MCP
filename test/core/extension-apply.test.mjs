@@ -453,12 +453,7 @@ test('applyStagedExtension promotes the staged snapshot, preserves a reversible 
   assert.deepEqual(result.warnings, []);
   assert.equal(readFileSync(path.join(destinationPath, 'README.md'), 'utf8'), 'fresh staged content');
   assert.equal(readFileSync(path.join(result.backup.path, 'legacy.txt'), 'utf8'), 'legacy destination');
-  assert.deepEqual(readJson(path.join(destinationPath, 'manifest.json')).source, {
-    kind: 'github',
-    repo: 'octo/repo',
-    ref: 'main',
-    commit: 'abc123',
-  });
+  assert.equal(readJson(path.join(destinationPath, 'manifest.json')).source, 'https://github.com/octo/repo');
 });
 
 test('applyStagedExtension reports applied_degraded when runtime errors are observed for the promoted extension', async (t) => {
