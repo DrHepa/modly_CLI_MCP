@@ -1,19 +1,31 @@
+import path from 'node:path';
+
 import { UnsupportedOperationError, UsageError } from '../../core/errors.mjs';
 import { applyStagedExtension, repairStagedExtension } from '../../core/extension-apply.mjs';
+import { reconcileLatestSetupRun } from '../../core/extension-setup-journal.mjs';
 import { configureStagedExtension } from '../../core/extension-setup.mjs';
 import { stageGitHubExtension } from '../../core/github-extension-staging.mjs';
 import { normalizeErrors } from '../../core/modly-normalizers.mjs';
 import { assertExactPositionals, parseCommandArgs, parseJsonObject } from './shared.mjs';
 
-const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'setup', 'repair'];
+const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'setup', 'setup-status', 'repair'];
 const STAGE_GITHUB_USAGE =
   'Usage: modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]';
 const APPLY_USAGE =
   'Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
 const SETUP_USAGE =
   "Usage: modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
+const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --stage-path <path> [--api-url <url>] [--json]';
 const REPAIR_USAGE =
   'Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
+
+function resolveStagePath(stagePath, cwd, usage) {
+  if (typeof stagePath !== 'string' || stagePath.trim() === '') {
+    throw new UsageError(usage);
+  }
+
+  return path.resolve(cwd ?? process.cwd(), stagePath.trim());
+}
 
 async function runReload(context, args) {
   if (args.length !== 0) {
@@ -205,6 +217,99 @@ function renderSetupHumanMessage(setup) {
   return lines.join('\n');
 }
 
+function normalizeSetupStatus(stagePath, journal) {
+  if (!journal) {
+    return {
+      status: 'unknown',
+      scope: 'local-stage-journal',
+      runId: null,
+      stagePath,
+      pid: null,
+      logPath: null,
+      startedAt: null,
+      lastOutputAt: null,
+      finishedAt: null,
+      exitCode: null,
+      signal: null,
+    };
+  }
+
+  return {
+    status: journal.status ?? 'unknown',
+    scope: 'local-stage-journal',
+    runId: journal.runId ?? null,
+    stagePath,
+    pid: journal.pid ?? null,
+    logPath: journal.logPath ?? null,
+    startedAt: journal.startedAt ?? null,
+    lastOutputAt: journal.lastOutputAt ?? null,
+    finishedAt: journal.finishedAt ?? null,
+    exitCode: journal.exitCode ?? null,
+    signal: journal.signal ?? null,
+    ...(journal.staleReason ? { staleReason: journal.staleReason } : {}),
+  };
+}
+
+function renderSetupStatusHumanMessage(setupStatus) {
+  const lines = [
+    `Local stage-scoped setup status: ${setupStatus.status}.`,
+    `scope: ${setupStatus.scope}`,
+    `stagePath: ${setupStatus.stagePath}`,
+  ];
+
+  if (setupStatus.runId) {
+    lines.push(`runId: ${setupStatus.runId}`);
+  }
+
+  if (typeof setupStatus.pid === 'number') {
+    lines.push(`pid: ${setupStatus.pid}`);
+  }
+
+  if (setupStatus.logPath) {
+    lines.push(`logPath: ${setupStatus.logPath}`);
+  }
+
+  if (setupStatus.startedAt) {
+    lines.push(`startedAt: ${setupStatus.startedAt}`);
+  }
+
+  if (setupStatus.lastOutputAt) {
+    lines.push(`lastOutputAt: ${setupStatus.lastOutputAt}`);
+  }
+
+  if (setupStatus.finishedAt) {
+    lines.push(`finishedAt: ${setupStatus.finishedAt}`);
+  }
+
+  if (typeof setupStatus.exitCode === 'number') {
+    lines.push(`exitCode: ${setupStatus.exitCode}`);
+  }
+
+  if (setupStatus.signal) {
+    lines.push(`signal: ${setupStatus.signal}`);
+  }
+
+  if (setupStatus.status === 'unknown') {
+    lines.push('No local setup journal was found for this stage path.');
+  }
+
+  lines.push('No reattach, cancel, ni job control general is available from this command.');
+  return lines.join('\n');
+}
+
+function normalizeSetupReentryError(error) {
+  if (error?.code !== 'SETUP_ALREADY_RUNNING') {
+    return error;
+  }
+
+  const stagePath = error.details?.setup?.stagePath ?? '<unknown>';
+  const statusCommand = error.details?.setup?.statusCommand ?? `modly ext setup-status --stage-path "${stagePath}"`;
+  const logHint = error.details?.setup?.logPath ? ` Log: ${error.details.setup.logPath}.` : '';
+
+  error.message = `Local stage-scoped setup is already running. Inspect it with ${statusCommand}.${logHint}`;
+  return error;
+}
+
 async function runSetup(context, args) {
   const { positionals, options } = parseCommandArgs(args, {
     usage: SETUP_USAGE,
@@ -219,19 +324,48 @@ async function runSetup(context, args) {
 
   const setupPayload = parseJsonObject(options['--setup-payload-json'], '--setup-payload-json') ?? {};
   const configure = context.configureStagedExtension ?? configureStagedExtension;
-  const result = await configure({
-    stagePath: options['--stage-path'],
-    pythonExe: options['--python-exe'],
-    allowThirdParty: options['--allow-third-party'] === true,
-    setupPayload,
-  }, {
-    cwd: context.cwd,
-    spawnImpl: context.spawnImpl,
-  });
+  let result;
+
+  try {
+    result = await configure({
+      stagePath: options['--stage-path'],
+      pythonExe: options['--python-exe'],
+      allowThirdParty: options['--allow-third-party'] === true,
+      setupPayload,
+    }, {
+      cwd: context.cwd,
+      spawnImpl: context.spawnImpl,
+    });
+  } catch (error) {
+    throw normalizeSetupReentryError(error);
+  }
 
   return {
     data: { setup: result },
     humanMessage: renderSetupHumanMessage(result),
+  };
+}
+
+async function runSetupStatus(context, args) {
+  const { positionals, options } = parseCommandArgs(args, {
+    usage: SETUP_STATUS_USAGE,
+    valueFlags: ['--stage-path'],
+  });
+  assertExactPositionals(positionals, 0, SETUP_STATUS_USAGE);
+
+  const stagePath = resolveStagePath(options['--stage-path'], context.cwd, SETUP_STATUS_USAGE);
+  const reconcile = context.reconcileLatestSetupRun ?? reconcileLatestSetupRun;
+  const setupStatus = normalizeSetupStatus(
+    stagePath,
+    reconcile(stagePath, {
+      isProcessAlive: context.isProcessAlive,
+      now: context.now,
+    }),
+  );
+
+  return {
+    data: { setupStatus },
+    humanMessage: renderSetupStatusHumanMessage(setupStatus),
   };
 }
 
@@ -320,6 +454,8 @@ export async function runExtCommand(context) {
       return runApply(context, args);
     case 'setup':
       return runSetup(context, args);
+    case 'setup-status':
+      return runSetupStatus(context, args);
     case 'repair':
       return runRepair(context, args);
     default:

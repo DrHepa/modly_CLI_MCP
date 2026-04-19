@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 
 function createTempRoot(t) {
@@ -37,10 +37,16 @@ function createSpawnImpl(steps) {
     }
 
     const child = new EventEmitter();
+    child.pid = step.pid ?? 4242;
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
 
     process.nextTick(() => {
+      if (step.error) {
+        child.emit('error', step.error);
+        return;
+      }
+
       if (step.stdout) {
         child.stdout.emit('data', Buffer.from(step.stdout));
       }
@@ -53,6 +59,27 @@ function createSpawnImpl(steps) {
     });
 
     return child;
+  };
+}
+
+function createControlledSpawn(step) {
+  const child = new EventEmitter();
+  child.pid = step.pid ?? 4242;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+
+  return {
+    child,
+    spawnImpl(command, args, options) {
+      assert.equal(command, step.command);
+      assert.deepEqual(args, step.args);
+
+      if (step.cwd !== undefined) {
+        assert.equal(options.cwd, step.cwd);
+      }
+
+      return child;
+    },
   };
 }
 
@@ -345,7 +372,7 @@ test('configureStagedExtension executes the explicit setup contract with observa
     },
   ];
   let nowCall = 0;
-  const nowValues = [1000, 1125];
+  const nowValues = [1000, 1010, 1020, 1125];
 
   const result = await configureStagedExtension(
     {
@@ -693,7 +720,7 @@ test('configureStagedExtension blocks with execution evidence when the explicit 
         },
       ]),
       now: (() => {
-        const values = [3000, 3090];
+        const values = [3000, 3010, 3020, 3090];
         let index = 0;
         return () => values[index++];
       })(),
@@ -720,4 +747,448 @@ test('configureStagedExtension blocks with execution evidence when the explicit 
     stderr: 'boom',
   });
   assert.equal(result.artifacts.after, null);
+});
+
+test('configureStagedExtension creates and finalizes a stage-scoped journal on successful setup runs', async (t) => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const inspections = [
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'octo.contract',
+        name: 'Octo Contract',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+      },
+    },
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'octo.contract',
+        name: 'Octo Contract',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+      },
+    },
+  ];
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async () => inspections.shift(),
+      spawnImpl: createSpawnImpl([
+        {
+          pid: 9123,
+          command: 'python3',
+          args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
+          cwd: stagePath,
+          exitCode: 0,
+        },
+      ]),
+      now: (() => {
+        const values = [100, 150];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  const runsDir = path.join(stagePath, '.modly', 'setup-runs');
+  const latestPath = path.join(runsDir, 'latest.json');
+  const lockPath = path.join(runsDir, 'active.lock');
+  const latest = JSON.parse(readFileSync(latestPath, 'utf8'));
+
+  assert.equal(result.status, 'configured');
+  assert.equal(result.journal.pid, 9123);
+  assert.equal(result.journal.status, 'succeeded');
+  assert.equal(latest.pid, 9123);
+  assert.equal(latest.status, 'succeeded');
+  assert.equal(latest.stagePath, stagePath);
+  assert.equal(latest.contract.kind, 'python-root-setup-py');
+  assert.equal(latest.contract.entry, 'setup.py');
+  assert.equal(latest.contract.catalogStatus, 'known');
+  assert.equal(typeof latest.runId, 'string');
+  assert.equal(latest.logPath, path.join(runsDir, `${latest.runId}.log`));
+  assert.equal(latest.startedAt, 100);
+  assert.equal(latest.finishedAt, 150);
+  assert.equal(existsSync(lockPath), false);
+});
+
+test('configureStagedExtension finalizes the journal as failed for non-zero exits and releases the stage lock', async (t) => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'octo.contract',
+      name: 'Octo Contract',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+    },
+  };
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async () => inspection,
+      spawnImpl: createSpawnImpl([
+        {
+          pid: 8123,
+          command: 'python3',
+          args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
+          cwd: stagePath,
+          exitCode: 9,
+        },
+      ]),
+      now: (() => {
+        const values = [200, 260];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  const runsDir = path.join(stagePath, '.modly', 'setup-runs');
+  const latest = JSON.parse(readFileSync(path.join(runsDir, 'latest.json'), 'utf8'));
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.journal.status, 'failed');
+  assert.equal(latest.status, 'failed');
+  assert.equal(latest.exitCode, 9);
+  assert.equal(latest.finishedAt, 260);
+  assert.equal(existsSync(path.join(runsDir, 'active.lock')), false);
+});
+
+test('configureStagedExtension finalizes the journal as interrupted when spawn emits an error before close', async (t) => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'octo.contract',
+      name: 'Octo Contract',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+    },
+  };
+
+  await assert.rejects(
+    () => configureStagedExtension(
+      {
+        stagePath,
+        pythonExe: 'python3',
+        allowThirdParty: true,
+        setupPayload: {},
+      },
+      {
+        inspectStage: async () => inspection,
+        spawnImpl: createSpawnImpl([
+          {
+            pid: 7123,
+            command: 'python3',
+            args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
+            cwd: stagePath,
+            error: new Error('spawn exploded'),
+          },
+        ]),
+        now: (() => {
+          const values = [300, 375];
+          let index = 0;
+          return () => values[index++];
+        })(),
+      },
+    ),
+    /spawn exploded/,
+  );
+
+  const runsDir = path.join(stagePath, '.modly', 'setup-runs');
+  const latest = JSON.parse(readFileSync(path.join(runsDir, 'latest.json'), 'utf8'));
+
+  assert.equal(latest.pid, 7123);
+  assert.equal(latest.status, 'interrupted');
+  assert.equal(latest.finishedAt, 375);
+  assert.equal(latest.staleReason, 'spawn_error');
+  assert.equal(existsSync(path.join(runsDir, 'active.lock')), false);
+});
+
+test('configureStagedExtension appends stdout/stderr incrementally and updates the journal before close', async (t) => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'octo.contract',
+      name: 'Octo Contract',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+    },
+  };
+  const controlled = createControlledSpawn({
+    pid: 6123,
+    command: 'python3',
+    args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
+    cwd: stagePath,
+  });
+  const nowValues = [400, 425, 450, 500];
+  let nowIndex = 0;
+
+  const resultPromise = configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async () => inspection,
+      spawnImpl: controlled.spawnImpl,
+      now: () => nowValues[nowIndex++],
+    },
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  controlled.child.stdout.emit('data', Buffer.from('alpha\n'));
+  controlled.child.stderr.emit('data', Buffer.from('beta\n'));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const runsDir = path.join(stagePath, '.modly', 'setup-runs');
+  const latestDuringRun = JSON.parse(readFileSync(path.join(runsDir, 'latest.json'), 'utf8'));
+  assert.equal(latestDuringRun.status, 'running');
+  assert.equal(latestDuringRun.pid, 6123);
+  assert.equal(latestDuringRun.lastOutputAt, 450);
+  assert.equal(latestDuringRun.stdoutBytes, Buffer.byteLength('alpha\n'));
+  assert.equal(latestDuringRun.stderrBytes, Buffer.byteLength('beta\n'));
+  assert.equal(latestDuringRun.totalBytes, Buffer.byteLength('alpha\n') + Buffer.byteLength('beta\n'));
+  assert.equal(readFileSync(latestDuringRun.logPath, 'utf8'), 'alpha\nbeta\n');
+
+  controlled.child.emit('close', 0);
+  const result = await resultPromise;
+
+  const latest = JSON.parse(readFileSync(path.join(runsDir, 'latest.json'), 'utf8'));
+  assert.equal(result.journal.status, 'succeeded');
+  assert.equal(result.journal.lastOutputAt, 450);
+  assert.equal(result.journal.stdoutBytes, Buffer.byteLength('alpha\n'));
+  assert.equal(result.journal.stderrBytes, Buffer.byteLength('beta\n'));
+  assert.equal(result.journal.totalBytes, Buffer.byteLength('alpha\n') + Buffer.byteLength('beta\n'));
+  assert.equal(latest.finishedAt, 500);
+  assert.equal(existsSync(path.join(runsDir, 'active.lock')), false);
+});
+
+test('configureStagedExtension keeps persisted output metadata when setup finishes as failed', async (t) => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'octo.contract',
+      name: 'Octo Contract',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+    },
+  };
+  const controlled = createControlledSpawn({
+    pid: 6223,
+    command: 'python3',
+    args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
+    cwd: stagePath,
+  });
+  const nowValues = [520, 560, 610];
+  let nowIndex = 0;
+
+  const resultPromise = configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async () => inspection,
+      spawnImpl: controlled.spawnImpl,
+      now: () => nowValues[nowIndex++],
+    },
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  controlled.child.stderr.emit('data', Buffer.from('fatal\n'));
+  controlled.child.emit('close', 9);
+  const result = await resultPromise;
+
+  const runsDir = path.join(stagePath, '.modly', 'setup-runs');
+  const latest = JSON.parse(readFileSync(path.join(runsDir, 'latest.json'), 'utf8'));
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.journal.status, 'failed');
+  assert.equal(result.journal.lastOutputAt, 560);
+  assert.equal(result.journal.stdoutBytes, 0);
+  assert.equal(result.journal.stderrBytes, Buffer.byteLength('fatal\n'));
+  assert.equal(result.journal.totalBytes, Buffer.byteLength('fatal\n'));
+  assert.equal(latest.exitCode, 9);
+  assert.equal(readFileSync(latest.logPath, 'utf8'), 'fatal\n');
+});
+
+test('configureStagedExtension rejects reentry for the same stage with setup-status guidance and without spawning', async (t) => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'octo.contract',
+      name: 'Octo Contract',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+    },
+  };
+  const controlled = createControlledSpawn({
+    pid: 5123,
+    command: 'python3',
+    args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
+    cwd: stagePath,
+  });
+  const firstRun = configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async () => inspection,
+      spawnImpl: controlled.spawnImpl,
+      now: (() => {
+        const values = [600, 650, 700];
+        let index = 0;
+        return () => values[index++];
+      })(),
+      isProcessAlive: (pid) => pid === 5123,
+    },
+  );
+
+  await new Promise((resolve) => process.nextTick(resolve));
+
+  let secondSpawnCalled = false;
+  await assert.rejects(
+    () => configureStagedExtension(
+      {
+        stagePath,
+        pythonExe: 'python3',
+        allowThirdParty: true,
+        setupPayload: {},
+      },
+      {
+        inspectStage: async () => inspection,
+        spawnImpl: () => {
+          secondSpawnCalled = true;
+          throw new Error('second spawn should not happen');
+        },
+        now: () => 800,
+        isProcessAlive: (pid) => pid === 5123,
+      },
+    ),
+    (error) => {
+      assert.equal(error?.code, 'SETUP_ALREADY_RUNNING');
+      assert.match(error.message, /setup-status --stage-path/);
+      assert.equal(error.details?.setup?.stagePath, stagePath);
+      assert.equal(error.details?.setup?.pid, 5123);
+      assert.match(error.details?.setup?.logPath ?? '', /\.log$/);
+      return true;
+    },
+  );
+
+  assert.equal(secondSpawnCalled, false);
+  controlled.child.emit('close', 0);
+  await firstRun;
 });

@@ -15,7 +15,7 @@ Grupos disponibles:
   generate <subcomando>     from-image
   job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
-  ext <subcomando>          reload | errors | stage github | apply | setup | repair
+  ext <subcomando>          reload | errors | stage github | apply | setup | setup-status | repair
   config <subcomando>       paths get | paths set | launcher locate | launcher open
 
 Nota launcher:
@@ -35,6 +35,7 @@ Estado del bootstrap:
   - ext stage github             Stage/preflight only desde GitHub; NO instala ni aplica en vivo.
   - ext apply                    Promueve un stage YA preparado; NO hace fetch GitHub, install, build ni repair.
   - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; requiere consentimiento explícito porque ejecuta código de terceros.
+  - ext setup-status             Lee SOLO el journal local por stage del último setup; no reatacha, no cancela y no es job control general.
   - ext repair                   Reaplica un stage YA preparado; NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
 `;
 }
@@ -175,6 +176,7 @@ Uso:
   modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]
   modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]
   modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]
+  modly ext setup-status --stage-path <path> [--api-url <url>] [--json]
   modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]
 
 Subcomandos disponibles:
@@ -183,6 +185,7 @@ Subcomandos disponibles:
   stage github              staging/preflight only desde GitHub; NO instala ni aplica en vivo
   apply                     apply sobre un stage ya preparado; requiere --stage-path y --extensions-dir explícitos
   setup                     setup CLI-only sobre un stage ya preparado; requiere --stage-path, --python-exe y --allow-third-party
+  setup-status              lee SOLO estado local stage-scoped del último setup; requiere --stage-path
   repair                    repair como reapply CLI-only sobre un stage ya preparado; requiere --stage-path y --extensions-dir explícitos
 
 Notas:
@@ -190,6 +193,8 @@ Notas:
   - ext apply promueve solo un stage ya preparado al directorio real de extensiones.
   - ext setup ejecuta SOLO un contrato explícito soportado; soporte catalogado y limitado; no promete compatibilidad universal; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup: python_exe y ext_dir se auto-inyectan desde la CLI y el stage; el payload JSON no debe intentar sobrescribirlos.
+  - ext setup-status lee SOLO estado local stage-scoped del último setup reconciliado desde el journal del stage.
+  - ext setup-status NO reatacha, NO cancela y NO es un job manager general.
   - ext repair reaplica solo un stage ya preparado al directorio real de extensiones.
   - NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
   - No expone capability MCP estable ni hace install/apply headless desde GitHub.

@@ -136,8 +136,11 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     applyStagedExtension: deps.applyStagedExtension,
     configureStagedExtension: deps.configureStagedExtension,
     repairStagedExtension: deps.repairStagedExtension,
+    reconcileLatestSetupRun: deps.reconcileLatestSetupRun,
     tmpdir: deps.tmpdir,
     spawnImpl: deps.spawnImpl,
+    isProcessAlive: deps.isProcessAlive,
+    now: deps.now,
   });
 
   emitSuccess(result, config, { stdout });

@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
 
 import { main } from '../../src/cli/index.mjs';
-import { UnsupportedOperationError, UsageError } from '../../src/core/errors.mjs';
+import { UnsupportedOperationError, UsageError, ValidationError } from '../../src/core/errors.mjs';
 import { runExtCommand } from '../../src/cli/commands/ext.mjs';
 import { renderExtHelp, renderHelp } from '../../src/cli/help.mjs';
+
+function createTempStage(t) {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'modly-cli-ext-test-'));
+  const stagePath = path.join(tempRoot, 'stage');
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  return stagePath;
+}
 
 function createPreparedStagingResult(overrides = {}) {
   return {
@@ -249,19 +259,23 @@ test('help advertises ext stage github, ext apply, ext setup, and ext repair wit
   const globalHelp = renderHelp();
   const extHelp = renderExtHelp();
 
-  assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| setup \| repair/u);
+  assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| setup \| setup-status \| repair/u);
   assert.match(globalHelp, /stage github\s+Stage\/preflight only desde GitHub/u);
   assert.match(globalHelp, /apply\s+Promueve un stage YA preparado/u);
   assert.match(globalHelp, /setup\s+Ejecuta SOLO un contrato explícito/u);
+  assert.match(globalHelp, /setup-status\s+Lee SOLO el journal local por stage del último setup/u);
   assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado/u);
   assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático|setup automático/u);
 
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
   assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path>/u);
   assert.match(extHelp, /modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party/u);
+  assert.match(extHelp, /modly ext setup-status --stage-path <path>/u);
   assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path>/u);
   assert.match(extHelp, /apply sobre un stage ya preparado/u);
   assert.match(extHelp, /setup CLI-only sobre un stage ya preparado/u);
+  assert.match(extHelp, /setup-status lee SOLO estado local stage-scoped del último setup/u);
+  assert.match(extHelp, /NO reatacha, NO cancela y NO es un job manager general/u);
   assert.match(extHelp, /soporte catalogado y limitado; no promete compatibilidad universal/u);
   assert.match(extHelp, /python_exe y ext_dir se auto-inyectan desde la CLI y el stage/u);
   assert.match(extHelp, /requiere consentimiento explícito porque ejecuta código de terceros/u);
@@ -270,6 +284,136 @@ test('help advertises ext stage github, ext apply, ext setup, and ext repair wit
   assert.match(extHelp, /staging\/preflight only/u);
   assert.match(extHelp, /No expone capability MCP estable/u);
   assert.match(extHelp, /NO instala ni aplica en vivo/u);
+});
+
+test('runExtCommand renders local stage-scoped setup-status honestly from the reconciled journal', async () => {
+  const stagePath = '/tmp/modly-ext-stage-123';
+  const setupStatus = {
+    status: 'running',
+    scope: 'local-stage-journal',
+    runId: 'run-123',
+    stagePath,
+    pid: 4312,
+    logPath: `${stagePath}/.modly/setup-runs/run-123.log`,
+    startedAt: '2026-04-19T16:40:00.000Z',
+    lastOutputAt: '2026-04-19T16:40:05.000Z',
+    finishedAt: null,
+    exitCode: null,
+    signal: null,
+  };
+
+  const result = await runExtCommand({
+    args: ['setup-status', '--stage-path', stagePath],
+    config: {},
+    client: {},
+    reconcileLatestSetupRun(inputStagePath) {
+      assert.equal(inputStagePath, stagePath);
+      return setupStatus;
+    },
+  });
+
+  assert.deepEqual(result.data, { setupStatus });
+  assert.match(result.humanMessage, /Local stage-scoped setup status: running/u);
+  assert.match(result.humanMessage, /scope: local-stage-journal/u);
+  assert.match(result.humanMessage, /pid: 4312/u);
+  assert.match(result.humanMessage, /logPath: .*run-123\.log/u);
+  assert.match(result.humanMessage, /No reattach, cancel, ni job control general is available from this command/u);
+});
+
+test('runExtCommand reports unknown setup-status when no local journal exists for the stage', async (t) => {
+  const stagePath = createTempStage(t);
+
+  const result = await runExtCommand({
+    args: ['setup-status', '--stage-path', stagePath],
+    config: {},
+    client: {},
+  });
+
+  assert.equal(result.data.setupStatus.status, 'unknown');
+  assert.equal(result.data.setupStatus.scope, 'local-stage-journal');
+  assert.equal(result.data.setupStatus.stagePath, stagePath);
+  assert.equal(result.data.setupStatus.runId, null);
+  assert.equal(result.data.setupStatus.logPath, null);
+  assert.match(result.humanMessage, /Local stage-scoped setup status: unknown/u);
+  assert.match(result.humanMessage, /No local setup journal was found for this stage path/u);
+  assert.doesNotMatch(result.humanMessage, /\brunning\b|resume|cancel this run/u);
+});
+
+test('main emits JSON envelope with data.setupStatus for ext setup-status', async () => {
+  const writes = [];
+  const setupStatus = {
+    status: 'failed',
+    scope: 'local-stage-journal',
+    runId: 'run-999',
+    stagePath: '/tmp/modly-ext-stage-123',
+    pid: 999,
+    logPath: '/tmp/modly-ext-stage-123/.modly/setup-runs/run-999.log',
+    startedAt: '2026-04-19T16:50:00.000Z',
+    lastOutputAt: '2026-04-19T16:50:10.000Z',
+    finishedAt: '2026-04-19T16:50:30.000Z',
+    exitCode: 9,
+    signal: null,
+  };
+
+  const exitCode = await main(['--json', 'ext', 'setup-status', '--stage-path', '/tmp/modly-ext-stage-123'], {
+    stdout: { write(chunk) { writes.push(chunk); } },
+    stderr: { write() {} },
+    env: {},
+    cwd: '/workspace/modly_CLI_MCP',
+    platform: 'linux',
+    createClient() {
+      return {};
+    },
+    reconcileLatestSetupRun() {
+      return setupStatus;
+    },
+  });
+
+  assert.equal(exitCode, 0);
+  const payload = JSON.parse(writes.join(''));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.setupStatus.status, 'failed');
+  assert.equal(payload.data.setupStatus.scope, 'local-stage-journal');
+  assert.equal(payload.data.setupStatus.exitCode, 9);
+});
+
+test('main surfaces ext setup reentry as local stage-scoped guidance toward setup-status', async () => {
+  const writes = [];
+  const stagePath = '/tmp/modly-ext-stage-123';
+
+  await assert.rejects(
+    () => main(['ext', 'setup', '--stage-path', stagePath, '--python-exe', 'python3', '--allow-third-party'], {
+      stdout: { write(chunk) { writes.push(chunk); } },
+      stderr: { write() {} },
+      env: {},
+      cwd: '/workspace/modly_CLI_MCP',
+      platform: 'linux',
+      createClient() {
+        return {};
+      },
+      async configureStagedExtension() {
+        throw new ValidationError('Another setup run is already active for this stage path.', {
+          code: 'SETUP_ALREADY_RUNNING',
+          details: {
+            setup: {
+              stagePath,
+              logPath: `${stagePath}/.modly/setup-runs/run-123.log`,
+              statusCommand: `modly ext setup-status --stage-path "${stagePath}"`,
+            },
+          },
+        });
+      },
+    }),
+    (error) => {
+      assert.equal(error?.code, 'SETUP_ALREADY_RUNNING');
+      assert.match(error.message, /Local stage-scoped setup is already running/u);
+      assert.match(error.message, /setup-status --stage-path/u);
+      assert.match(error.message, /run-123\.log/u);
+      return true;
+    },
+  );
+
+  assert.deepEqual(writes, []);
 });
 
 test('runExtCommand delegates ext setup to the reusable core with explicit third-party consent and payload', async () => {

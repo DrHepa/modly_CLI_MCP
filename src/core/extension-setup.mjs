@@ -1,7 +1,15 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 import { ValidationError } from './errors.mjs';
+import {
+  acquireSetupRunLock,
+  appendSetupRunLog,
+  getSetupRunPaths,
+  releaseSetupRunLock,
+  writeLatestSetupRun,
+} from './extension-setup-journal.mjs';
 import { inspectStagedExtension } from './github-extension-staging.mjs';
 
 function normalizeStagePath(stagePath, cwd) {
@@ -101,6 +109,7 @@ function buildBlockedResult({ stagePath, plan, inspection, blockers }) {
     plan,
     blockers,
     execution: null,
+    journal: null,
     artifacts: {
       before: inspection,
       after: null,
@@ -108,7 +117,7 @@ function buildBlockedResult({ stagePath, plan, inspection, blockers }) {
   };
 }
 
-function buildResult({ status, stagePath, plan, blockers = [], execution, before, after }) {
+function buildResult({ status, stagePath, plan, blockers = [], execution, before, after, journal = null }) {
   return {
     status,
     blocked: status === 'blocked',
@@ -117,6 +126,7 @@ function buildResult({ status, stagePath, plan, blockers = [], execution, before
     plan,
     blockers,
     execution,
+    journal,
     artifacts: {
       before,
       after,
@@ -162,40 +172,87 @@ function classifySuccessfulSetup(beforeInspection, afterInspection) {
   return 'configured';
 }
 
-async function runSetupCommand({ spawnImpl, now, plan }) {
+async function runSetupCommand({ spawnImpl, now, plan, startedAt, onSpawn, onOutput }) {
   return new Promise((resolve, reject) => {
-    const startedAt = now();
+    const startedAtValue = startedAt ?? now();
     const child = spawnImpl(plan.command, plan.args, {
       cwd: plan.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    onSpawn?.(child);
     let stdout = '';
     let stderr = '';
 
     child.stdout?.on('data', (chunk) => {
       stdout += chunk.toString();
+      onOutput?.('stdout', chunk);
     });
 
     child.stderr?.on('data', (chunk) => {
       stderr += chunk.toString();
+      onOutput?.('stderr', chunk);
     });
 
     child.once('error', (error) => {
       reject(error);
     });
 
-    child.once('close', (exitCode) => {
+    child.once('close', (exitCode, signal) => {
       const finishedAt = now();
       resolve({
-        startedAt,
+        startedAt: startedAtValue,
         finishedAt,
-        durationMs: finishedAt - startedAt,
+        durationMs: finishedAt - startedAtValue,
         exitCode,
+        ...(signal == null ? {} : { signal }),
         stdout: stdout.trim(),
         stderr: stderr.trim(),
       });
     });
   });
+}
+
+function createInitialJournal({ runId, stagePath, startedAt, setupContract }) {
+  return {
+    runId,
+    stagePath,
+    pid: null,
+    status: 'running',
+    startedAt,
+    lastOutputAt: null,
+    finishedAt: null,
+    logPath: getSetupRunPaths(stagePath, runId).logPath,
+    exitCode: null,
+    signal: null,
+    stdoutBytes: 0,
+    stderrBytes: 0,
+    totalBytes: 0,
+    contract: {
+      kind: setupContract?.kind ?? null,
+      entry: setupContract?.entry ?? null,
+      catalogStatus: setupContract?.catalogStatus ?? null,
+    },
+  };
+}
+
+function finalizeJournal(journal, updates = {}) {
+  return {
+    ...journal,
+    ...updates,
+  };
+}
+
+function recordJournalOutput({ journal, stagePath, runId, streamName, chunk, now }) {
+  const { logPath, bytesWritten } = appendSetupRunLog(stagePath, runId, streamName, chunk);
+  const nextJournal = finalizeJournal(journal, {
+    logPath,
+    lastOutputAt: now(),
+    stdoutBytes: journal.stdoutBytes + (streamName === 'stdout' ? bytesWritten : 0),
+    stderrBytes: journal.stderrBytes + (streamName === 'stderr' ? bytesWritten : 0),
+    totalBytes: journal.totalBytes + bytesWritten,
+  });
+  writeLatestSetupRun(stagePath, nextJournal);
+  return nextJournal;
 }
 
 export async function configureStagedExtension(input = {}, deps = {}) {
@@ -268,41 +325,101 @@ export async function configureStagedExtension(input = {}, deps = {}) {
     });
   }
 
-  const execution = await runSetupCommand({
-    spawnImpl,
-    now,
-    plan,
+  const runId = deps.createRunId?.() ?? randomUUID();
+  const startedAt = now();
+  let lockHandle = null;
+  let journal = createInitialJournal({
+    runId,
+    stagePath,
+    startedAt,
+    setupContract,
   });
 
-  if (execution.exitCode !== 0) {
+  try {
+    lockHandle = acquireSetupRunLock(stagePath, {
+      runId,
+      startedAt,
+      isProcessAlive: deps.isProcessAlive,
+    });
+    writeLatestSetupRun(stagePath, journal);
+
+    const execution = await runSetupCommand({
+      spawnImpl,
+      now,
+      plan,
+      startedAt,
+      onSpawn: (child) => {
+        journal = finalizeJournal(journal, {
+          pid: child.pid ?? null,
+        });
+        writeLatestSetupRun(stagePath, journal);
+      },
+      onOutput: (streamName, chunk) => {
+        journal = recordJournalOutput({
+          journal,
+          stagePath,
+          runId,
+          streamName,
+          chunk,
+          now,
+        });
+      },
+    });
+
+    journal = finalizeJournal(journal, {
+      pid: journal.pid,
+      status: execution.exitCode === 0 ? 'succeeded' : 'failed',
+      finishedAt: execution.finishedAt,
+      exitCode: execution.exitCode,
+      signal: execution.signal ?? null,
+    });
+    writeLatestSetupRun(stagePath, journal);
+
+    if (execution.exitCode !== 0) {
+      return buildResult({
+        status: 'blocked',
+        stagePath,
+        plan,
+        blockers: [
+          {
+            code: 'SETUP_EXECUTION_FAILED',
+            message: 'The staged setup contract exited with a non-zero code.',
+            detail: {
+              exitCode: execution.exitCode,
+            },
+          },
+        ],
+        execution,
+        before: inspection,
+        after: null,
+        journal,
+      });
+    }
+
+    const afterInspection = await inspectStage(stagePath);
+
     return buildResult({
-      status: 'blocked',
+      status: classifySuccessfulSetup(inspection, afterInspection),
       stagePath,
       plan,
-      blockers: [
-        {
-          code: 'SETUP_EXECUTION_FAILED',
-          message: 'The staged setup contract exited with a non-zero code.',
-          detail: {
-            exitCode: execution.exitCode,
-          },
-        },
-      ],
+      blockers: [],
       execution,
       before: inspection,
-      after: null,
+      after: afterInspection,
+      journal,
     });
+  } catch (error) {
+    if (lockHandle) {
+      journal = finalizeJournal(journal, {
+        status: 'interrupted',
+        finishedAt: now(),
+        staleReason: 'spawn_error',
+      });
+      writeLatestSetupRun(stagePath, journal);
+    }
+
+    throw error;
+  } finally {
+    releaseSetupRunLock(lockHandle);
   }
-
-  const afterInspection = await inspectStage(stagePath);
-
-  return buildResult({
-    status: classifySuccessfulSetup(inspection, afterInspection),
-    stagePath,
-    plan,
-    blockers: [],
-    execution,
-    before: inspection,
-    after: afterInspection,
-  });
 }
