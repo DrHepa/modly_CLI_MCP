@@ -24,6 +24,8 @@ export const COMMAND_GROUPS = Object.freeze([
   'config',
 ]);
 
+export const PRIVATE_EXTENSION_CLI_SEAMS = Object.freeze(['setup']);
+
 export const EXECUTION_SURFACE_TAXONOMY = Object.freeze({
   canonical: Object.freeze({
     label: 'canonical run primitive',

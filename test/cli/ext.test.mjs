@@ -112,25 +112,212 @@ function createRepairResult(overrides = {}) {
   };
 }
 
-test('help advertises ext stage github, ext apply, and ext repair with honest guardrails', () => {
+function createSetupResult(overrides = {}) {
+  return {
+    status: 'configured',
+    blocked: false,
+    stagePath: '/tmp/modly-ext-stage-123',
+    plan: {
+      consentGranted: true,
+      cwd: '/tmp/modly-ext-stage-123',
+      command: 'python3',
+      args: ['setup.py', '{"apiBaseUrl":"https://api.example.test"}'],
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        requiredInputs: ['apiBaseUrl'],
+      },
+    },
+    blockers: [],
+    execution: {
+      startedAt: 100,
+      finishedAt: 150,
+      durationMs: 50,
+      exitCode: 0,
+      stdout: 'configured',
+      stderr: '',
+    },
+    artifacts: {
+      before: {
+        status: 'prepared',
+        warnings: [],
+        manifestSummary: { id: 'octo.tools' },
+        setupContract: {
+          kind: 'python-root-setup-py',
+          entry: 'setup.py',
+          requiredInputs: ['apiBaseUrl'],
+        },
+      },
+      after: {
+        status: 'prepared',
+        warnings: [],
+        manifestSummary: { id: 'octo.tools' },
+        setupContract: {
+          kind: 'python-root-setup-py',
+          entry: 'setup.py',
+          requiredInputs: ['apiBaseUrl'],
+        },
+      },
+    },
+    ...overrides,
+  };
+}
+
+test('help advertises ext stage github, ext apply, ext setup, and ext repair with honest guardrails', () => {
   const globalHelp = renderHelp();
   const extHelp = renderExtHelp();
 
-  assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| repair/u);
+  assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| setup \| repair/u);
   assert.match(globalHelp, /stage github\s+Stage\/preflight only desde GitHub/u);
   assert.match(globalHelp, /apply\s+Promueve un stage YA preparado/u);
+  assert.match(globalHelp, /setup\s+Ejecuta SOLO un contrato explícito/u);
   assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado/u);
-  assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático/u);
+  assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático|setup automático/u);
 
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
   assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path>/u);
+  assert.match(extHelp, /modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party/u);
   assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path>/u);
   assert.match(extHelp, /apply sobre un stage ya preparado/u);
+  assert.match(extHelp, /setup CLI-only sobre un stage ya preparado/u);
+  assert.match(extHelp, /requiere consentimiento explícito porque ejecuta código de terceros/u);
   assert.match(extHelp, /repair como reapply CLI-only sobre un stage ya preparado/u);
-  assert.match(extHelp, /NO hace fetch GitHub, install, setup, build ni health-fix general/u);
+  assert.match(extHelp, /NO hace fetch GitHub, install, setup implícito, build ni health-fix general/u);
   assert.match(extHelp, /staging\/preflight only/u);
   assert.match(extHelp, /No expone capability MCP estable/u);
   assert.match(extHelp, /NO instala ni aplica en vivo/u);
+});
+
+test('runExtCommand delegates ext setup to the reusable core with explicit third-party consent and payload', async () => {
+  const calls = [];
+  const setup = createSetupResult();
+
+  const result = await runExtCommand({
+    args: [
+      'setup',
+      '--stage-path',
+      'tmp/stage/octo.tools',
+      '--python-exe',
+      'python3',
+      '--allow-third-party',
+      '--setup-payload-json',
+      '{"apiBaseUrl":"https://api.example.test"}',
+    ],
+    config: {},
+    client: {},
+    async configureStagedExtension(input) {
+      calls.push(input);
+      return setup;
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], {
+    stagePath: 'tmp/stage/octo.tools',
+    pythonExe: 'python3',
+    allowThirdParty: true,
+    setupPayload: { apiBaseUrl: 'https://api.example.test' },
+  });
+  assert.deepEqual(result.data, { setup });
+  assert.match(result.humanMessage, /CLI-only staged setup: configured/u);
+  assert.match(result.humanMessage, /stagePath: \/tmp\/modly-ext-stage-123/u);
+  assert.match(result.humanMessage, /contract: python-root-setup-py/u);
+  assert.match(result.humanMessage, /third-party execution: consent granted explicitly/u);
+  assert.match(result.humanMessage, /No install completo, apply, repair, ni build implícito fue intentado/u);
+});
+
+test('runExtCommand preserves blocked setup status honestly when third-party consent was not granted', async () => {
+  const setup = createSetupResult({
+    status: 'blocked',
+    blocked: true,
+    plan: {
+      consentGranted: false,
+      cwd: '/tmp/modly-ext-stage-123',
+      command: 'python3',
+      args: ['setup.py', '{}'],
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+      },
+    },
+    blockers: [
+      {
+        code: 'THIRD_PARTY_CONSENT_REQUIRED',
+        message: 'Explicit --allow-third-party consent is required before executing staged setup contracts.',
+      },
+    ],
+    execution: null,
+  });
+
+  const result = await runExtCommand({
+    args: ['setup', '--stage-path', 'tmp/stage/octo.tools', '--python-exe', 'python3'],
+    config: {},
+    client: {},
+    async configureStagedExtension() {
+      return setup;
+    },
+  });
+
+  assert.equal(result.data.setup.status, 'blocked');
+  assert.match(result.humanMessage, /CLI-only staged setup: blocked/u);
+  assert.match(result.humanMessage, /third-party execution: consent NOT granted/u);
+  assert.match(result.humanMessage, /blockers: 1/u);
+  assert.doesNotMatch(result.humanMessage, /install complete|dependencies installed|repair completed/u);
+});
+
+test('runExtCommand requires --stage-path for ext setup', async () => {
+  await assert.rejects(
+    runExtCommand({ args: ['setup', '--python-exe', 'python3', '--allow-third-party'], config: {}, client: {} }),
+    UsageError,
+  );
+});
+
+test('runExtCommand requires --python-exe for ext setup before delegating to core', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup', '--stage-path', 'tmp/stage/octo.tools', '--allow-third-party'],
+      config: {},
+      client: {},
+      async configureStagedExtension() {
+        throw new Error('configureStagedExtension should not be called without --python-exe');
+      },
+    }),
+    UsageError,
+  );
+});
+
+test('main emits JSON envelope with data.setup for ext setup', async () => {
+  const writes = [];
+  const setup = createSetupResult({ status: 'configured_degraded' });
+
+  const exitCode = await main([
+    '--json',
+    'ext',
+    'setup',
+    '--stage-path',
+    'tmp/stage/octo.tools',
+    '--python-exe',
+    'python3',
+    '--allow-third-party',
+    '--setup-payload-json',
+    '{"apiBaseUrl":"https://api.example.test"}',
+  ], {
+    stdout: { write(chunk) { writes.push(chunk); } },
+    stderr: { write() {} },
+    env: {},
+    cwd: '/workspace/modly_CLI_MCP',
+    platform: 'linux',
+    createClient() {
+      return {};
+    },
+    configureStagedExtension: async () => setup,
+  });
+
+  assert.equal(exitCode, 0);
+  const payload = JSON.parse(writes.join(''));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.setup.status, 'configured_degraded');
+  assert.equal(payload.data.setup.plan.command, 'python3');
 });
 
 test('runExtCommand delegates ext repair to the reusable core with explicit stage and extensions paths', async () => {

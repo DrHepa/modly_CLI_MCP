@@ -1,14 +1,17 @@
 import { UnsupportedOperationError, UsageError } from '../../core/errors.mjs';
 import { applyStagedExtension, repairStagedExtension } from '../../core/extension-apply.mjs';
+import { configureStagedExtension } from '../../core/extension-setup.mjs';
 import { stageGitHubExtension } from '../../core/github-extension-staging.mjs';
 import { normalizeErrors } from '../../core/modly-normalizers.mjs';
-import { assertExactPositionals, parseCommandArgs } from './shared.mjs';
+import { assertExactPositionals, parseCommandArgs, parseJsonObject } from './shared.mjs';
 
-const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'repair'];
+const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'setup', 'repair'];
 const STAGE_GITHUB_USAGE =
   'Usage: modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]';
 const APPLY_USAGE =
   'Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
+const SETUP_USAGE =
+  "Usage: modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
 const REPAIR_USAGE =
   'Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
 
@@ -164,6 +167,60 @@ async function runApply(context, args) {
   };
 }
 
+function renderSetupHumanMessage(setup) {
+  const lines = [
+    `CLI-only staged setup: ${setup.status}.`,
+    `stagePath: ${setup.stagePath}`,
+    `contract: ${setup.plan?.setupContract?.kind ?? '<unsupported>'}`,
+    `third-party execution: ${setup.plan?.consentGranted ? 'consent granted explicitly' : 'consent NOT granted'}`,
+    'No install completo, apply, repair, ni build implícito fue intentado.',
+  ];
+
+  if (typeof setup.execution?.exitCode === 'number') {
+    lines.push(`exitCode: ${setup.execution.exitCode}`);
+  }
+
+  if (Array.isArray(setup.blockers) && setup.blockers.length > 0) {
+    lines.push(`blockers: ${setup.blockers.length}`);
+  }
+
+  if (Array.isArray(setup.artifacts?.after?.warnings) && setup.artifacts.after.warnings.length > 0) {
+    lines.push(`warnings: ${setup.artifacts.after.warnings.length}`);
+  }
+
+  return lines.join('\n');
+}
+
+async function runSetup(context, args) {
+  const { positionals, options } = parseCommandArgs(args, {
+    usage: SETUP_USAGE,
+    valueFlags: ['--stage-path', '--python-exe', '--setup-payload-json'],
+    booleanFlags: ['--allow-third-party'],
+  });
+  assertExactPositionals(positionals, 0, SETUP_USAGE);
+
+  if (!options['--stage-path'] || !options['--python-exe']) {
+    throw new UsageError(SETUP_USAGE);
+  }
+
+  const setupPayload = parseJsonObject(options['--setup-payload-json'], '--setup-payload-json') ?? {};
+  const configure = context.configureStagedExtension ?? configureStagedExtension;
+  const result = await configure({
+    stagePath: options['--stage-path'],
+    pythonExe: options['--python-exe'],
+    allowThirdParty: options['--allow-third-party'] === true,
+    setupPayload,
+  }, {
+    cwd: context.cwd,
+    spawnImpl: context.spawnImpl,
+  });
+
+  return {
+    data: { setup: result },
+    humanMessage: renderSetupHumanMessage(result),
+  };
+}
+
 function renderRepairHumanMessage(repair) {
   const runtimeErrorCount = Array.isArray(repair.errors?.matched) ? repair.errors.matched.length : 0;
   const lines = [
@@ -247,6 +304,8 @@ export async function runExtCommand(context) {
       );
     case 'apply':
       return runApply(context, args);
+    case 'setup':
+      return runSetup(context, args);
     case 'repair':
       return runRepair(context, args);
     default:

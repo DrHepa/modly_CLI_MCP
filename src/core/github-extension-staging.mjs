@@ -70,6 +70,7 @@ function buildBaseResult({ repo, ref, stagePath }) {
     warnings: [],
     nextManualActions: [],
     diagnostics: null,
+    setupContract: null,
   };
 }
 
@@ -102,6 +103,18 @@ function collectBuildMarkers(entries) {
 
 function createCheck(id, status, detail) {
   return detail === undefined ? { id, status } : { id, status, detail };
+}
+
+function detectSetupContract(entries) {
+  if (!entries.includes('setup.py')) {
+    return null;
+  }
+
+  return {
+    kind: 'python-root-setup-py',
+    entry: 'setup.py',
+    requiredInputs: [],
+  };
 }
 
 function createInspectionArtifacts({ manifestSummary, dependencyMarkers, buildMarkers }) {
@@ -154,6 +167,7 @@ export async function inspectStagedExtension(stagePath) {
   const entries = (await readdir(stagePath)).sort();
   const dependencyMarkers = collectDependencyMarkers(entries);
   const buildMarkers = collectBuildMarkers(entries);
+  const setupContract = detectSetupContract(entries);
   const manifestSummary = buildEmptyManifestSummary();
 
   try {
@@ -171,6 +185,7 @@ export async function inspectStagedExtension(stagePath) {
       return {
         status: 'failed',
         manifestSummary,
+        setupContract,
         ...artifacts,
         diagnostics: {
           phase: 'inspect',
@@ -191,6 +206,7 @@ export async function inspectStagedExtension(stagePath) {
       return {
         status: 'failed',
         manifestSummary,
+        setupContract,
         ...artifacts,
         diagnostics: {
           phase: 'inspect',
@@ -203,6 +219,7 @@ export async function inspectStagedExtension(stagePath) {
     return {
       status: 'prepared',
       manifestSummary,
+      setupContract,
       ...artifacts,
       diagnostics: null,
     };
@@ -219,6 +236,7 @@ export async function inspectStagedExtension(stagePath) {
     return {
       status: 'failed',
       manifestSummary,
+      setupContract,
       ...artifacts,
       diagnostics: {
         phase: 'inspect',
@@ -326,6 +344,7 @@ export async function stageGitHubExtension(input = {}, deps = {}) {
         resolvedRef: materialized.resolvedRef,
       },
       manifestSummary: inspection.manifestSummary,
+      setupContract: inspection.setupContract,
       checks: inspection.checks,
       warnings: inspection.warnings,
       nextManualActions: inspection.nextManualActions,

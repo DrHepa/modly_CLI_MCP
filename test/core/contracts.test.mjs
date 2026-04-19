@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EXECUTION_SURFACE_TAXONOMY } from '../../src/core/contracts.mjs';
+import { EXECUTION_SURFACE_TAXONOMY, PRIVATE_EXTENSION_CLI_SEAMS } from '../../src/core/contracts.mjs';
 
 test('EXECUTION_SURFACE_TAXONOMY classifies visible execution surfaces into canonical, wrapper, and legacy buckets', () => {
   assert.deepEqual(EXECUTION_SURFACE_TAXONOMY, {
@@ -41,4 +41,14 @@ test('EXECUTION_SURFACE_TAXONOMY keeps every visible execution surface in exactl
   assert.equal(allMcpToolIds.includes('modly.capability.plan'), false);
   assert.equal(allMcpToolIds.includes('modly.capability.guide'), false);
   assert.equal(allMcpToolIds.includes('modly.diagnostic.guidance'), false);
+});
+
+test('PRIVATE_EXTENSION_CLI_SEAMS documents setup as CLI-only and absent from the stable public taxonomy', () => {
+  assert.deepEqual(PRIVATE_EXTENSION_CLI_SEAMS, ['setup']);
+
+  const allCliGroups = Object.values(EXECUTION_SURFACE_TAXONOMY).flatMap((entry) => entry.cliGroups);
+  const allMcpToolIds = Object.values(EXECUTION_SURFACE_TAXONOMY).flatMap((entry) => entry.mcpToolIds);
+
+  assert.equal(allCliGroups.includes('setup'), false);
+  assert.equal(allMcpToolIds.includes('modly.ext.setup'), false);
 });

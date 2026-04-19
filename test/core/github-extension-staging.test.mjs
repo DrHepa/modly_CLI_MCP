@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 
 function createTempRoot(t) {
@@ -61,9 +61,70 @@ function createSpawnImpl(steps) {
 
 function writeStageFiles(stagePath, files) {
   for (const [relativePath, content] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(stagePath, relativePath)), { recursive: true });
     writeFileSync(path.join(stagePath, relativePath), content);
   }
 }
+
+test('inspectStagedExtension exposes a root setup.py contract without promoting implicit setup flows', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  writeStageFiles(stagePath, {
+    'manifest.json': JSON.stringify({ id: 'octo.python', name: 'Octo Python', version: '1.0.0' }),
+    'setup.py': 'print("setup")\n',
+    'requirements.txt': 'requests==2.0.0\n',
+  });
+
+  const { inspectStagedExtension } = await loadModule();
+  const result = await inspectStagedExtension(stagePath);
+
+  assert.equal(result.status, 'prepared');
+  assert.deepEqual(result.setupContract, {
+    kind: 'python-root-setup-py',
+    entry: 'setup.py',
+    requiredInputs: [],
+  });
+  assert.deepEqual(result.checks[4], {
+    id: 'dependency.markers',
+    status: 'warn',
+    detail: ['setup.py', 'requirements.txt'],
+  });
+  assert.deepEqual(result.warnings, [
+    {
+      code: 'MANUAL_DEPENDENCIES_REQUIRED',
+      message: 'Dependency markers detected in the staged extension; install dependencies manually inside stagePath.',
+      detail: ['setup.py', 'requirements.txt'],
+    },
+  ]);
+});
+
+test('inspectStagedExtension keeps vague python markers observable but unsupported when no root setup.py exists', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  writeStageFiles(stagePath, {
+    'manifest.json': JSON.stringify({ id: 'octo.no-setup', name: 'Octo No Setup', version: '1.0.0' }),
+    'pyproject.toml': '[build-system]\nrequires = ["setuptools"]\n',
+    'nested/setup.py': 'print("nested")\n',
+  });
+
+  const { inspectStagedExtension } = await loadModule();
+  const result = await inspectStagedExtension(stagePath);
+
+  assert.equal(result.status, 'prepared');
+  assert.equal(result.setupContract, null);
+  assert.deepEqual(result.checks[4], {
+    id: 'dependency.markers',
+    status: 'warn',
+    detail: ['pyproject.toml'],
+  });
+  assert.deepEqual(result.warnings, [
+    {
+      code: 'MANUAL_DEPENDENCIES_REQUIRED',
+      message: 'Dependency markers detected in the staged extension; install dependencies manually inside stagePath.',
+      detail: ['pyproject.toml'],
+    },
+  ]);
+});
 
 test('stageGitHubExtension rejects invalid repo and ref input with UsageError', async () => {
   const { stageGitHubExtension } = await loadModule();
