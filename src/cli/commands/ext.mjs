@@ -12,7 +12,7 @@ const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'setup', '
 const STAGE_GITHUB_USAGE =
   'Usage: modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]';
 const APPLY_USAGE =
-  'Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
+  "Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
 const SETUP_USAGE =
   "Usage: modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
 const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]';
@@ -215,7 +215,8 @@ function renderApplyHumanMessage(apply) {
 async function runApply(context, args) {
   const { positionals, options } = parseCommandArgs(args, {
     usage: APPLY_USAGE,
-    valueFlags: ['--stage-path', '--extensions-dir', '--source-repo', '--source-ref', '--source-commit'],
+    valueFlags: ['--stage-path', '--extensions-dir', '--source-repo', '--source-ref', '--source-commit', '--python-exe', '--setup-payload-json'],
+    booleanFlags: ['--allow-third-party'],
   });
   assertExactPositionals(positionals, 0, APPLY_USAGE);
 
@@ -227,6 +228,7 @@ async function runApply(context, args) {
     throw new UsageError(APPLY_USAGE);
   }
 
+  const setupPayload = parseJsonObject(options['--setup-payload-json'], '--setup-payload-json');
   const apply = context.applyStagedExtension ?? applyStagedExtension;
   const result = await apply(
     {
@@ -235,6 +237,9 @@ async function runApply(context, args) {
       sourceRepo: options['--source-repo'],
       sourceRef: options['--source-ref'],
       sourceCommit: options['--source-commit'],
+      pythonExe: options['--python-exe'],
+      allowThirdParty: options['--allow-third-party'] === true,
+      setupPayload,
     },
     {
       cwd: context.cwd,

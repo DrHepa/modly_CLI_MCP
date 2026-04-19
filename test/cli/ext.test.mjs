@@ -266,18 +266,20 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
 
   assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| setup \| setup-status \| repair/u);
   assert.match(globalHelp, /stage github\s+Stage\/preflight only desde GitHub; prepara e inspecciona, NO instala ni aplica en vivo/u);
-  assert.match(globalHelp, /apply\s+Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito/u);
+  assert.match(globalHelp, /apply\s+Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y puede disparar setup live-target si el stage lo exige/u);
   assert.match(globalHelp, /setup\s+Ejecuta SOLO un contrato explícito/u);
   assert.match(globalHelp, /setup-status\s+Lee SOLO el journal del target instalado del último setup observable/u);
   assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado/u);
   assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático|setup automático/u);
 
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
-  assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path>/u);
+  assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path> \[--source-repo <owner\/name> --source-ref <ref> --source-commit <sha>\] \[--python-exe <exe>\] \[--allow-third-party\] \[--setup-payload-json '\{\.\.\.\}'\]/u);
   assert.match(extHelp, /modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party/u);
   assert.match(extHelp, /modly ext setup-status --extensions-dir <abs-path> \(--manifest-id <id> \| --stage-path <path>\)/u);
   assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path>/u);
   assert.match(extHelp, /instala un stage ya preparado sobre el target vivo/u);
+  assert.match(extHelp, /puede disparar setup live-target si el contrato del stage lo requiere/u);
+  assert.match(extHelp, /acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target/u);
   assert.match(extHelp, /setup CLI-only sobre un stage ya preparado/u);
   assert.match(extHelp, /setup-status\s+lee SOLO el journal live-target del target instalado/u);
   assert.match(extHelp, /requiere --extensions-dir explícito y \(--manifest-id o --stage-path solo para resolver manifest\.id\)/u);
@@ -735,6 +737,9 @@ test('runExtCommand delegates ext apply to the reusable core with explicit stage
     sourceRepo: 'octo/tools',
     sourceRef: 'main',
     sourceCommit: 'abc123',
+    pythonExe: undefined,
+    allowThirdParty: false,
+    setupPayload: undefined,
   });
   assert.equal(typeof calls[0].deps.reloadExtensions, 'function');
   assert.equal(typeof calls[0].deps.getExtensionErrors, 'function');
@@ -744,6 +749,58 @@ test('runExtCommand delegates ext apply to the reusable core with explicit stage
   assert.match(result.humanMessage, /extensionsDir \(explicit\): \/opt\/modly\/extensions/u);
   assert.match(result.humanMessage, /targetPath: \/opt\/modly\/extensions\/octo\.tools/u);
   assert.match(result.humanMessage, /No GitHub fetch, install, build, or repair was attempted/u);
+});
+
+test('runExtCommand forwards live-target setup flags through ext apply', async () => {
+  const calls = [];
+  const apply = createApplyResult({
+    setup: {
+      status: 'configured',
+    },
+  });
+  const client = {
+    async reloadExtensions() {},
+    async getExtensionErrors() { return []; },
+  };
+
+  const result = await runExtCommand({
+    args: [
+      'apply',
+      '--stage-path',
+      'tmp/stage/octo.tools',
+      '--extensions-dir',
+      '/opt/modly/extensions',
+      '--python-exe',
+      'python3.11',
+      '--allow-third-party',
+      '--setup-payload-json',
+      '{"gpu_sm":"89","apiBaseUrl":"https://api.example.test"}',
+    ],
+    config: {},
+    client,
+    async applyStagedExtension(input, deps) {
+      calls.push({ input, deps });
+      return apply;
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].input, {
+    stagePath: 'tmp/stage/octo.tools',
+    extensionsDir: '/opt/modly/extensions',
+    sourceRepo: undefined,
+    sourceRef: undefined,
+    sourceCommit: undefined,
+    pythonExe: 'python3.11',
+    allowThirdParty: true,
+    setupPayload: {
+      gpu_sm: '89',
+      apiBaseUrl: 'https://api.example.test',
+    },
+  });
+  assert.equal(typeof calls[0].deps.reloadExtensions, 'function');
+  assert.equal(typeof calls[0].deps.getExtensionErrors, 'function');
+  assert.deepEqual(result.data, { apply });
 });
 
 test('runExtCommand reports degraded apply honestly without claiming a healthy install', async () => {

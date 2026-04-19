@@ -33,7 +33,7 @@ Estado del bootstrap:
   - generate/job se mantienen como compatibilidad observable actual
   - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
   - ext stage github             Stage/preflight only desde GitHub; prepara e inspecciona, NO instala ni aplica en vivo.
-  - ext apply                    Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y NO hace fetch GitHub, build ni repair.
+  - ext apply                    Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y puede disparar setup live-target si el stage lo exige.
   - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup-status             Lee SOLO el journal del target instalado del último setup observable; no reatacha, no cancela y no es job control general.
   - ext repair                   Reaplica un stage YA preparado; NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
@@ -174,7 +174,7 @@ Uso:
   modly ext reload [--api-url <url>] [--json]
   modly ext errors [--api-url <url>] [--json]
   modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]
-  modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]
+  modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]
   modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]
   modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]
   modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]
@@ -183,7 +183,7 @@ Subcomandos disponibles:
   reload                    Recarga el registro de extensiones
   errors                    Muestra errores capturados al cargar extensiones
   stage github              staging/preflight only desde GitHub; NO instala ni aplica en vivo
-  apply                     instala un stage ya preparado sobre el target vivo; requiere --stage-path y --extensions-dir explícitos
+  apply                     instala un stage ya preparado sobre el target vivo; requiere --stage-path y --extensions-dir explícitos, y reenvía flags de setup live-target cuando hagan falta
   setup                     setup CLI-only sobre un stage ya preparado; requiere --stage-path, --python-exe y --allow-third-party
   setup-status              lee SOLO el journal live-target del target instalado; requiere --extensions-dir explícito y (--manifest-id o --stage-path solo para resolver manifest.id)
   repair                    repair como reapply CLI-only sobre un stage ya preparado; requiere --stage-path y --extensions-dir explícitos
@@ -191,7 +191,8 @@ Subcomandos disponibles:
 Notas:
   - Esta surface CLI prepara un stage aislado e inspeccionable o instala sobre target vivo un stage YA preparado.
   - ext stage github hace fetch+inspect como preflight only; nunca reporta la extensión como instalada.
-  - ext apply instala solo un stage ya preparado en el directorio real de extensiones y exige --extensions-dir explícito.
+  - ext apply instala solo un stage ya preparado en el directorio real de extensiones, exige --extensions-dir explícito y puede disparar setup live-target si el contrato del stage lo requiere.
+  - ext apply acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target ya soportado por core.
   - ext setup ejecuta SOLO un contrato explícito soportado; soporte catalogado y limitado; no promete compatibilidad universal; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup: python_exe y ext_dir se auto-inyectan desde la CLI y el stage; el payload JSON no debe intentar sobrescribirlos.
   - ext setup-status lee SOLO el journal live-target reconciliado desde el target instalado; --stage-path solo ayuda a resolver manifest.id.
