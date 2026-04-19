@@ -583,6 +583,98 @@ test('configureStagedExtension prevents setup payload from overriding reserved i
   assert.deepEqual(result.plan.args, ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
 });
 
+test('configureStagedExtension accepts extensionPath as the reusable target-scoped input', async () => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const extensionPath = '/tmp/live-extensions/triposg';
+  const inspections = [
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: [],
+      },
+    },
+    {
+      status: 'prepared',
+      manifestSummary: {
+        present: true,
+        readable: true,
+        id: 'triposg',
+        name: 'TripoSG',
+        version: '1.0.0',
+        extensionType: 'python',
+      },
+      checks: [],
+      warnings: [],
+      nextManualActions: [],
+      diagnostics: null,
+      setupContract: {
+        kind: 'python-root-setup-py',
+        entry: 'setup.py',
+        catalogStatus: 'known',
+        injectedInputs: ['python_exe', 'ext_dir'],
+        requiredInputs: [],
+        requiredPayloadInputs: [],
+        optionalPayloadInputs: [],
+      },
+    },
+  ];
+
+  const result = await configureStagedExtension(
+    {
+      extensionPath,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      inspectStage: async (inputPath) => {
+        assert.equal(inputPath, extensionPath);
+        return inspections.shift();
+      },
+      spawnImpl: createSpawnImpl([
+        {
+          pid: 9911,
+          command: 'python3.11',
+          args: ['setup.py', `{"python_exe":"python3.11","ext_dir":"${extensionPath}"}`],
+          cwd: extensionPath,
+          exitCode: 0,
+        },
+      ]),
+      now: (() => {
+        const values = [900, 960];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  assert.equal(result.status, 'configured');
+  assert.equal(result.extensionPath, extensionPath);
+  assert.equal(result.stagePath, extensionPath);
+  assert.equal(result.plan.cwd, extensionPath);
+  assert.deepEqual(result.plan.args, ['setup.py', `{"python_exe":"python3.11","ext_dir":"${extensionPath}"}`]);
+  assert.equal(result.journal.extensionPath, extensionPath);
+  assert.equal(result.journal.stagePath, extensionPath);
+});
+
 test('configureStagedExtension reports configured_degraded when setup exits successfully but post-setup inspection degrades', async () => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
   const stagePath = '/tmp/virtual-stage';
@@ -749,7 +841,7 @@ test('configureStagedExtension blocks with execution evidence when the explicit 
   assert.equal(result.artifacts.after, null);
 });
 
-test('configureStagedExtension creates and finalizes a stage-scoped journal on successful setup runs', async (t) => {
+test('configureStagedExtension creates and finalizes a path-scoped journal on successful setup runs', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');

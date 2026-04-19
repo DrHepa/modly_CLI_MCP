@@ -2,6 +2,7 @@ import path from 'node:path';
 import * as defaultFs from 'node:fs/promises';
 
 import { ValidationError } from './errors.mjs';
+import { configureStagedExtension } from './extension-setup.mjs';
 import { inspectStagedExtension } from './github-extension-staging.mjs';
 import { normalizeErrors } from './modly-normalizers.mjs';
 
@@ -23,7 +24,20 @@ function normalizeStagePath(stagePath, cwd) {
 }
 
 function resolveExtensionsDir(extensionsDir, stagePath) {
-  if (typeof extensionsDir !== 'string' || extensionsDir.trim() === '' || !path.isAbsolute(extensionsDir.trim())) {
+  if (typeof extensionsDir !== 'string' || extensionsDir.trim() === '') {
+    throw new ValidationError('Expected --extensions-dir to be provided explicitly for the live target.', {
+      code: 'EXTENSIONS_DIR_REQUIRED',
+      details: {
+        apply: {
+          phase: 'resolve_extensions_dir',
+          code: 'EXTENSIONS_DIR_REQUIRED',
+          stagePath,
+        },
+      },
+    });
+  }
+
+  if (!path.isAbsolute(extensionsDir.trim())) {
     throw new ValidationError('Expected --extensions-dir to be an absolute path.', {
       code: 'EXTENSIONS_DIR_UNRESOLVABLE',
       details: {
@@ -187,11 +201,21 @@ function planPaths({ extensionsDir, manifestId, destinationExists }) {
   };
 }
 
+function shouldRunLiveSetup(input, stageInspection, deps) {
+  return Boolean(stageInspection?.setupContract || typeof deps.configureExtension === 'function');
+}
+
+function setupCompletedCleanly(setup) {
+  return !setup || setup.status === 'configured';
+}
+
 async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   const fs = {
     ...defaultFs,
     ...(deps.fs ?? {}),
   };
+  const inspectStage = deps.inspectStage ?? inspectStagedExtension;
+  const configureExtension = deps.configureExtension ?? configureStagedExtension;
   const reloadExtensions = deps.reloadExtensions;
   const getExtensionErrors = deps.getExtensionErrors;
   const cwd = deps.cwd ?? process.cwd();
@@ -201,7 +225,7 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   let stageInspection;
 
   try {
-    stageInspection = await inspectStagedExtension(stagePath);
+    stageInspection = await inspectStage(stagePath);
   } catch (error) {
     if (error?.code === 'ENOENT') {
       throw createApplyStageInvalidError(stagePath, {
@@ -262,6 +286,8 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
     });
   }
 
+  let setup = null;
+
   let backupCreated = false;
   let backupRestored = paths.backup.expected ? false : null;
 
@@ -273,6 +299,32 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
     }
 
     await fs.rename(paths.candidate.path, paths.destination.path);
+
+    if (shouldRunLiveSetup(input, stageInspection, deps)) {
+      setup = await configureExtension(
+        {
+          extensionPath: paths.destination.path,
+          pythonExe: input.pythonExe,
+          allowThirdParty: input.allowThirdParty,
+          setupPayload: input.setupPayload,
+        },
+        {
+          cwd,
+          inspectStage,
+          spawnImpl: deps.spawnImpl,
+          isProcessAlive: deps.isProcessAlive,
+          now: deps.now,
+        },
+      );
+
+      if (!setupCompletedCleanly(setup)) {
+        warnings.push({
+          code: 'SETUP_DEGRADED',
+          message: 'Live-target setup did not complete cleanly after promotion.',
+          detail: setup,
+        });
+      }
+    }
   } catch (error) {
     if (backupCreated) {
       try {
@@ -379,7 +431,9 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   }
 
   return {
-    status: reload.succeeded && errors.observed && errors.matched.length === 0 ? statusMap.clean : statusMap.degraded,
+    status: reload.succeeded && errors.observed && errors.matched.length === 0 && setupCompletedCleanly(setup)
+      ? statusMap.clean
+      : statusMap.degraded,
     [statusMap.flag]: true,
     stagePath,
     manifest,
@@ -394,6 +448,7 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
       restored: backupRestored,
     },
     candidate: paths.candidate,
+    setup,
     reload,
     errors,
     warnings,

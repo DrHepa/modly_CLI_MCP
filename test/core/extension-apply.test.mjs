@@ -49,12 +49,22 @@ test('inspectStagedExtension exposes reusable failed inspection for invalid mani
   });
 });
 
-test('applyStagedExtension rejects non-absolute extensionsDir values before planning live paths', async (t) => {
+test('applyStagedExtension rejects missing or non-absolute extensionsDir values before planning live paths', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');
   writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
 
   const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => applyStagedExtension({ stagePath }),
+    (error) => {
+      assert.equal(error.code, 'EXTENSIONS_DIR_REQUIRED');
+      assert.equal(error.details.apply.phase, 'resolve_extensions_dir');
+      assert.equal(error.details.apply.stagePath, stagePath);
+      return true;
+    },
+  );
 
   await assert.rejects(
     () => applyStagedExtension({ stagePath, extensionsDir: 'relative/extensions' }),
@@ -359,6 +369,169 @@ test('applyStagedExtension applies cleanly when no previous destination exists',
   assert.deepEqual(result.candidate, {
     path: path.join(extensionsDir, 'octo.valid.candidate'),
   });
+});
+
+test('applyStagedExtension invokes setup against the live destination path and returns setup evidence', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  writeFileSync(path.join(stagePath, 'setup.py'), 'print("setup")\n');
+
+  const configureCalls = [];
+  const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
+  const result = await applyStagedExtension(
+    {
+      stagePath,
+      extensionsDir,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: { gpu_sm: '89' },
+    },
+    {
+      configureExtension: async (input) => {
+        configureCalls.push(input);
+        return {
+          status: 'configured',
+          blocked: false,
+          extensionPath: input.extensionPath,
+          plan: {
+            cwd: input.extensionPath,
+            args: ['setup.py', JSON.stringify({ gpu_sm: '89', python_exe: 'python3.11', ext_dir: input.extensionPath })],
+          },
+          blockers: [],
+          execution: { exitCode: 0 },
+          journal: { extensionPath: input.extensionPath, status: 'succeeded' },
+          artifacts: {
+            before: { status: 'prepared' },
+            after: { status: 'prepared', warnings: [] },
+          },
+        };
+      },
+      reloadExtensions: async () => ({ ok: true }),
+      getExtensionErrors: async () => [],
+    },
+  );
+
+  assert.deepEqual(configureCalls, [
+    {
+      extensionPath: path.join(extensionsDir, 'octo.valid'),
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: { gpu_sm: '89' },
+    },
+  ]);
+  assert.equal(result.status, 'applied');
+  assert.deepEqual(result.setup, {
+    status: 'configured',
+    blocked: false,
+    extensionPath: path.join(extensionsDir, 'octo.valid'),
+    plan: {
+      cwd: path.join(extensionsDir, 'octo.valid'),
+      args: ['setup.py', JSON.stringify({ gpu_sm: '89', python_exe: 'python3.11', ext_dir: path.join(extensionsDir, 'octo.valid') })],
+    },
+    blockers: [],
+    execution: { exitCode: 0 },
+    journal: { extensionPath: path.join(extensionsDir, 'octo.valid'), status: 'succeeded' },
+    artifacts: {
+      before: { status: 'prepared' },
+      after: { status: 'prepared', warnings: [] },
+    },
+  });
+});
+
+test('applyStagedExtension degrades when live-target setup reports a blocked result', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  writeFileSync(path.join(stagePath, 'setup.py'), 'print("setup")\n');
+
+  const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
+  const result = await applyStagedExtension(
+    {
+      stagePath,
+      extensionsDir,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+      setupPayload: {},
+    },
+    {
+      configureExtension: async (input) => ({
+        status: 'blocked',
+        blocked: true,
+        extensionPath: input.extensionPath,
+        blockers: [
+          {
+            code: 'SETUP_INPUT_REQUIRED',
+            message: 'gpu_sm is required.',
+            detail: ['gpu_sm'],
+          },
+        ],
+        execution: null,
+        journal: null,
+        artifacts: {
+          before: { status: 'prepared' },
+          after: null,
+        },
+      }),
+      reloadExtensions: async () => ({ ok: true }),
+      getExtensionErrors: async () => [],
+    },
+  );
+
+  assert.equal(result.status, 'applied_degraded');
+  assert.deepEqual(result.setup, {
+    status: 'blocked',
+    blocked: true,
+    extensionPath: path.join(extensionsDir, 'octo.valid'),
+    blockers: [
+      {
+        code: 'SETUP_INPUT_REQUIRED',
+        message: 'gpu_sm is required.',
+        detail: ['gpu_sm'],
+      },
+    ],
+    execution: null,
+    journal: null,
+    artifacts: {
+      before: { status: 'prepared' },
+      after: null,
+    },
+  });
+  assert.deepEqual(result.warnings, [
+    {
+      code: 'MANUAL_DEPENDENCIES_REQUIRED',
+      message: 'Dependency markers detected in the staged extension; install dependencies manually inside stagePath.',
+      detail: ['setup.py'],
+    },
+    {
+      code: 'MANIFEST_SOURCE_UNCHANGED',
+      message: 'manifest.source was left unchanged because no trusted GitHub source metadata was supplied.',
+    },
+    {
+      code: 'SETUP_DEGRADED',
+      message: 'Live-target setup did not complete cleanly after promotion.',
+      detail: {
+        status: 'blocked',
+        blocked: true,
+        extensionPath: path.join(extensionsDir, 'octo.valid'),
+        blockers: [
+          {
+            code: 'SETUP_INPUT_REQUIRED',
+            message: 'gpu_sm is required.',
+            detail: ['gpu_sm'],
+          },
+        ],
+        execution: null,
+        journal: null,
+        artifacts: {
+          before: { status: 'prepared' },
+          after: null,
+        },
+      },
+    },
+  ]);
 });
 
 test('applyStagedExtension keeps the backup artifact when a previous destination existed', async (t) => {

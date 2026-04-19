@@ -11,8 +11,9 @@ function createTempStage(t) {
   return stagePath;
 }
 
-test('setup journal helpers persist latest metadata and append run logs under the stage path', async (t) => {
+test('setup journal helpers persist latest metadata and append run logs under a reusable extension path', async (t) => {
   const stagePath = createTempStage(t);
+  const extensionPath = path.join(path.dirname(stagePath), 'extensions', 'octo.tools');
   const {
     getSetupRunPaths,
     writeLatestSetupRun,
@@ -20,26 +21,26 @@ test('setup journal helpers persist latest metadata and append run logs under th
     appendSetupRunLog,
   } = await import('../../src/core/extension-setup-journal.mjs');
 
-  const firstSnapshot = writeLatestSetupRun(stagePath, {
+  const firstSnapshot = writeLatestSetupRun(extensionPath, {
     runId: 'run-001',
-    stagePath,
+    extensionPath,
     status: 'running',
     startedAt: '2026-04-19T15:20:00.000Z',
-    logPath: getSetupRunPaths(stagePath, 'run-001').logPath,
+    logPath: getSetupRunPaths(extensionPath, 'run-001').logPath,
     stdoutBytes: 0,
     stderrBytes: 0,
     totalBytes: 0,
   });
 
   assert.equal(firstSnapshot.runId, 'run-001');
-  assert.equal(firstSnapshot.logPath, path.join(stagePath, '.modly', 'setup-runs', 'run-001.log'));
-  assert.equal(readLatestSetupRun(stagePath).startedAt, '2026-04-19T15:20:00.000Z');
+  assert.equal(firstSnapshot.logPath, path.join(extensionPath, '.modly', 'setup-runs', 'run-001.log'));
+  assert.equal(readLatestSetupRun(extensionPath).startedAt, '2026-04-19T15:20:00.000Z');
 
-  appendSetupRunLog(stagePath, 'run-001', 'stdout', Buffer.from('hello\n'));
-  appendSetupRunLog(stagePath, 'run-001', 'stderr', Buffer.from('boom\n'));
+  appendSetupRunLog(extensionPath, 'run-001', 'stdout', Buffer.from('hello\n'));
+  appendSetupRunLog(extensionPath, 'run-001', 'stderr', Buffer.from('boom\n'));
 
-  const finalSnapshot = writeLatestSetupRun(stagePath, {
-    ...readLatestSetupRun(stagePath),
+  const finalSnapshot = writeLatestSetupRun(extensionPath, {
+    ...readLatestSetupRun(extensionPath),
     status: 'succeeded',
     lastOutputAt: '2026-04-19T15:20:01.000Z',
     finishedAt: '2026-04-19T15:20:02.000Z',
@@ -51,7 +52,7 @@ test('setup journal helpers persist latest metadata and append run logs under th
   assert.equal(finalSnapshot.status, 'succeeded');
   assert.equal(finalSnapshot.finishedAt, '2026-04-19T15:20:02.000Z');
   assert.equal(finalSnapshot.totalBytes, 11);
-  assert.equal(readFileSync(getSetupRunPaths(stagePath, 'run-001').logPath, 'utf8'), 'hello\nboom\n');
+  assert.equal(readFileSync(getSetupRunPaths(extensionPath, 'run-001').logPath, 'utf8'), 'hello\nboom\n');
 });
 
 test('setup journal lock reconciles stale running state before reacquiring the stage lock', async (t) => {

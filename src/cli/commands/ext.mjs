@@ -1,10 +1,10 @@
 import path from 'node:path';
 
-import { UnsupportedOperationError, UsageError } from '../../core/errors.mjs';
+import { UnsupportedOperationError, UsageError, ValidationError } from '../../core/errors.mjs';
 import { applyStagedExtension, repairStagedExtension } from '../../core/extension-apply.mjs';
 import { reconcileLatestSetupRun } from '../../core/extension-setup-journal.mjs';
 import { configureStagedExtension } from '../../core/extension-setup.mjs';
-import { stageGitHubExtension } from '../../core/github-extension-staging.mjs';
+import { inspectStagedExtension, stageGitHubExtension } from '../../core/github-extension-staging.mjs';
 import { normalizeErrors } from '../../core/modly-normalizers.mjs';
 import { assertExactPositionals, parseCommandArgs, parseJsonObject } from './shared.mjs';
 
@@ -15,7 +15,7 @@ const APPLY_USAGE =
   'Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
 const SETUP_USAGE =
   "Usage: modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
-const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --stage-path <path> [--api-url <url>] [--json]';
+const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]';
 const REPAIR_USAGE =
   'Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
 
@@ -25,6 +25,72 @@ function resolveStagePath(stagePath, cwd, usage) {
   }
 
   return path.resolve(cwd ?? process.cwd(), stagePath.trim());
+}
+
+function resolveAbsoluteExtensionsDir(extensionsDir, usage) {
+  if (typeof extensionsDir !== 'string' || extensionsDir.trim() === '') {
+    throw new UsageError(usage);
+  }
+
+  const resolved = extensionsDir.trim();
+
+  if (!path.isAbsolute(resolved)) {
+    throw new ValidationError('Expected --extensions-dir to be an absolute path.', {
+      code: 'EXTENSIONS_DIR_UNRESOLVABLE',
+    });
+  }
+
+  return resolved;
+}
+
+function resolveManifestIdOption(manifestId, usage) {
+  if (typeof manifestId !== 'string' || manifestId.trim() === '') {
+    throw new UsageError(usage);
+  }
+
+  return manifestId.trim();
+}
+
+async function resolveSetupStatusTarget(options, context) {
+  const extensionsDir = resolveAbsoluteExtensionsDir(options['--extensions-dir'], SETUP_STATUS_USAGE);
+
+  if (options['--manifest-id'] && options['--stage-path']) {
+    throw new UsageError(SETUP_STATUS_USAGE);
+  }
+
+  if (options['--manifest-id']) {
+    const manifestId = resolveManifestIdOption(options['--manifest-id'], SETUP_STATUS_USAGE);
+    return {
+      manifestId,
+      targetPath: path.join(extensionsDir, manifestId),
+    };
+  }
+
+  if (!options['--stage-path']) {
+    throw new UsageError(SETUP_STATUS_USAGE);
+  }
+
+  const stagePath = resolveStagePath(options['--stage-path'], context.cwd, SETUP_STATUS_USAGE);
+  const inspectStage = context.inspectStagedExtension ?? inspectStagedExtension;
+  const inspection = await inspectStage(stagePath);
+
+  if (inspection.status !== 'prepared' || !inspection.manifestSummary?.id) {
+    throw new ValidationError(inspection.diagnostics?.detail ?? 'Expected --stage-path to point to a prepared extension with manifest.id.', {
+      code: 'SETUP_STATUS_TARGET_UNRESOLVABLE',
+      details: {
+        setupStatus: {
+          phase: 'resolve_target',
+          stagePath,
+          stageInspection: inspection.diagnostics ?? null,
+        },
+      },
+    });
+  }
+
+  return {
+    manifestId: inspection.manifestSummary.id,
+    targetPath: path.join(extensionsDir, inspection.manifestSummary.id),
+  };
 }
 
 async function runReload(context, args) {
@@ -120,10 +186,10 @@ async function runStage(context, args) {
 function renderApplyHumanMessage(apply) {
   const runtimeErrorCount = Array.isArray(apply.errors?.matched) ? apply.errors.matched.length : 0;
   const lines = [
-    `CLI-only apply over prepared stage: ${apply.status} for ${apply.manifest?.id ?? '<unknown>'}.`,
+    `Live-target apply from prepared stage: ${apply.status} for ${apply.manifest?.id ?? '<unknown>'}.`,
     `stagePath: ${apply.stagePath}`,
-    `extensionsDir: ${apply.resolution?.extensionsDir ?? '<unknown>'}`,
-    `destination: ${apply.destination?.path ?? '<unknown>'}`,
+    `extensionsDir (explicit): ${apply.resolution?.extensionsDir ?? '<unknown>'}`,
+    `targetPath: ${apply.destination?.path ?? '<unknown>'}`,
     'No GitHub fetch, install, build, or repair was attempted.',
   ];
 
@@ -154,6 +220,10 @@ async function runApply(context, args) {
   assertExactPositionals(positionals, 0, APPLY_USAGE);
 
   if (!options['--stage-path']) {
+    throw new UsageError(APPLY_USAGE);
+  }
+
+  if (!options['--extensions-dir']) {
     throw new UsageError(APPLY_USAGE);
   }
 
@@ -217,13 +287,14 @@ function renderSetupHumanMessage(setup) {
   return lines.join('\n');
 }
 
-function normalizeSetupStatus(stagePath, journal) {
+function normalizeSetupStatus(target, journal) {
   if (!journal) {
     return {
       status: 'unknown',
-      scope: 'local-stage-journal',
+      scope: 'live-target-journal',
       runId: null,
-      stagePath,
+      manifestId: target.manifestId,
+      targetPath: target.targetPath,
       pid: null,
       logPath: null,
       startedAt: null,
@@ -236,9 +307,10 @@ function normalizeSetupStatus(stagePath, journal) {
 
   return {
     status: journal.status ?? 'unknown',
-    scope: 'local-stage-journal',
+    scope: 'live-target-journal',
     runId: journal.runId ?? null,
-    stagePath,
+    manifestId: target.manifestId,
+    targetPath: target.targetPath,
     pid: journal.pid ?? null,
     logPath: journal.logPath ?? null,
     startedAt: journal.startedAt ?? null,
@@ -252,9 +324,10 @@ function normalizeSetupStatus(stagePath, journal) {
 
 function renderSetupStatusHumanMessage(setupStatus) {
   const lines = [
-    `Local stage-scoped setup status: ${setupStatus.status}.`,
+    `Live target setup status: ${setupStatus.status}.`,
     `scope: ${setupStatus.scope}`,
-    `stagePath: ${setupStatus.stagePath}`,
+    `manifestId: ${setupStatus.manifestId}`,
+    `targetPath: ${setupStatus.targetPath}`,
   ];
 
   if (setupStatus.runId) {
@@ -290,7 +363,7 @@ function renderSetupStatusHumanMessage(setupStatus) {
   }
 
   if (setupStatus.status === 'unknown') {
-    lines.push('No local setup journal was found for this stage path.');
+    lines.push('No observable setup journal was found for this live target yet.');
   }
 
   lines.push('No reattach, cancel, ni job control general is available from this command.');
@@ -349,15 +422,15 @@ async function runSetup(context, args) {
 async function runSetupStatus(context, args) {
   const { positionals, options } = parseCommandArgs(args, {
     usage: SETUP_STATUS_USAGE,
-    valueFlags: ['--stage-path'],
+    valueFlags: ['--extensions-dir', '--manifest-id', '--stage-path'],
   });
   assertExactPositionals(positionals, 0, SETUP_STATUS_USAGE);
 
-  const stagePath = resolveStagePath(options['--stage-path'], context.cwd, SETUP_STATUS_USAGE);
+  const target = await resolveSetupStatusTarget(options, context);
   const reconcile = context.reconcileLatestSetupRun ?? reconcileLatestSetupRun;
   const setupStatus = normalizeSetupStatus(
-    stagePath,
-    reconcile(stagePath, {
+    target,
+    reconcile(target.targetPath, {
       isProcessAlive: context.isProcessAlive,
       now: context.now,
     }),

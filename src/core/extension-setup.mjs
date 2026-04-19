@@ -12,21 +12,26 @@ import {
 } from './extension-setup-journal.mjs';
 import { inspectStagedExtension } from './github-extension-staging.mjs';
 
-function normalizeStagePath(stagePath, cwd) {
-  if (typeof stagePath !== 'string' || stagePath.trim() === '') {
+function normalizeExtensionPath(input, cwd) {
+  const candidate = typeof input.extensionPath === 'string' && input.extensionPath.trim() !== ''
+    ? input.extensionPath
+    : input.stagePath;
+
+  if (typeof candidate !== 'string' || candidate.trim() === '') {
     throw new ValidationError('Expected --stage-path to point to a prepared extension stage.', {
       code: 'SETUP_STAGE_INVALID',
       details: {
         setup: {
           phase: 'preflight',
           code: 'SETUP_STAGE_INVALID',
-          stagePath,
+          extensionPath: input.extensionPath,
+          stagePath: input.stagePath,
         },
       },
     });
   }
 
-  return path.resolve(cwd, stagePath.trim());
+  return path.resolve(cwd, candidate.trim());
 }
 
 function normalizePythonExe(pythonExe) {
@@ -66,21 +71,21 @@ function normalizeSetupPayload(setupPayload) {
   return setupPayload;
 }
 
-function buildFinalSetupPayload({ setupPayload, pythonExe, stagePath }) {
+function buildFinalSetupPayload({ setupPayload, pythonExe, extensionPath }) {
   const { python_exe: _ignoredPythonExe, ext_dir: _ignoredExtDir, ...userPayloadSansReserved } = setupPayload;
 
   return {
     ...userPayloadSansReserved,
     python_exe: pythonExe,
-    ext_dir: stagePath,
+    ext_dir: extensionPath,
   };
 }
 
-function buildPlan({ stagePath, pythonExe, allowThirdParty, payload, setupContract }) {
+function buildPlan({ extensionPath, pythonExe, allowThirdParty, payload, setupContract }) {
   if (!setupContract) {
     return {
       consentGranted: allowThirdParty,
-      cwd: stagePath,
+      cwd: extensionPath,
       command: null,
       args: [],
       setupContract: null,
@@ -89,7 +94,7 @@ function buildPlan({ stagePath, pythonExe, allowThirdParty, payload, setupContra
 
   return {
     consentGranted: allowThirdParty,
-    cwd: stagePath,
+    cwd: extensionPath,
     command: pythonExe,
     args: [setupContract.entry, JSON.stringify(payload)],
     setupContract,
@@ -100,12 +105,13 @@ function resolveCatalogStatus(setupContract) {
   return setupContract?.catalogStatus ?? null;
 }
 
-function buildBlockedResult({ stagePath, plan, inspection, blockers }) {
+function buildBlockedResult({ extensionPath, plan, inspection, blockers }) {
   return {
     status: 'blocked',
     blocked: true,
     catalogStatus: resolveCatalogStatus(plan?.setupContract),
-    stagePath,
+    extensionPath,
+    stagePath: extensionPath,
     plan,
     blockers,
     execution: null,
@@ -117,12 +123,13 @@ function buildBlockedResult({ stagePath, plan, inspection, blockers }) {
   };
 }
 
-function buildResult({ status, stagePath, plan, blockers = [], execution, before, after, journal = null }) {
+function buildResult({ status, extensionPath, plan, blockers = [], execution, before, after, journal = null }) {
   return {
     status,
     blocked: status === 'blocked',
     catalogStatus: resolveCatalogStatus(plan?.setupContract),
-    stagePath,
+    extensionPath,
+    stagePath: extensionPath,
     plan,
     blockers,
     execution,
@@ -212,16 +219,17 @@ async function runSetupCommand({ spawnImpl, now, plan, startedAt, onSpawn, onOut
   });
 }
 
-function createInitialJournal({ runId, stagePath, startedAt, setupContract }) {
+function createInitialJournal({ runId, extensionPath, startedAt, setupContract }) {
   return {
     runId,
-    stagePath,
+    extensionPath,
+    stagePath: extensionPath,
     pid: null,
     status: 'running',
     startedAt,
     lastOutputAt: null,
     finishedAt: null,
-    logPath: getSetupRunPaths(stagePath, runId).logPath,
+    logPath: getSetupRunPaths(extensionPath, runId).logPath,
     exitCode: null,
     signal: null,
     stdoutBytes: 0,
@@ -242,8 +250,8 @@ function finalizeJournal(journal, updates = {}) {
   };
 }
 
-function recordJournalOutput({ journal, stagePath, runId, streamName, chunk, now }) {
-  const { logPath, bytesWritten } = appendSetupRunLog(stagePath, runId, streamName, chunk);
+function recordJournalOutput({ journal, extensionPath, runId, streamName, chunk, now }) {
+  const { logPath, bytesWritten } = appendSetupRunLog(extensionPath, runId, streamName, chunk);
   const nextJournal = finalizeJournal(journal, {
     logPath,
     lastOutputAt: now(),
@@ -251,7 +259,7 @@ function recordJournalOutput({ journal, stagePath, runId, streamName, chunk, now
     stderrBytes: journal.stderrBytes + (streamName === 'stderr' ? bytesWritten : 0),
     totalBytes: journal.totalBytes + bytesWritten,
   });
-  writeLatestSetupRun(stagePath, nextJournal);
+  writeLatestSetupRun(extensionPath, nextJournal);
   return nextJournal;
 }
 
@@ -260,16 +268,16 @@ export async function configureStagedExtension(input = {}, deps = {}) {
   const inspectStage = deps.inspectStage ?? inspectStagedExtension;
   const spawnImpl = deps.spawnImpl ?? spawn;
   const now = deps.now ?? Date.now;
-  const stagePath = normalizeStagePath(input.stagePath, cwd);
+  const extensionPath = normalizeExtensionPath(input, cwd);
   const pythonExe = normalizePythonExe(input.pythonExe);
   const allowThirdParty = input.allowThirdParty === true;
   const setupPayload = normalizeSetupPayload(input.setupPayload);
   const finalPayload = buildFinalSetupPayload({
     setupPayload,
     pythonExe,
-    stagePath,
+    extensionPath,
   });
-  const inspection = await inspectStage(stagePath);
+  const inspection = await inspectStage(extensionPath);
   const setupContract = inspection.setupContract ?? null;
   const blockers = [];
 
@@ -309,7 +317,7 @@ export async function configureStagedExtension(input = {}, deps = {}) {
   }
 
   const plan = buildPlan({
-    stagePath,
+    extensionPath,
     pythonExe,
     allowThirdParty,
     payload: finalPayload,
@@ -318,7 +326,7 @@ export async function configureStagedExtension(input = {}, deps = {}) {
 
   if (blockers.length > 0) {
     return buildBlockedResult({
-      stagePath,
+      extensionPath,
       plan,
       inspection,
       blockers,
@@ -330,18 +338,18 @@ export async function configureStagedExtension(input = {}, deps = {}) {
   let lockHandle = null;
   let journal = createInitialJournal({
     runId,
-    stagePath,
+    extensionPath,
     startedAt,
     setupContract,
   });
 
   try {
-    lockHandle = acquireSetupRunLock(stagePath, {
+    lockHandle = acquireSetupRunLock(extensionPath, {
       runId,
       startedAt,
       isProcessAlive: deps.isProcessAlive,
     });
-    writeLatestSetupRun(stagePath, journal);
+    writeLatestSetupRun(extensionPath, journal);
 
     const execution = await runSetupCommand({
       spawnImpl,
@@ -352,12 +360,12 @@ export async function configureStagedExtension(input = {}, deps = {}) {
         journal = finalizeJournal(journal, {
           pid: child.pid ?? null,
         });
-        writeLatestSetupRun(stagePath, journal);
+        writeLatestSetupRun(extensionPath, journal);
       },
       onOutput: (streamName, chunk) => {
         journal = recordJournalOutput({
           journal,
-          stagePath,
+          extensionPath,
           runId,
           streamName,
           chunk,
@@ -373,12 +381,12 @@ export async function configureStagedExtension(input = {}, deps = {}) {
       exitCode: execution.exitCode,
       signal: execution.signal ?? null,
     });
-    writeLatestSetupRun(stagePath, journal);
+    writeLatestSetupRun(extensionPath, journal);
 
     if (execution.exitCode !== 0) {
       return buildResult({
         status: 'blocked',
-        stagePath,
+        extensionPath,
         plan,
         blockers: [
           {
@@ -396,11 +404,11 @@ export async function configureStagedExtension(input = {}, deps = {}) {
       });
     }
 
-    const afterInspection = await inspectStage(stagePath);
+    const afterInspection = await inspectStage(extensionPath);
 
     return buildResult({
       status: classifySuccessfulSetup(inspection, afterInspection),
-      stagePath,
+      extensionPath,
       plan,
       blockers: [],
       execution,
@@ -415,7 +423,7 @@ export async function configureStagedExtension(input = {}, deps = {}) {
         finishedAt: now(),
         staleReason: 'spawn_error',
       });
-      writeLatestSetupRun(stagePath, journal);
+      writeLatestSetupRun(extensionPath, journal);
     }
 
     throw error;

@@ -14,8 +14,8 @@ import {
 
 import { ValidationError } from './errors.mjs';
 
-function ensureSetupRunDir(stagePath) {
-  const rootPath = path.join(stagePath, '.modly', 'setup-runs');
+function ensureSetupRunDir(extensionPath) {
+  const rootPath = path.join(extensionPath, '.modly', 'setup-runs');
   mkdirSync(rootPath, { recursive: true });
   return rootPath;
 }
@@ -37,8 +37,8 @@ function defaultIsProcessAlive(pid) {
   }
 }
 
-export function getSetupRunPaths(stagePath, runId = null) {
-  const rootPath = path.join(stagePath, '.modly', 'setup-runs');
+export function getSetupRunPaths(extensionPath, runId = null) {
+  const rootPath = path.join(extensionPath, '.modly', 'setup-runs');
   return {
     rootPath,
     latestPath: path.join(rootPath, 'latest.json'),
@@ -47,8 +47,8 @@ export function getSetupRunPaths(stagePath, runId = null) {
   };
 }
 
-export function readLatestSetupRun(stagePath) {
-  const { latestPath } = getSetupRunPaths(stagePath);
+export function readLatestSetupRun(extensionPath) {
+  const { latestPath } = getSetupRunPaths(extensionPath);
   if (!existsSync(latestPath)) {
     return null;
   }
@@ -56,9 +56,9 @@ export function readLatestSetupRun(stagePath) {
   return JSON.parse(readFileSync(latestPath, 'utf8'));
 }
 
-export function writeLatestSetupRun(stagePath, journal) {
-  const { rootPath, latestPath } = getSetupRunPaths(stagePath);
-  ensureSetupRunDir(stagePath);
+export function writeLatestSetupRun(extensionPath, journal) {
+  const { rootPath, latestPath } = getSetupRunPaths(extensionPath);
+  ensureSetupRunDir(extensionPath);
   const tmpPath = path.join(rootPath, `latest.${process.pid}.${Date.now()}.tmp`);
   const snapshot = { ...journal };
   writeFileSync(tmpPath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
@@ -66,10 +66,10 @@ export function writeLatestSetupRun(stagePath, journal) {
   return snapshot;
 }
 
-export function appendSetupRunLog(stagePath, runId, _streamName, chunk) {
+export function appendSetupRunLog(extensionPath, runId, _streamName, chunk) {
   const normalizedChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-  const logPath = getSetupRunPaths(stagePath, runId).logPath;
-  ensureSetupRunDir(stagePath);
+  const logPath = getSetupRunPaths(extensionPath, runId).logPath;
+  ensureSetupRunDir(extensionPath);
   appendFileSync(logPath, normalizedChunk);
   return {
     logPath,
@@ -77,10 +77,10 @@ export function appendSetupRunLog(stagePath, runId, _streamName, chunk) {
   };
 }
 
-export function reconcileLatestSetupRun(stagePath, deps = {}) {
+export function reconcileLatestSetupRun(extensionPath, deps = {}) {
   const now = deps.now ?? defaultNow;
   const isProcessAlive = deps.isProcessAlive ?? defaultIsProcessAlive;
-  const latest = readLatestSetupRun(stagePath);
+  const latest = readLatestSetupRun(extensionPath);
 
   if (!latest || latest.status !== 'running') {
     return latest;
@@ -91,14 +91,14 @@ export function reconcileLatestSetupRun(stagePath, deps = {}) {
   }
 
   const staleReason = Number.isInteger(latest.pid) ? 'pid_not_alive' : 'lock_without_process';
-  const interrupted = writeLatestSetupRun(stagePath, {
+  const interrupted = writeLatestSetupRun(extensionPath, {
     ...latest,
     status: 'interrupted',
     finishedAt: latest.finishedAt ?? now(),
     staleReason,
   });
 
-  const { lockPath } = getSetupRunPaths(stagePath);
+  const { lockPath } = getSetupRunPaths(extensionPath);
   rmSync(lockPath, { force: true });
   return interrupted;
 }
@@ -115,36 +115,37 @@ function readActiveSetupRunLock(lockPath) {
   }
 }
 
-function createSetupAlreadyRunningError(stagePath, setup = {}) {
+function createSetupAlreadyRunningError(extensionPath, setup = {}) {
   const logHint = setup.logPath ? ` Log: ${setup.logPath}.` : '';
   return new ValidationError(
-    `Another setup run is already active for this stage path. Inspect it with modly ext setup-status --stage-path "${stagePath}".${logHint}`,
+    `Another setup run is already active for this extension path. Inspect it with modly ext setup-status --stage-path "${extensionPath}".${logHint}`,
     {
       code: 'SETUP_ALREADY_RUNNING',
       details: {
         setup: {
           phase: 'preflight',
           code: 'SETUP_ALREADY_RUNNING',
-          stagePath,
+          extensionPath,
+          stagePath: extensionPath,
           runId: setup.runId ?? null,
           pid: setup.pid ?? null,
           logPath: setup.logPath ?? null,
-          statusCommand: `modly ext setup-status --stage-path "${stagePath}"`,
+          statusCommand: `modly ext setup-status --stage-path "${extensionPath}"`,
         },
       },
     },
   );
 }
 
-export function acquireSetupRunLock(stagePath, options = {}) {
+export function acquireSetupRunLock(extensionPath, options = {}) {
   const now = options.now ?? defaultNow;
   const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
-  const { lockPath } = getSetupRunPaths(stagePath);
-  ensureSetupRunDir(stagePath);
-  const latest = reconcileLatestSetupRun(stagePath, { now, isProcessAlive });
+  const { lockPath } = getSetupRunPaths(extensionPath);
+  ensureSetupRunDir(extensionPath);
+  const latest = reconcileLatestSetupRun(extensionPath, { now, isProcessAlive });
 
   if (latest?.status === 'running') {
-    throw createSetupAlreadyRunningError(stagePath, latest);
+    throw createSetupAlreadyRunningError(extensionPath, latest);
   }
 
   const lockPid = options.pid ?? process.pid;
@@ -166,7 +167,8 @@ export function acquireSetupRunLock(stagePath, options = {}) {
     }
 
     return {
-      stagePath,
+      extensionPath,
+      stagePath: extensionPath,
       lockPath,
       runId: options.runId ?? null,
       pid: lockPid,
@@ -182,9 +184,9 @@ export function acquireSetupRunLock(stagePath, options = {}) {
       }
     }
 
-    const latestAfterConflict = reconcileLatestSetupRun(stagePath, { now, isProcessAlive });
+    const latestAfterConflict = reconcileLatestSetupRun(extensionPath, { now, isProcessAlive });
     if (latestAfterConflict?.status === 'running') {
-      throw createSetupAlreadyRunningError(stagePath, latestAfterConflict);
+      throw createSetupAlreadyRunningError(extensionPath, latestAfterConflict);
     }
 
     const activeLock = readActiveSetupRunLock(lockPath);
@@ -197,7 +199,7 @@ export function acquireSetupRunLock(stagePath, options = {}) {
       continue;
     }
 
-    throw createSetupAlreadyRunningError(stagePath, {
+    throw createSetupAlreadyRunningError(extensionPath, {
       runId: activeLock.runId ?? null,
       pid: activeLock.pid ?? null,
       logPath: latestAfterConflict?.logPath ?? null,

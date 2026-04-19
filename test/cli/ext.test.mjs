@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 
 import { main } from '../../src/cli/index.mjs';
 import { UnsupportedOperationError, UsageError, ValidationError } from '../../src/core/errors.mjs';
@@ -14,6 +14,11 @@ function createTempStage(t) {
   const stagePath = path.join(tempRoot, 'stage');
   t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
   return stagePath;
+}
+
+function writeManifest(stagePath, manifest) {
+  mkdirSync(stagePath, { recursive: true });
+  writeFileSync(path.join(stagePath, 'manifest.json'), JSON.stringify(manifest));
 }
 
 function createPreparedStagingResult(overrides = {}) {
@@ -255,26 +260,27 @@ test('runExtCommand marks unknown setup contracts as limited support instead of 
   assert.doesNotMatch(result.humanMessage, /compatible with any extension|universal support/u);
 });
 
-test('help advertises ext stage github, ext apply, ext setup, and ext repair with honest guardrails', () => {
+test('help advertises ext stage github as preflight only, ext apply as live-target, and ext setup-status as target-scoped', () => {
   const globalHelp = renderHelp();
   const extHelp = renderExtHelp();
 
   assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| setup \| setup-status \| repair/u);
-  assert.match(globalHelp, /stage github\s+Stage\/preflight only desde GitHub/u);
-  assert.match(globalHelp, /apply\s+Promueve un stage YA preparado/u);
+  assert.match(globalHelp, /stage github\s+Stage\/preflight only desde GitHub; prepara e inspecciona, NO instala ni aplica en vivo/u);
+  assert.match(globalHelp, /apply\s+Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito/u);
   assert.match(globalHelp, /setup\s+Ejecuta SOLO un contrato explícito/u);
-  assert.match(globalHelp, /setup-status\s+Lee SOLO el journal local por stage del último setup/u);
+  assert.match(globalHelp, /setup-status\s+Lee SOLO el journal del target instalado del último setup observable/u);
   assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado/u);
   assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático|setup automático/u);
 
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
   assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path>/u);
   assert.match(extHelp, /modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party/u);
-  assert.match(extHelp, /modly ext setup-status --stage-path <path>/u);
+  assert.match(extHelp, /modly ext setup-status --extensions-dir <abs-path> \(--manifest-id <id> \| --stage-path <path>\)/u);
   assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path>/u);
-  assert.match(extHelp, /apply sobre un stage ya preparado/u);
+  assert.match(extHelp, /instala un stage ya preparado sobre el target vivo/u);
   assert.match(extHelp, /setup CLI-only sobre un stage ya preparado/u);
-  assert.match(extHelp, /setup-status lee SOLO estado local stage-scoped del último setup/u);
+  assert.match(extHelp, /setup-status\s+lee SOLO el journal live-target del target instalado/u);
+  assert.match(extHelp, /requiere --extensions-dir explícito y \(--manifest-id o --stage-path solo para resolver manifest\.id\)/u);
   assert.match(extHelp, /NO reatacha, NO cancela y NO es un job manager general/u);
   assert.match(extHelp, /soporte catalogado y limitado; no promete compatibilidad universal/u);
   assert.match(extHelp, /python_exe y ext_dir se auto-inyectan desde la CLI y el stage/u);
@@ -286,15 +292,17 @@ test('help advertises ext stage github, ext apply, ext setup, and ext repair wit
   assert.match(extHelp, /NO instala ni aplica en vivo/u);
 });
 
-test('runExtCommand renders local stage-scoped setup-status honestly from the reconciled journal', async () => {
-  const stagePath = '/tmp/modly-ext-stage-123';
+test('runExtCommand renders live-target setup-status from --extensions-dir and --manifest-id', async () => {
+  const extensionsDir = '/opt/modly/extensions';
+  const targetPath = `${extensionsDir}/octo.tools`;
   const setupStatus = {
     status: 'running',
-    scope: 'local-stage-journal',
+    scope: 'live-target-journal',
     runId: 'run-123',
-    stagePath,
+    manifestId: 'octo.tools',
+    targetPath,
     pid: 4312,
-    logPath: `${stagePath}/.modly/setup-runs/run-123.log`,
+    logPath: `${targetPath}/.modly/setup-runs/run-123.log`,
     startedAt: '2026-04-19T16:40:00.000Z',
     lastOutputAt: '2026-04-19T16:40:05.000Z',
     finishedAt: null,
@@ -303,51 +311,94 @@ test('runExtCommand renders local stage-scoped setup-status honestly from the re
   };
 
   const result = await runExtCommand({
-    args: ['setup-status', '--stage-path', stagePath],
+    args: ['setup-status', '--extensions-dir', extensionsDir, '--manifest-id', 'octo.tools'],
     config: {},
     client: {},
-    reconcileLatestSetupRun(inputStagePath) {
-      assert.equal(inputStagePath, stagePath);
+    reconcileLatestSetupRun(inputTargetPath) {
+      assert.equal(inputTargetPath, targetPath);
       return setupStatus;
     },
   });
 
   assert.deepEqual(result.data, { setupStatus });
-  assert.match(result.humanMessage, /Local stage-scoped setup status: running/u);
-  assert.match(result.humanMessage, /scope: local-stage-journal/u);
+  assert.match(result.humanMessage, /Live target setup status: running/u);
+  assert.match(result.humanMessage, /scope: live-target-journal/u);
+  assert.match(result.humanMessage, /manifestId: octo.tools/u);
+  assert.match(result.humanMessage, /targetPath: \/opt\/modly\/extensions\/octo\.tools/u);
   assert.match(result.humanMessage, /pid: 4312/u);
   assert.match(result.humanMessage, /logPath: .*run-123\.log/u);
   assert.match(result.humanMessage, /No reattach, cancel, ni job control general is available from this command/u);
 });
 
-test('runExtCommand reports unknown setup-status when no local journal exists for the stage', async (t) => {
+test('runExtCommand resolves --stage-path only to manifest id and still reads the installed target journal', async (t) => {
   const stagePath = createTempStage(t);
+  const extensionsDir = path.join(path.dirname(stagePath), 'extensions');
+  const targetPath = path.join(extensionsDir, 'octo.tools');
+  writeManifest(stagePath, { id: 'octo.tools', name: 'Octo Tools', version: '1.0.0' });
 
   const result = await runExtCommand({
-    args: ['setup-status', '--stage-path', stagePath],
+    args: ['setup-status', '--stage-path', stagePath, '--extensions-dir', extensionsDir],
+    config: {},
+    client: {},
+    reconcileLatestSetupRun(inputTargetPath) {
+      assert.equal(inputTargetPath, targetPath);
+      return {
+        status: 'succeeded',
+        scope: 'live-target-journal',
+        manifestId: 'octo.tools',
+        targetPath,
+        runId: 'run-789',
+        pid: 789,
+        logPath: `${targetPath}/.modly/setup-runs/run-789.log`,
+        startedAt: '2026-04-19T16:41:00.000Z',
+        lastOutputAt: '2026-04-19T16:41:10.000Z',
+        finishedAt: '2026-04-19T16:41:20.000Z',
+        exitCode: 0,
+        signal: null,
+      };
+    },
+  });
+
+  assert.equal(result.data.setupStatus.status, 'succeeded');
+  assert.equal(result.data.setupStatus.scope, 'live-target-journal');
+  assert.equal(result.data.setupStatus.manifestId, 'octo.tools');
+  assert.equal(result.data.setupStatus.targetPath, targetPath);
+  assert.match(result.humanMessage, /Live target setup status: succeeded/u);
+  assert.match(result.humanMessage, /targetPath: .*extensions\/octo\.tools/u);
+  assert.doesNotMatch(result.humanMessage, /stage-scoped|local stage/u);
+});
+
+test('runExtCommand reports unknown setup-status when no live-target journal exists yet', async () => {
+  const extensionsDir = '/opt/modly/extensions';
+  const targetPath = `${extensionsDir}/octo.tools`;
+
+  const result = await runExtCommand({
+    args: ['setup-status', '--extensions-dir', extensionsDir, '--manifest-id', 'octo.tools'],
     config: {},
     client: {},
   });
 
   assert.equal(result.data.setupStatus.status, 'unknown');
-  assert.equal(result.data.setupStatus.scope, 'local-stage-journal');
-  assert.equal(result.data.setupStatus.stagePath, stagePath);
+  assert.equal(result.data.setupStatus.scope, 'live-target-journal');
+  assert.equal(result.data.setupStatus.manifestId, 'octo.tools');
+  assert.equal(result.data.setupStatus.targetPath, targetPath);
   assert.equal(result.data.setupStatus.runId, null);
   assert.equal(result.data.setupStatus.logPath, null);
-  assert.match(result.humanMessage, /Local stage-scoped setup status: unknown/u);
-  assert.match(result.humanMessage, /No local setup journal was found for this stage path/u);
-  assert.doesNotMatch(result.humanMessage, /\brunning\b|resume|cancel this run/u);
+  assert.match(result.humanMessage, /Live target setup status: unknown/u);
+  assert.match(result.humanMessage, /No observable setup journal was found for this live target yet/u);
+  assert.doesNotMatch(result.humanMessage, /stage-scoped|local stage|fallback/u);
 });
 
 test('main emits JSON envelope with data.setupStatus for ext setup-status', async () => {
   const writes = [];
   const setupStatus = {
     status: 'failed',
-    scope: 'local-stage-journal',
+    scope: 'live-target-journal',
     runId: 'run-999',
-    stagePath: '/tmp/modly-ext-stage-123',
+    manifestId: 'octo.tools',
+    targetPath: '/opt/modly/extensions/octo.tools',
     pid: 999,
-    logPath: '/tmp/modly-ext-stage-123/.modly/setup-runs/run-999.log',
+    logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-999.log',
     startedAt: '2026-04-19T16:50:00.000Z',
     lastOutputAt: '2026-04-19T16:50:10.000Z',
     finishedAt: '2026-04-19T16:50:30.000Z',
@@ -355,7 +406,7 @@ test('main emits JSON envelope with data.setupStatus for ext setup-status', asyn
     signal: null,
   };
 
-  const exitCode = await main(['--json', 'ext', 'setup-status', '--stage-path', '/tmp/modly-ext-stage-123'], {
+  const exitCode = await main(['--json', 'ext', 'setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools'], {
     stdout: { write(chunk) { writes.push(chunk); } },
     stderr: { write() {} },
     env: {},
@@ -373,7 +424,8 @@ test('main emits JSON envelope with data.setupStatus for ext setup-status', asyn
   const payload = JSON.parse(writes.join(''));
   assert.equal(payload.ok, true);
   assert.equal(payload.data.setupStatus.status, 'failed');
-  assert.equal(payload.data.setupStatus.scope, 'local-stage-journal');
+  assert.equal(payload.data.setupStatus.scope, 'live-target-journal');
+  assert.equal(payload.data.setupStatus.targetPath, '/opt/modly/extensions/octo.tools');
   assert.equal(payload.data.setupStatus.exitCode, 9);
 });
 
@@ -687,9 +739,10 @@ test('runExtCommand delegates ext apply to the reusable core with explicit stage
   assert.equal(typeof calls[0].deps.reloadExtensions, 'function');
   assert.equal(typeof calls[0].deps.getExtensionErrors, 'function');
   assert.deepEqual(result.data, { apply });
-  assert.match(result.humanMessage, /CLI-only apply over prepared stage: applied/u);
+  assert.match(result.humanMessage, /Live-target apply from prepared stage: applied/u);
   assert.match(result.humanMessage, /stagePath: \/tmp\/modly-ext-stage-123/u);
-  assert.match(result.humanMessage, /extensionsDir: \/opt\/modly\/extensions/u);
+  assert.match(result.humanMessage, /extensionsDir \(explicit\): \/opt\/modly\/extensions/u);
+  assert.match(result.humanMessage, /targetPath: \/opt\/modly\/extensions\/octo\.tools/u);
   assert.match(result.humanMessage, /No GitHub fetch, install, build, or repair was attempted/u);
 });
 
@@ -718,9 +771,23 @@ test('runExtCommand reports degraded apply honestly without claiming a healthy i
   });
 
   assert.equal(result.data.apply.status, 'applied_degraded');
-  assert.match(result.humanMessage, /CLI-only apply over prepared stage: applied_degraded/u);
+  assert.match(result.humanMessage, /Live-target apply from prepared stage: applied_degraded/u);
   assert.match(result.humanMessage, /runtime errors: 1/u);
   assert.doesNotMatch(result.humanMessage, /install complete|repaired|healthy install/u);
+});
+
+test('runExtCommand requires --extensions-dir for ext apply before delegating to core', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['apply', '--stage-path', 'tmp/stage/octo.tools'],
+      config: {},
+      client: {},
+      async applyStagedExtension() {
+        throw new Error('applyStagedExtension should not be called without --extensions-dir');
+      },
+    }),
+    UsageError,
+  );
 });
 
 test('runExtCommand requires --stage-path for ext apply', async () => {
