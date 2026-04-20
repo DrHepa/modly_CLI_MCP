@@ -17,7 +17,7 @@ const SETUP_USAGE =
   "Usage: modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
 const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]';
 const REPAIR_USAGE =
-  'Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]';
+  "Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
 
 function resolveStagePath(stagePath, cwd, usage) {
   if (typeof stagePath !== 'string' || stagePath.trim() === '') {
@@ -454,7 +454,8 @@ function renderRepairHumanMessage(repair) {
     `stagePath: ${repair.stagePath}`,
     `extensionsDir: ${repair.resolution?.extensionsDir ?? '<unknown>'}`,
     `destination: ${repair.destination?.path ?? '<unknown>'}`,
-    'No GitHub fetch, install, setup, build, or general health fix was attempted.',
+    'May trigger live-target setup when the prepared stage requires it.',
+    'No GitHub fetch, install, build, or general health fix was attempted.',
   ];
 
   if (repair.backup?.created && repair.backup.path) {
@@ -479,7 +480,8 @@ function renderRepairHumanMessage(repair) {
 async function runRepair(context, args) {
   const { positionals, options } = parseCommandArgs(args, {
     usage: REPAIR_USAGE,
-    valueFlags: ['--stage-path', '--extensions-dir', '--source-repo', '--source-ref', '--source-commit'],
+    valueFlags: ['--stage-path', '--extensions-dir', '--source-repo', '--source-ref', '--source-commit', '--python-exe', '--setup-payload-json'],
+    booleanFlags: ['--allow-third-party'],
   });
   assertExactPositionals(positionals, 0, REPAIR_USAGE);
 
@@ -491,6 +493,7 @@ async function runRepair(context, args) {
     throw new UsageError(REPAIR_USAGE);
   }
 
+  const setupPayload = parseJsonObject(options['--setup-payload-json'], '--setup-payload-json');
   const repair = context.repairStagedExtension ?? repairStagedExtension;
   const result = await repair(
     {
@@ -499,6 +502,9 @@ async function runRepair(context, args) {
       sourceRepo: options['--source-repo'],
       sourceRef: options['--source-ref'],
       sourceCommit: options['--source-commit'],
+      pythonExe: options['--python-exe'],
+      allowThirdParty: options['--allow-third-party'] === true,
+      setupPayload,
     },
     {
       cwd: context.cwd,

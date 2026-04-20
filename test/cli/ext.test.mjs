@@ -269,14 +269,14 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
   assert.match(globalHelp, /apply\s+Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y puede disparar setup live-target si el stage lo exige/u);
   assert.match(globalHelp, /setup\s+Ejecuta SOLO un contrato explícito/u);
   assert.match(globalHelp, /setup-status\s+Lee SOLO el journal del target instalado del último setup observable/u);
-  assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado/u);
+  assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige/u);
   assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático|setup automático/u);
 
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
   assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path> \[--source-repo <owner\/name> --source-ref <ref> --source-commit <sha>\] \[--python-exe <exe>\] \[--allow-third-party\] \[--setup-payload-json '\{\.\.\.\}'\]/u);
   assert.match(extHelp, /modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party/u);
   assert.match(extHelp, /modly ext setup-status --extensions-dir <abs-path> \(--manifest-id <id> \| --stage-path <path>\)/u);
-  assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path>/u);
+  assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path> \[--source-repo <owner\/name> --source-ref <ref> --source-commit <sha>\] \[--python-exe <exe>\] \[--allow-third-party\] \[--setup-payload-json '\{\.\.\.\}'\]/u);
   assert.match(extHelp, /instala un stage ya preparado sobre el target vivo/u);
   assert.match(extHelp, /puede disparar setup live-target si el contrato del stage lo requiere/u);
   assert.match(extHelp, /acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target/u);
@@ -288,7 +288,10 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
   assert.match(extHelp, /python_exe y ext_dir se auto-inyectan desde la CLI y el stage/u);
   assert.match(extHelp, /requiere consentimiento explícito porque ejecuta código de terceros/u);
   assert.match(extHelp, /repair como reapply CLI-only sobre un stage ya preparado/u);
-  assert.match(extHelp, /NO hace fetch GitHub, install, setup implícito, build ni health-fix general/u);
+  assert.match(extHelp, /ext repair acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target cuando el stage lo requiera/u);
+  assert.match(extHelp, /puede disparar setup live-target si el stage lo exige/u);
+  assert.match(extHelp, /NO hace fetch GitHub, install, build ni health-fix general/u);
+  assert.doesNotMatch(extHelp, /repair puede.*nunca|repair.*NO hace.*setup implícito/u);
   assert.match(extHelp, /staging\/preflight only/u);
   assert.match(extHelp, /No expone capability MCP estable/u);
   assert.match(extHelp, /NO instala ni aplica en vivo/u);
@@ -602,7 +605,7 @@ test('main emits JSON envelope with data.setup for ext setup', async () => {
   assert.equal(payload.data.setup.plan.command, 'python3');
 });
 
-test('runExtCommand delegates ext repair to the reusable core with explicit stage and extensions paths', async () => {
+test('runExtCommand delegates ext repair to the reusable core with explicit stage and extensions paths plus live-target setup flags', async () => {
   const calls = [];
   const repair = createRepairResult();
   const client = {
@@ -623,6 +626,11 @@ test('runExtCommand delegates ext repair to the reusable core with explicit stag
       'main',
       '--source-commit',
       'abc123',
+      '--python-exe',
+      'python3.11',
+      '--allow-third-party',
+      '--setup-payload-json',
+      '{"gpu_sm":"89","apiBaseUrl":"https://api.example.test"}',
     ],
     config: {},
     client,
@@ -639,6 +647,12 @@ test('runExtCommand delegates ext repair to the reusable core with explicit stag
     sourceRepo: 'octo/tools',
     sourceRef: 'main',
     sourceCommit: 'abc123',
+    pythonExe: 'python3.11',
+    allowThirdParty: true,
+    setupPayload: {
+      gpu_sm: '89',
+      apiBaseUrl: 'https://api.example.test',
+    },
   });
   assert.equal(typeof calls[0].deps.reloadExtensions, 'function');
   assert.equal(typeof calls[0].deps.getExtensionErrors, 'function');
@@ -646,7 +660,8 @@ test('runExtCommand delegates ext repair to the reusable core with explicit stag
   assert.match(result.humanMessage, /CLI-only repair\/reapply over prepared stage: repaired/u);
   assert.match(result.humanMessage, /stagePath: \/tmp\/modly-ext-stage-123/u);
   assert.match(result.humanMessage, /extensionsDir: \/opt\/modly\/extensions/u);
-  assert.match(result.humanMessage, /No GitHub fetch, install, setup, build, or general health fix was attempted/u);
+  assert.match(result.humanMessage, /May trigger live-target setup when the prepared stage requires it/u);
+  assert.match(result.humanMessage, /No GitHub fetch, install, build, or general health fix was attempted/u);
 });
 
 test('runExtCommand reports degraded repair honestly without claiming a healthy install or dependency fix', async () => {
@@ -697,6 +712,32 @@ test('runExtCommand requires --extensions-dir for ext repair before delegating t
       },
     }),
     UsageError,
+  );
+});
+
+test('runExtCommand rejects invalid --setup-payload-json for ext repair before delegating to core', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: [
+        'repair',
+        '--stage-path',
+        'tmp/stage/octo.tools',
+        '--extensions-dir',
+        '/opt/modly/extensions',
+        '--setup-payload-json',
+        '{bad json}',
+      ],
+      config: {},
+      client: {},
+      async repairStagedExtension() {
+        throw new Error('repairStagedExtension should not be called with invalid --setup-payload-json');
+      },
+    }),
+    (error) => {
+      assert.equal(error instanceof ValidationError, true);
+      assert.match(error.message, /--setup-payload-json/u);
+      return true;
+    },
   );
 });
 

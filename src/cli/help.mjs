@@ -36,7 +36,7 @@ Estado del bootstrap:
   - ext apply                    Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y puede disparar setup live-target si el stage lo exige.
   - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup-status             Lee SOLO el journal del target instalado del último setup observable; no reatacha, no cancela y no es job control general.
-  - ext repair                   Reaplica un stage YA preparado; NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
+  - ext repair                   Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige. NO hace fetch GitHub, install, build ni health-fix general.
 `;
 }
 
@@ -177,7 +177,7 @@ Uso:
   modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]
   modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]
   modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]
-  modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--api-url <url>] [--json]
+  modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]
 
 Subcomandos disponibles:
   reload                    Recarga el registro de extensiones
@@ -198,7 +198,9 @@ Notas:
   - ext setup-status lee SOLO el journal live-target reconciliado desde el target instalado; --stage-path solo ayuda a resolver manifest.id.
   - ext setup-status NO reatacha, NO cancela y NO es un job manager general.
   - ext repair reaplica solo un stage ya preparado al directorio real de extensiones.
-  - NO hace fetch GitHub, install, setup implícito, build ni health-fix general.
+  - ext repair acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target cuando el stage lo requiera.
+  - ext repair puede disparar setup live-target si el stage lo exige.
+  - NO hace fetch GitHub, install, build ni health-fix general.
   - No expone capability MCP estable ni hace install/apply headless desde GitHub.
 `;
 }
