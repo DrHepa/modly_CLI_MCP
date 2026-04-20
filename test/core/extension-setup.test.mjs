@@ -161,9 +161,10 @@ test('configureStagedExtension blocks when the stage has no supported explicit s
   assert.equal(result.artifacts.before.setupContract, null);
 });
 
-test('configureStagedExtension blocks known catalog setup before spawn when gpu_sm is missing from requiredPayloadInputs', async () => {
+test('configureStagedExtension blocks known catalog setup before spawn when gpu_sm is missing from requiredPayloadInputs', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const result = await configureStagedExtension(
     {
       stagePath,
@@ -208,7 +209,7 @@ test('configureStagedExtension blocks known catalog setup before spawn when gpu_
     consentGranted: true,
     cwd: stagePath,
     command: 'python3',
-    args: ['setup.py', '{"python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
+    args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
     setupContract: {
       kind: 'python-root-setup-py',
       entry: 'setup.py',
@@ -229,9 +230,10 @@ test('configureStagedExtension blocks known catalog setup before spawn when gpu_
   assert.equal(result.execution, null);
 });
 
-test('configureStagedExtension does not require optional gpu_sm for tolerant catalog contracts and keeps catalogStatus observable', async () => {
+test('configureStagedExtension does not require optional gpu_sm for tolerant catalog contracts and keeps catalogStatus observable', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspections = [
     {
       status: 'prepared',
@@ -295,7 +297,7 @@ test('configureStagedExtension does not require optional gpu_sm for tolerant cat
       spawnImpl: createSpawnImpl([
         {
           command: 'python3.11',
-          args: ['setup.py', '{"python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}'],
+          args: ['setup.py', `{"python_exe":"python3.11","ext_dir":"${stagePath}"}`],
           cwd: stagePath,
           exitCode: 0,
         },
@@ -313,12 +315,13 @@ test('configureStagedExtension does not require optional gpu_sm for tolerant cat
   assert.equal(result.catalogStatus, 'known');
   assert.equal(result.plan.setupContract.catalogStatus, 'known');
   assert.deepEqual(result.plan.setupContract.requiredPayloadInputs, []);
-  assert.deepEqual(result.plan.args, ['setup.py', '{"python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
+  assert.deepEqual(result.plan.args, ['setup.py', `{"python_exe":"python3.11","ext_dir":"${stagePath}"}`]);
 });
 
-test('configureStagedExtension executes the explicit setup contract with observable plan and execution evidence', async () => {
+test('configureStagedExtension executes the explicit setup contract with observable plan and execution evidence', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspections = [
     {
       status: 'prepared',
@@ -364,7 +367,7 @@ test('configureStagedExtension executes the explicit setup contract with observa
   const spawnSteps = [
     {
       command: 'python3',
-      args: ['setup.py', '{"token":"abc","python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
+      args: ['setup.py', `{"token":"abc","python_exe":"python3","ext_dir":"${stagePath}"}`],
       cwd: stagePath,
       stdout: 'configured ok\n',
       stderr: 'warning line\n',
@@ -394,7 +397,7 @@ test('configureStagedExtension executes the explicit setup contract with observa
     consentGranted: true,
     cwd: stagePath,
     command: 'python3',
-    args: ['setup.py', '{"token":"abc","python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
+    args: ['setup.py', `{"token":"abc","python_exe":"python3","ext_dir":"${stagePath}"}`],
     setupContract: {
       kind: 'python-root-setup-py',
       entry: 'setup.py',
@@ -427,9 +430,10 @@ test('configureStagedExtension executes the explicit setup contract with observa
   assert.equal(result.artifacts.after.status, 'prepared');
 });
 
-test('configureStagedExtension injects reserved python_exe and ext_dir into the final payload', async () => {
+test('configureStagedExtension injects reserved python_exe and ext_dir into the final payload', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspections = [
     {
       status: 'prepared',
@@ -493,7 +497,7 @@ test('configureStagedExtension injects reserved python_exe and ext_dir into the 
       spawnImpl: createSpawnImpl([
         {
           command: 'python3.11',
-          args: ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}'],
+          args: ['setup.py', `{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"${stagePath}"}`],
           cwd: stagePath,
           exitCode: 0,
         },
@@ -507,12 +511,13 @@ test('configureStagedExtension injects reserved python_exe and ext_dir into the 
   );
 
   assert.equal(result.status, 'configured');
-  assert.deepEqual(result.plan.args, ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
+  assert.deepEqual(result.plan.args, ['setup.py', `{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"${stagePath}"}`]);
 });
 
-test('configureStagedExtension prevents setup payload from overriding reserved injected inputs', async () => {
+test('configureStagedExtension prevents setup payload from overriding reserved injected inputs', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspections = [
     {
       status: 'prepared',
@@ -580,7 +585,7 @@ test('configureStagedExtension prevents setup payload from overriding reserved i
       spawnImpl: createSpawnImpl([
         {
           command: 'python3.11',
-          args: ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}'],
+          args: ['setup.py', `{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"${stagePath}"}`],
           cwd: stagePath,
           exitCode: 0,
         },
@@ -594,7 +599,7 @@ test('configureStagedExtension prevents setup payload from overriding reserved i
   );
 
   assert.equal(result.status, 'configured');
-  assert.deepEqual(result.plan.args, ['setup.py', '{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"/tmp/virtual-stage"}']);
+  assert.deepEqual(result.plan.args, ['setup.py', `{"gpu_sm":"89","python_exe":"python3.11","ext_dir":"${stagePath}"}`]);
 });
 
 test('configureStagedExtension accepts extensionPath as the reusable target-scoped input', async () => {
@@ -689,9 +694,10 @@ test('configureStagedExtension accepts extensionPath as the reusable target-scop
   assert.equal(result.journal.stagePath, extensionPath);
 });
 
-test('configureStagedExtension reports configured_degraded when setup exits successfully but post-setup inspection degrades', async () => {
+test('configureStagedExtension reports configured_degraded when setup exits successfully but post-setup inspection degrades', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspections = [
     {
       status: 'prepared',
@@ -757,7 +763,7 @@ test('configureStagedExtension reports configured_degraded when setup exits succ
       spawnImpl: createSpawnImpl([
         {
           command: 'python3',
-          args: ['setup.py', '{"python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
+          args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
           cwd: stagePath,
           exitCode: 0,
         },
@@ -782,9 +788,10 @@ test('configureStagedExtension reports configured_degraded when setup exits succ
   ]);
 });
 
-test('configureStagedExtension blocks with execution evidence when the explicit setup command fails', async () => {
+test('configureStagedExtension blocks with execution evidence when the explicit setup command fails', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspection = {
     status: 'prepared',
     manifestSummary: {
@@ -818,7 +825,7 @@ test('configureStagedExtension blocks with execution evidence when the explicit 
       spawnImpl: createSpawnImpl([
         {
           command: 'python3',
-          args: ['setup.py', '{"python_exe":"python3","ext_dir":"/tmp/virtual-stage"}'],
+          args: ['setup.py', `{"python_exe":"python3","ext_dir":"${stagePath}"}`],
           cwd: stagePath,
           stdout: 'starting\n',
           stderr: 'boom\n',
@@ -1418,9 +1425,10 @@ test('classifySetupFailure falls back to unknown when no network or structural s
   );
 });
 
-test('configureStagedExtension retries transient network failures with observable attempt metadata', async () => {
+test('configureStagedExtension retries transient network failures with observable attempt metadata', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspection = {
     status: 'prepared',
     manifestSummary: {
@@ -1516,9 +1524,10 @@ test('configureStagedExtension retries transient network failures with observabl
   assert.deepEqual(result.journal.attempts.map((attempt) => attempt.retryable), [true, false]);
 });
 
-test('configureStagedExtension does not retry structural failures and reports failure classification metadata', async () => {
+test('configureStagedExtension does not retry structural failures and reports failure classification metadata', async (t) => {
   const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
-  const stagePath = '/tmp/virtual-stage';
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
   const inspection = {
     status: 'prepared',
     manifestSummary: {
