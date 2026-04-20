@@ -265,6 +265,18 @@ function renderLiveTargetSetupGuidance(setupObservation) {
     lines.push(`setup observation: ${setupObservation.status}`);
   }
 
+  if (typeof setupObservation.attempt === 'number' && typeof setupObservation.maxAttempts === 'number') {
+    lines.push(`attempt: ${setupObservation.attempt}/${setupObservation.maxAttempts}`);
+  }
+
+  if (typeof setupObservation.failureClass === 'string' && setupObservation.failureClass !== '') {
+    lines.push(`failureClass: ${setupObservation.failureClass}`);
+  }
+
+  if (typeof setupObservation.retryable === 'boolean') {
+    lines.push(`retryable: ${setupObservation.retryable ? 'yes' : 'no'}`);
+  }
+
   if (setupObservation.runId) {
     lines.push(`runId: ${setupObservation.runId}`);
   }
@@ -365,6 +377,8 @@ function renderSetupHumanMessage(setup) {
     lines.push('limited catalog support; not universal setup compatibility');
   }
 
+  lines.push('PIP_* runner policy may help only partially—or not at all—if setup.py ignores those variables or performs its own downloads.');
+
   if (typeof setup.execution?.exitCode === 'number') {
     lines.push(`exitCode: ${setup.execution.exitCode}`);
   }
@@ -404,6 +418,11 @@ function normalizeSetupStatus(target, journal) {
       finishedAt: null,
       exitCode: null,
       signal: null,
+      attempt: null,
+      maxAttempts: null,
+      failureClass: null,
+      retryable: null,
+      attempts: [],
     };
   }
 
@@ -420,6 +439,11 @@ function normalizeSetupStatus(target, journal) {
     finishedAt: journal.finishedAt ?? null,
     exitCode: journal.exitCode ?? null,
     signal: journal.signal ?? null,
+    attempt: typeof journal.attempt === 'number' ? journal.attempt : null,
+    maxAttempts: typeof journal.maxAttempts === 'number' ? journal.maxAttempts : null,
+    failureClass: typeof journal.failureClass === 'string' ? journal.failureClass : null,
+    retryable: typeof journal.retryable === 'boolean' ? journal.retryable : null,
+    attempts: Array.isArray(journal.attempts) ? journal.attempts : [],
     ...(typeof journal.stdoutBytes === 'number' ? { stdoutBytes: journal.stdoutBytes } : {}),
     ...(typeof journal.stderrBytes === 'number' ? { stderrBytes: journal.stderrBytes } : {}),
     ...(typeof journal.totalBytes === 'number' ? { totalBytes: journal.totalBytes } : {}),
@@ -445,6 +469,18 @@ function renderSetupStatusHumanMessage(setupStatus) {
 
   if (setupStatus.logPath) {
     lines.push(`logPath: ${setupStatus.logPath}`);
+  }
+
+  if (typeof setupStatus.attempt === 'number' && typeof setupStatus.maxAttempts === 'number') {
+    lines.push(`attempt: ${setupStatus.attempt}/${setupStatus.maxAttempts}`);
+  }
+
+  if (typeof setupStatus.failureClass === 'string' && setupStatus.failureClass !== '') {
+    lines.push(`failureClass: ${setupStatus.failureClass}`);
+  }
+
+  if (typeof setupStatus.retryable === 'boolean') {
+    lines.push(`retryable: ${setupStatus.retryable ? 'yes' : 'no'}`);
   }
 
   if (setupStatus.startedAt) {

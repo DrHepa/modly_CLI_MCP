@@ -595,13 +595,59 @@ test('applyStagedExtension preserves observable setup guidance on degraded setup
         logPath: path.join(input.extensionPath, '.modly', 'setup-runs', 'run-live-123.log'),
         statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
         staleReason: 'pid_not_alive',
+        execution: {
+          exitCode: null,
+          attempt: 2,
+          maxAttempts: 3,
+          failureClass: 'transient_network',
+          retryable: false,
+          attempts: [
+            {
+              attempt: 1,
+              startedAt: '2026-04-20T18:00:00.000Z',
+              finishedAt: '2026-04-20T18:00:03.000Z',
+              exitCode: 1,
+              failureClass: 'transient_network',
+              retryable: true,
+            },
+            {
+              attempt: 2,
+              startedAt: '2026-04-20T18:00:04.000Z',
+              finishedAt: '2026-04-20T18:00:05.000Z',
+              exitCode: null,
+              failureClass: 'transient_network',
+              retryable: false,
+            },
+          ],
+        },
         blockers: [],
-        execution: { exitCode: null },
         journal: {
           status: 'interrupted',
           runId: 'run-live-123',
           logPath: path.join(input.extensionPath, '.modly', 'setup-runs', 'run-live-123.log'),
           staleReason: 'pid_not_alive',
+          attempt: 2,
+          maxAttempts: 3,
+          failureClass: 'transient_network',
+          retryable: false,
+          attempts: [
+            {
+              attempt: 1,
+              startedAt: '2026-04-20T18:00:00.000Z',
+              finishedAt: '2026-04-20T18:00:03.000Z',
+              exitCode: 1,
+              failureClass: 'transient_network',
+              retryable: true,
+            },
+            {
+              attempt: 2,
+              startedAt: '2026-04-20T18:00:04.000Z',
+              finishedAt: '2026-04-20T18:00:05.000Z',
+              exitCode: null,
+              failureClass: 'transient_network',
+              retryable: false,
+            },
+          ],
         },
         artifacts: {
           before: { status: 'prepared' },
@@ -620,6 +666,28 @@ test('applyStagedExtension preserves observable setup guidance on degraded setup
     logPath: path.join(destinationPath, '.modly', 'setup-runs', 'run-live-123.log'),
     statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
     staleReason: 'pid_not_alive',
+    attempt: 2,
+    maxAttempts: 3,
+    failureClass: 'transient_network',
+    retryable: false,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: '2026-04-20T18:00:00.000Z',
+        finishedAt: '2026-04-20T18:00:03.000Z',
+        exitCode: 1,
+        failureClass: 'transient_network',
+        retryable: true,
+      },
+      {
+        attempt: 2,
+        startedAt: '2026-04-20T18:00:04.000Z',
+        finishedAt: '2026-04-20T18:00:05.000Z',
+        exitCode: null,
+        failureClass: 'transient_network',
+        retryable: false,
+      },
+    ],
   });
 });
 
@@ -650,6 +718,20 @@ test('repairStagedExtension preserves observable setup guidance when live-target
                 runId: 'run-live-999',
                 logPath: path.join(input.extensionPath, '.modly', 'setup-runs', 'run-live-999.log'),
                 statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
+                attempt: 1,
+                maxAttempts: 3,
+                failureClass: 'structural',
+                retryable: false,
+                attempts: [
+                  {
+                    attempt: 1,
+                    startedAt: '2026-04-20T18:10:00.000Z',
+                    finishedAt: '2026-04-20T18:10:01.000Z',
+                    exitCode: 1,
+                    failureClass: 'structural',
+                    retryable: false,
+                  },
+                ],
               },
             },
           });
@@ -664,6 +746,20 @@ test('repairStagedExtension preserves observable setup guidance when live-target
         logPath: path.join(extensionsDir, 'octo.valid', '.modly', 'setup-runs', 'run-live-999.log'),
         statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
         staleReason: null,
+        attempt: 1,
+        maxAttempts: 3,
+        failureClass: 'structural',
+        retryable: false,
+        attempts: [
+          {
+            attempt: 1,
+            startedAt: '2026-04-20T18:10:00.000Z',
+            finishedAt: '2026-04-20T18:10:01.000Z',
+            exitCode: 1,
+            failureClass: 'structural',
+            retryable: false,
+          },
+        ],
       });
       return true;
     },

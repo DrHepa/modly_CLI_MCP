@@ -408,6 +408,20 @@ test('configureStagedExtension executes the explicit setup contract with observa
     exitCode: 0,
     stdout: 'configured ok',
     stderr: 'warning line',
+    attempt: 1,
+    maxAttempts: 1,
+    failureClass: null,
+    retryable: false,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: 1000,
+        finishedAt: 1125,
+        exitCode: 0,
+        failureClass: null,
+        retryable: false,
+      },
+    ],
   });
   assert.equal(result.artifacts.before.status, 'prepared');
   assert.equal(result.artifacts.after.status, 'prepared');
@@ -837,6 +851,20 @@ test('configureStagedExtension blocks with execution evidence when the explicit 
     exitCode: 9,
     stdout: 'starting',
     stderr: 'boom',
+    attempt: 1,
+    maxAttempts: 1,
+    failureClass: 'unknown',
+    retryable: false,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: 3000,
+        finishedAt: 3090,
+        exitCode: 9,
+        failureClass: 'unknown',
+        retryable: false,
+      },
+    ],
   });
   assert.equal(result.artifacts.after, null);
 });
@@ -1283,4 +1311,293 @@ test('configureStagedExtension rejects reentry for the same stage with setup-sta
   assert.equal(secondSpawnCalled, false);
   controlled.child.emit('close', 0);
   await firstRun;
+});
+
+test('splitRunnerPolicy isolates reserved __modlyRunner from the functional setup payload', async () => {
+  const { splitRunnerPolicy } = await import('../../src/core/extension-setup.mjs');
+
+  assert.deepEqual(
+    splitRunnerPolicy({
+      token: 'abc',
+      gpu_sm: '89',
+      __modlyRunner: {
+        timeout: 45,
+        retries: 2,
+      },
+    }),
+    {
+      functionalPayload: {
+        token: 'abc',
+        gpu_sm: '89',
+      },
+      runnerPolicy: {
+        timeout: 45,
+        retries: 2,
+      },
+    },
+  );
+});
+
+test('splitRunnerPolicy ignores non-object reserved runner policy values', async () => {
+  const { splitRunnerPolicy } = await import('../../src/core/extension-setup.mjs');
+
+  assert.deepEqual(
+    splitRunnerPolicy({
+      token: 'abc',
+      __modlyRunner: 'invalid-runner-policy',
+    }),
+    {
+      functionalPayload: {
+        token: 'abc',
+      },
+      runnerPolicy: {},
+    },
+  );
+});
+
+test('buildSetupEnv maps runner policy fields to pip environment variables', async () => {
+  const { buildSetupEnv } = await import('../../src/core/extension-setup.mjs');
+
+  assert.deepEqual(
+    buildSetupEnv({
+      env: { PATH: '/bin', KEEP: 'yes' },
+      runnerPolicy: {
+        timeout: 60,
+        retries: 2,
+        indexUrl: 'https://mirror.example/simple',
+        extraIndexUrl: 'https://mirror.example/extra',
+        cacheDir: '/tmp/modly-pip-cache',
+      },
+    }),
+    {
+      PATH: '/bin',
+      KEEP: 'yes',
+      PIP_DEFAULT_TIMEOUT: '60',
+      PIP_RETRIES: '2',
+      PIP_INDEX_URL: 'https://mirror.example/simple',
+      PIP_EXTRA_INDEX_URL: 'https://mirror.example/extra',
+      PIP_CACHE_DIR: '/tmp/modly-pip-cache',
+    },
+  );
+});
+
+test('buildSetupEnv preserves defaults when runner policy omits optional pip controls', async () => {
+  const { buildSetupEnv } = await import('../../src/core/extension-setup.mjs');
+
+  assert.deepEqual(
+    buildSetupEnv({
+      env: { PATH: '/bin', PIP_RETRIES: '9' },
+      runnerPolicy: {},
+    }),
+    {
+      PATH: '/bin',
+      PIP_RETRIES: '9',
+    },
+  );
+});
+
+test('classifySetupFailure detects transient network and structural failures conservatively', async () => {
+  const { classifySetupFailure } = await import('../../src/core/extension-setup.mjs');
+
+  assert.equal(
+    classifySetupFailure({ stderr: 'ReadTimeoutError while downloading torch from https://download.pytorch.org' }),
+    'transient_network',
+  );
+  assert.equal(
+    classifySetupFailure({ stderr: 'ERROR: No matching distribution found for torch==0.0.0' }),
+    'structural',
+  );
+});
+
+test('classifySetupFailure falls back to unknown when no network or structural signal is present', async () => {
+  const { classifySetupFailure } = await import('../../src/core/extension-setup.mjs');
+
+  assert.equal(
+    classifySetupFailure({ stderr: 'unexpected setup failure without useful classifier hints' }),
+    'unknown',
+  );
+});
+
+test('configureStagedExtension retries transient network failures with observable attempt metadata', async () => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const stagePath = '/tmp/virtual-stage';
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'ultrashape',
+      name: 'UltraShape',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+      injectedInputs: ['python_exe', 'ext_dir'],
+      requiredInputs: [],
+      requiredPayloadInputs: [],
+      optionalPayloadInputs: [],
+    },
+  };
+  const inspections = [inspection, inspection, inspection];
+  const spawnCalls = [];
+  const sleepCalls = [];
+  const spawnSteps = [
+    {
+      exitCode: 1,
+      stderr: 'ReadTimeoutError: HTTPSConnectionPool timed out',
+    },
+    {
+      exitCode: 0,
+      stdout: 'configured after retry',
+    },
+  ];
+  let nowIndex = 0;
+  const nowValues = [100, 110, 130, 200, 215, 260];
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {
+        token: 'abc',
+        __modlyRunner: {
+          retries: 2,
+          timeout: 45,
+        },
+      },
+    },
+    {
+      inspectStage: async () => inspections.shift(),
+      spawnImpl: (command, args, options) => {
+        const step = spawnSteps.shift();
+        spawnCalls.push({ command, args, options });
+        const child = new EventEmitter();
+        child.pid = 6000 + spawnCalls.length;
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+
+        process.nextTick(() => {
+          if (step.stdout) {
+            child.stdout.emit('data', Buffer.from(step.stdout));
+          }
+          if (step.stderr) {
+            child.stderr.emit('data', Buffer.from(step.stderr));
+          }
+          child.emit('close', step.exitCode);
+        });
+
+        return child;
+      },
+      sleep: async (delayMs) => {
+        sleepCalls.push(delayMs);
+      },
+      now: () => nowValues[nowIndex++],
+    },
+  );
+
+  assert.equal(spawnCalls.length, 2);
+  assert.equal(spawnCalls[0].options.env.PIP_DEFAULT_TIMEOUT, '45');
+  assert.equal(spawnCalls[0].options.env.PIP_RETRIES, '2');
+  assert.equal(sleepCalls[0], 500);
+  assert.equal(result.status, 'configured');
+  assert.equal(result.execution.attempt, 2);
+  assert.equal(result.execution.maxAttempts, 3);
+  assert.equal(result.execution.failureClass, null);
+  assert.equal(result.execution.retryable, false);
+  assert.deepEqual(result.execution.attempts.map((attempt) => attempt.failureClass), ['transient_network', null]);
+  assert.deepEqual(result.journal.attempts.map((attempt) => attempt.retryable), [true, false]);
+});
+
+test('configureStagedExtension does not retry structural failures and reports failure classification metadata', async () => {
+  const { configureStagedExtension } = await import('../../src/core/extension-setup.mjs');
+  const stagePath = '/tmp/virtual-stage';
+  const inspection = {
+    status: 'prepared',
+    manifestSummary: {
+      present: true,
+      readable: true,
+      id: 'hunyuan',
+      name: 'Hunyuan',
+      version: '1.0.0',
+      extensionType: 'python',
+    },
+    checks: [],
+    warnings: [],
+    nextManualActions: [],
+    diagnostics: null,
+    setupContract: {
+      kind: 'python-root-setup-py',
+      entry: 'setup.py',
+      catalogStatus: 'known',
+      injectedInputs: ['python_exe', 'ext_dir'],
+      requiredInputs: [],
+      requiredPayloadInputs: [],
+      optionalPayloadInputs: [],
+    },
+  };
+  const spawnCalls = [];
+
+  const result = await configureStagedExtension(
+    {
+      stagePath,
+      pythonExe: 'python3',
+      allowThirdParty: true,
+      setupPayload: {
+        __modlyRunner: {
+          retries: 2,
+        },
+      },
+    },
+    {
+      inspectStage: async () => inspection,
+      spawnImpl: (command, args, options) => {
+        spawnCalls.push({ command, args, options });
+        const child = new EventEmitter();
+        child.pid = 6123;
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+
+        process.nextTick(() => {
+          child.stderr.emit('data', Buffer.from('ERROR: No matching distribution found for torch==0.0.0'));
+          child.emit('close', 1);
+        });
+
+        return child;
+      },
+      sleep: async () => {
+        throw new Error('sleep should not run for structural failures');
+      },
+      now: (() => {
+        const values = [300, 315, 325];
+        let index = 0;
+        return () => values[index++];
+      })(),
+    },
+  );
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.execution.attempt, 1);
+  assert.equal(result.execution.maxAttempts, 3);
+  assert.equal(result.execution.failureClass, 'structural');
+  assert.equal(result.execution.retryable, false);
+  assert.deepEqual(result.execution.attempts, [
+    {
+      attempt: 1,
+      startedAt: 300,
+      finishedAt: 325,
+      exitCode: 1,
+      failureClass: 'structural',
+      retryable: false,
+    },
+  ]);
+  assert.equal(result.journal.failureClass, 'structural');
 });

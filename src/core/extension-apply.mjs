@@ -226,8 +226,27 @@ function extractSetupObservation(setup, { extensionsDir, manifestId }) {
   const logPath = setup.logPath ?? journal?.logPath ?? null;
   const staleReason = setup.staleReason ?? journal?.staleReason ?? null;
   const statusCommand = setup.statusCommand ?? buildSetupStatusCommand(extensionsDir, manifestId);
+  const attempt = setup.attempt ?? setup.execution?.attempt ?? journal?.attempt ?? null;
+  const maxAttempts = setup.maxAttempts ?? setup.execution?.maxAttempts ?? journal?.maxAttempts ?? null;
+  const failureClass = setup.failureClass ?? setup.execution?.failureClass ?? journal?.failureClass ?? null;
+  const retryable = setup.retryable ?? setup.execution?.retryable ?? journal?.retryable ?? null;
+  const attempts = Array.isArray(setup.attempts)
+    ? setup.attempts
+    : Array.isArray(setup.execution?.attempts)
+      ? setup.execution.attempts
+      : Array.isArray(journal?.attempts)
+        ? journal.attempts
+        : null;
 
-  if (status === null && runId === null && logPath === null && staleReason === null) {
+  if (status === null
+    && runId === null
+    && logPath === null
+    && staleReason === null
+    && attempt === null
+    && maxAttempts === null
+    && failureClass === null
+    && retryable === null
+    && attempts === null) {
     return null;
   }
 
@@ -237,6 +256,11 @@ function extractSetupObservation(setup, { extensionsDir, manifestId }) {
     logPath,
     statusCommand,
     staleReason,
+    ...(typeof attempt === 'number' ? { attempt } : {}),
+    ...(typeof maxAttempts === 'number' ? { maxAttempts } : {}),
+    ...(failureClass !== null ? { failureClass } : {}),
+    ...(typeof retryable === 'boolean' ? { retryable } : {}),
+    ...(attempts ? { attempts } : {}),
   };
 }
 

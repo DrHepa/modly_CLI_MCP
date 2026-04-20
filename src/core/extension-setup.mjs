@@ -12,6 +12,40 @@ import {
 } from './extension-setup-journal.mjs';
 import { inspectStagedExtension } from './github-extension-staging.mjs';
 
+const MAX_TRANSIENT_RETRIES = 2;
+const RETRY_BACKOFF_MS = [500, 1000];
+
+const TRANSIENT_NETWORK_PATTERNS = [
+  /readtimeouterror/i,
+  /timeout/i,
+  /timed out/i,
+  /temporary failure in name resolution/i,
+  /name or service not known/i,
+  /eai_again/i,
+  /connection reset/i,
+  /connreset/i,
+  /tls.*timeout/i,
+  /proxy.*timeout/i,
+  /http\s*(502|503|504)/i,
+  /\b(502|503|504)\b/,
+];
+
+const STRUCTURAL_FAILURE_PATTERNS = [
+  /no matching distribution found/i,
+  /could not find a version that satisfies the requirement/i,
+  /wheel/i,
+  /abi/i,
+  /cuda/i,
+  /compiler/i,
+  /gcc/i,
+  /g\+\+/i,
+  /cl\.exe/i,
+  /credential/i,
+  /authentication/i,
+  /unauthorized/i,
+  /forbidden/i,
+];
+
 function normalizeExtensionPath(input, cwd) {
   const candidate = typeof input.extensionPath === 'string' && input.extensionPath.trim() !== ''
     ? input.extensionPath
@@ -71,6 +105,83 @@ function normalizeSetupPayload(setupPayload) {
   return setupPayload;
 }
 
+export function splitRunnerPolicy(setupPayload) {
+  const { __modlyRunner, ...functionalPayload } = setupPayload;
+  const runnerPolicy = __modlyRunner && typeof __modlyRunner === 'object' && !Array.isArray(__modlyRunner)
+    ? { ...__modlyRunner }
+    : {};
+
+  return {
+    functionalPayload,
+    runnerPolicy,
+  };
+}
+
+function normalizePositiveInteger(value) {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeNonNegativeInteger(value) {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isInteger(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeNonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+export function buildSetupEnv({ env = process.env, runnerPolicy = {} } = {}) {
+  const nextEnv = { ...env };
+  const timeout = normalizePositiveInteger(runnerPolicy.timeout);
+  const retries = normalizeNonNegativeInteger(runnerPolicy.retries);
+  const indexUrl = normalizeNonEmptyString(runnerPolicy.indexUrl);
+  const extraIndexUrl = normalizeNonEmptyString(runnerPolicy.extraIndexUrl);
+  const cacheDir = normalizeNonEmptyString(runnerPolicy.cacheDir);
+
+  if (timeout !== null) {
+    nextEnv.PIP_DEFAULT_TIMEOUT = String(timeout);
+  }
+
+  if (retries !== null) {
+    nextEnv.PIP_RETRIES = String(retries);
+  }
+
+  if (indexUrl !== null) {
+    nextEnv.PIP_INDEX_URL = indexUrl;
+  }
+
+  if (extraIndexUrl !== null) {
+    nextEnv.PIP_EXTRA_INDEX_URL = extraIndexUrl;
+  }
+
+  if (cacheDir !== null) {
+    nextEnv.PIP_CACHE_DIR = cacheDir;
+  }
+
+  return nextEnv;
+}
+
 function buildFinalSetupPayload({ setupPayload, pythonExe, extensionPath }) {
   const { python_exe: _ignoredPythonExe, ext_dir: _ignoredExtDir, ...userPayloadSansReserved } = setupPayload;
 
@@ -98,6 +209,34 @@ function buildPlan({ extensionPath, pythonExe, allowThirdParty, payload, setupCo
     command: pythonExe,
     args: [setupContract.entry, JSON.stringify(payload)],
     setupContract,
+  };
+}
+
+function matchesAnyPattern(input, patterns) {
+  return patterns.some((pattern) => pattern.test(input));
+}
+
+export function classifySetupFailure({ stderr = '', stdout = '', error = null } = {}) {
+  const combined = [stderr, stdout, error?.message].filter(Boolean).join('\n');
+
+  if (matchesAnyPattern(combined, TRANSIENT_NETWORK_PATTERNS)) {
+    return 'transient_network';
+  }
+
+  if (matchesAnyPattern(combined, STRUCTURAL_FAILURE_PATTERNS)) {
+    return 'structural';
+  }
+
+  return 'unknown';
+}
+
+export function resolveAttemptPolicy(runnerPolicy = {}) {
+  const configuredRetries = normalizeNonNegativeInteger(runnerPolicy.retries) ?? 0;
+  const retries = Math.min(configuredRetries, MAX_TRANSIENT_RETRIES);
+  return {
+    retries,
+    maxAttempts: 1 + retries,
+    backoffScheduleMs: RETRY_BACKOFF_MS.slice(0, retries),
   };
 }
 
@@ -179,12 +318,13 @@ function classifySuccessfulSetup(beforeInspection, afterInspection) {
   return 'configured';
 }
 
-async function runSetupCommand({ spawnImpl, now, plan, startedAt, onSpawn, onOutput }) {
+async function runSetupCommand({ spawnImpl, now, plan, startedAt, env, onSpawn, onOutput }) {
   return new Promise((resolve, reject) => {
     const startedAtValue = startedAt ?? now();
     const child = spawnImpl(plan.command, plan.args, {
       cwd: plan.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env,
     });
     onSpawn?.(child);
     let stdout = '';
@@ -240,6 +380,11 @@ function createInitialJournal({ runId, extensionPath, startedAt, setupContract }
       entry: setupContract?.entry ?? null,
       catalogStatus: setupContract?.catalogStatus ?? null,
     },
+    attempt: 0,
+    maxAttempts: 1,
+    failureClass: null,
+    retryable: false,
+    attempts: [],
   };
 }
 
@@ -272,11 +417,18 @@ export async function configureStagedExtension(input = {}, deps = {}) {
   const pythonExe = normalizePythonExe(input.pythonExe);
   const allowThirdParty = input.allowThirdParty === true;
   const setupPayload = normalizeSetupPayload(input.setupPayload);
+  const { functionalPayload, runnerPolicy } = splitRunnerPolicy(setupPayload);
   const finalPayload = buildFinalSetupPayload({
-    setupPayload,
+    setupPayload: functionalPayload,
     pythonExe,
     extensionPath,
   });
+  const setupEnv = buildSetupEnv({
+    env: deps.env ?? process.env,
+    runnerPolicy,
+  });
+  const attemptPolicy = resolveAttemptPolicy(runnerPolicy);
+  const sleep = deps.sleep ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
   const inspection = await inspectStage(extensionPath);
   const setupContract = inspection.setupContract ?? null;
   const blockers = [];
@@ -342,6 +494,7 @@ export async function configureStagedExtension(input = {}, deps = {}) {
     startedAt,
     setupContract,
   });
+  const attempts = [];
 
   try {
     lockHandle = acquireSetupRunLock(extensionPath, {
@@ -349,39 +502,96 @@ export async function configureStagedExtension(input = {}, deps = {}) {
       startedAt,
       isProcessAlive: deps.isProcessAlive,
     });
-    writeLatestSetupRun(extensionPath, journal);
-
-    const execution = await runSetupCommand({
-      spawnImpl,
-      now,
-      plan,
-      startedAt,
-      onSpawn: (child) => {
-        journal = finalizeJournal(journal, {
-          pid: child.pid ?? null,
-        });
-        writeLatestSetupRun(extensionPath, journal);
-      },
-      onOutput: (streamName, chunk) => {
-        journal = recordJournalOutput({
-          journal,
-          extensionPath,
-          runId,
-          streamName,
-          chunk,
-          now,
-        });
-      },
-    });
-
     journal = finalizeJournal(journal, {
-      pid: journal.pid,
-      status: execution.exitCode === 0 ? 'succeeded' : 'failed',
-      finishedAt: execution.finishedAt,
-      exitCode: execution.exitCode,
-      signal: execution.signal ?? null,
+      maxAttempts: attemptPolicy.maxAttempts,
     });
     writeLatestSetupRun(extensionPath, journal);
+
+    let execution;
+    for (let attempt = 1; attempt <= attemptPolicy.maxAttempts; attempt += 1) {
+      journal = finalizeJournal(journal, {
+        status: 'running',
+        attempt,
+        maxAttempts: attemptPolicy.maxAttempts,
+        failureClass: null,
+        retryable: false,
+        pid: null,
+        exitCode: null,
+        signal: null,
+        finishedAt: null,
+      });
+      writeLatestSetupRun(extensionPath, journal);
+
+      execution = await runSetupCommand({
+        spawnImpl,
+        now,
+        plan,
+        startedAt: attempt === 1 ? startedAt : undefined,
+        env: setupEnv,
+        onSpawn: (child) => {
+          journal = finalizeJournal(journal, {
+            pid: child.pid ?? null,
+          });
+          writeLatestSetupRun(extensionPath, journal);
+        },
+        onOutput: (streamName, chunk) => {
+          journal = recordJournalOutput({
+            journal,
+            extensionPath,
+            runId,
+            streamName,
+            chunk,
+            now,
+          });
+        },
+      });
+
+      const failureClass = execution.exitCode === 0
+        ? null
+        : classifySetupFailure({
+          stderr: execution.stderr,
+          stdout: execution.stdout,
+        });
+      const retryable = execution.exitCode !== 0
+        && failureClass === 'transient_network'
+        && attempt < attemptPolicy.maxAttempts;
+      const attemptRecord = {
+        attempt,
+        startedAt: execution.startedAt,
+        finishedAt: execution.finishedAt,
+        exitCode: execution.exitCode,
+        failureClass,
+        retryable,
+      };
+      attempts.push(attemptRecord);
+      execution = {
+        ...execution,
+        attempt,
+        maxAttempts: attemptPolicy.maxAttempts,
+        failureClass,
+        retryable,
+        attempts: [...attempts],
+      };
+      journal = finalizeJournal(journal, {
+        pid: journal.pid,
+        status: execution.exitCode === 0 ? 'succeeded' : 'failed',
+        finishedAt: execution.finishedAt,
+        exitCode: execution.exitCode,
+        signal: execution.signal ?? null,
+        attempt,
+        maxAttempts: attemptPolicy.maxAttempts,
+        failureClass,
+        retryable,
+        attempts: [...attempts],
+      });
+      writeLatestSetupRun(extensionPath, journal);
+
+      if (execution.exitCode === 0 || !retryable) {
+        break;
+      }
+
+      await sleep(attemptPolicy.backoffScheduleMs[attempt - 1] ?? 0);
+    }
 
     if (execution.exitCode !== 0) {
       return buildResult({

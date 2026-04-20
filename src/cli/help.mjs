@@ -34,7 +34,7 @@ Estado del bootstrap:
   - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
   - ext stage github             Stage/preflight only desde GitHub; prepara e inspecciona, NO instala ni aplica en vivo.
   - ext apply                    Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y puede disparar setup live-target si el stage lo exige.
-  - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; requiere consentimiento explícito porque ejecuta código de terceros.
+  - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; la resiliencia por PIP_* puede ser parcial o nula si setup.py ignora esas variables o hace descargas propias; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup-status             Lee SOLO el journal del target instalado del último setup observable; no reatacha, no cancela y no es job control general.
   - ext repair                   Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige. NO hace fetch GitHub, install, build ni health-fix general.
 `;
@@ -194,6 +194,7 @@ Notas:
   - ext apply instala solo un stage ya preparado en el directorio real de extensiones, exige --extensions-dir explícito y puede disparar setup live-target si el contrato del stage lo requiere.
   - ext apply acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target ya soportado por core.
   - ext setup ejecuta SOLO un contrato explícito soportado; soporte catalogado y limitado; no promete compatibilidad universal; requiere consentimiento explícito porque ejecuta código de terceros.
+  - la resiliencia de red basada en PIP_* puede dar beneficio parcial o nulo si setup.py ignora esas variables o hace sus propias descargas.
   - ext setup: python_exe y ext_dir se auto-inyectan desde la CLI y el stage; el payload JSON no debe intentar sobrescribirlos.
   - ext setup-status lee SOLO el journal live-target reconciliado desde el target instalado; --stage-path solo ayuda a resolver manifest.id.
   - ext setup-status --wait espera localmente hasta un estado terminal observable del journal.

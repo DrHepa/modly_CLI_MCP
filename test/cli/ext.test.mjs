@@ -284,6 +284,21 @@ test('runExtCommand marks unknown setup contracts as limited support instead of 
   assert.doesNotMatch(result.humanMessage, /compatible with any extension|universal support/u);
 });
 
+test('runExtCommand states pip-based network resilience can be partial when setup manages downloads itself', async () => {
+  const setup = createSetupResult();
+
+  const result = await runExtCommand({
+    args: ['setup', '--stage-path', 'tmp/stage/octo.tools', '--python-exe', 'python3', '--allow-third-party'],
+    config: {},
+    client: {},
+    async configureStagedExtension() {
+      return setup;
+    },
+  });
+
+  assert.match(result.humanMessage, /PIP_\* runner policy may help only partially—or not at all—if setup\.py ignores those variables or performs its own downloads/u);
+});
+
 test('help advertises ext stage github as preflight only, ext apply as live-target, and ext setup-status as target-scoped', () => {
   const globalHelp = renderHelp();
   const extHelp = renderExtHelp();
@@ -313,6 +328,7 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
   assert.match(extHelp, /--timeout-ms solo corta la espera\/follow de la CLI; NO mata ni cancela el setup subyacente/u);
   assert.match(extHelp, /sin background manager, reattach ni resume generalista/u);
   assert.match(extHelp, /soporte catalogado y limitado; no promete compatibilidad universal/u);
+  assert.match(extHelp, /la resiliencia de red basada en PIP_\* puede dar beneficio parcial o nulo si setup\.py ignora esas variables o hace sus propias descargas/u);
   assert.match(extHelp, /python_exe y ext_dir se auto-inyectan desde la CLI y el stage/u);
   assert.match(extHelp, /requiere consentimiento explícito porque ejecuta código de terceros/u);
   assert.match(extHelp, /repair como reapply CLI-only sobre un stage ya preparado/u);
@@ -341,6 +357,28 @@ test('runExtCommand renders live-target setup-status from --extensions-dir and -
     finishedAt: null,
     exitCode: null,
     signal: null,
+    attempt: 2,
+    maxAttempts: 3,
+    failureClass: 'transient_network',
+    retryable: true,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: '2026-04-19T16:40:00.000Z',
+        finishedAt: '2026-04-19T16:40:02.000Z',
+        exitCode: 1,
+        failureClass: 'transient_network',
+        retryable: true,
+      },
+      {
+        attempt: 2,
+        startedAt: '2026-04-19T16:40:03.000Z',
+        finishedAt: null,
+        exitCode: null,
+        failureClass: 'transient_network',
+        retryable: true,
+      },
+    ],
   };
 
   const result = await runExtCommand({
@@ -360,6 +398,9 @@ test('runExtCommand renders live-target setup-status from --extensions-dir and -
   assert.match(result.humanMessage, /targetPath: \/opt\/modly\/extensions\/octo\.tools/u);
   assert.match(result.humanMessage, /pid: 4312/u);
   assert.match(result.humanMessage, /logPath: .*run-123\.log/u);
+  assert.match(result.humanMessage, /attempt: 2\/3/u);
+  assert.match(result.humanMessage, /failureClass: transient_network/u);
+  assert.match(result.humanMessage, /retryable: yes/u);
   assert.match(result.humanMessage, /No reattach, cancel, ni job control general is available from this command/u);
 });
 
@@ -437,6 +478,15 @@ test('main emits JSON envelope with data.setupStatus for ext setup-status', asyn
     finishedAt: '2026-04-19T16:50:30.000Z',
     exitCode: 9,
     signal: null,
+    attempt: 3,
+    maxAttempts: 3,
+    failureClass: 'transient_network',
+    retryable: false,
+    attempts: [
+      { attempt: 1, startedAt: '2026-04-19T16:50:00.000Z', finishedAt: '2026-04-19T16:50:05.000Z', exitCode: 1, failureClass: 'transient_network', retryable: true },
+      { attempt: 2, startedAt: '2026-04-19T16:50:06.000Z', finishedAt: '2026-04-19T16:50:10.000Z', exitCode: 1, failureClass: 'transient_network', retryable: true },
+      { attempt: 3, startedAt: '2026-04-19T16:50:11.000Z', finishedAt: '2026-04-19T16:50:30.000Z', exitCode: 9, failureClass: 'transient_network', retryable: false },
+    ],
   };
 
   const exitCode = await main(['--json', 'ext', 'setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools'], {
@@ -460,6 +510,11 @@ test('main emits JSON envelope with data.setupStatus for ext setup-status', asyn
   assert.equal(payload.data.setupStatus.scope, 'live-target-journal');
   assert.equal(payload.data.setupStatus.targetPath, '/opt/modly/extensions/octo.tools');
   assert.equal(payload.data.setupStatus.exitCode, 9);
+  assert.equal(payload.data.setupStatus.attempt, 3);
+  assert.equal(payload.data.setupStatus.maxAttempts, 3);
+  assert.equal(payload.data.setupStatus.failureClass, 'transient_network');
+  assert.equal(payload.data.setupStatus.retryable, false);
+  assert.equal(payload.data.setupStatus.attempts.length, 3);
 });
 
 test('runExtCommand rejects setup-status polling timing flags without a continuous mode', async () => {
@@ -1074,6 +1129,28 @@ test('runExtCommand adds observability-only setup guidance to degraded apply res
       logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-live-123.log',
       statusCommand: 'modly ext setup-status --extensions-dir "/opt/modly/extensions" --manifest-id "octo.tools"',
       staleReason: 'pid_not_alive',
+      attempt: 2,
+      maxAttempts: 3,
+      failureClass: 'transient_network',
+      retryable: false,
+      attempts: [
+        {
+          attempt: 1,
+          startedAt: '2026-04-20T18:00:00.000Z',
+          finishedAt: '2026-04-20T18:00:02.000Z',
+          exitCode: 1,
+          failureClass: 'transient_network',
+          retryable: true,
+        },
+        {
+          attempt: 2,
+          startedAt: '2026-04-20T18:00:03.000Z',
+          finishedAt: '2026-04-20T18:00:04.000Z',
+          exitCode: null,
+          failureClass: 'transient_network',
+          retryable: false,
+        },
+      ],
     },
   });
 
@@ -1089,6 +1166,9 @@ test('runExtCommand adds observability-only setup guidance to degraded apply res
   assert.match(result.humanMessage, /Live-target apply from prepared stage: applied_degraded/u);
   assert.match(result.humanMessage, /Observe the live-target setup locally with: modly ext setup-status/u);
   assert.match(result.humanMessage, /setup observation: interrupted/u);
+  assert.match(result.humanMessage, /attempt: 2\/3/u);
+  assert.match(result.humanMessage, /failureClass: transient_network/u);
+  assert.match(result.humanMessage, /retryable: no/u);
   assert.match(result.humanMessage, /runId: run-live-123/u);
   assert.match(result.humanMessage, /staleReason: pid_not_alive/u);
   assert.match(result.humanMessage, /logPath: .*run-live-123\.log/u);
@@ -1105,6 +1185,10 @@ test('runExtCommand adds observability-only setup guidance to degraded repair re
       logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-live-456.log',
       statusCommand: 'modly ext setup-status --extensions-dir "/opt/modly/extensions" --manifest-id "octo.tools"',
       staleReason: null,
+      attempt: 1,
+      maxAttempts: 1,
+      failureClass: 'structural',
+      retryable: false,
     },
   });
 
@@ -1120,6 +1204,9 @@ test('runExtCommand adds observability-only setup guidance to degraded repair re
   assert.match(result.humanMessage, /CLI-only repair\/reapply over prepared stage: repaired_degraded/u);
   assert.match(result.humanMessage, /Observe the live-target setup locally with: modly ext setup-status/u);
   assert.match(result.humanMessage, /setup observation: running/u);
+  assert.match(result.humanMessage, /attempt: 1\/1/u);
+  assert.match(result.humanMessage, /failureClass: structural/u);
+  assert.match(result.humanMessage, /retryable: no/u);
   assert.match(result.humanMessage, /runId: run-live-456/u);
   assert.match(result.humanMessage, /logPath: .*run-live-456\.log/u);
   assert.doesNotMatch(result.humanMessage, /staleReason:/u);

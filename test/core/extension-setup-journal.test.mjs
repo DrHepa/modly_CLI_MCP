@@ -55,6 +55,58 @@ test('setup journal helpers persist latest metadata and append run logs under a 
   assert.equal(readFileSync(getSetupRunPaths(extensionPath, 'run-001').logPath, 'utf8'), 'hello\nboom\n');
 });
 
+test('setup journal latest snapshot preserves resilience metadata without changing log behavior', async (t) => {
+  const stagePath = createTempStage(t);
+  const extensionPath = path.join(path.dirname(stagePath), 'extensions', 'octo.tools');
+  const {
+    getSetupRunPaths,
+    writeLatestSetupRun,
+    readLatestSetupRun,
+    appendSetupRunLog,
+  } = await import('../../src/core/extension-setup-journal.mjs');
+
+  const snapshot = writeLatestSetupRun(extensionPath, {
+    runId: 'run-resilience',
+    extensionPath,
+    status: 'failed',
+    startedAt: '2026-04-20T18:00:00.000Z',
+    finishedAt: '2026-04-20T18:00:05.000Z',
+    logPath: getSetupRunPaths(extensionPath, 'run-resilience').logPath,
+    attempt: 2,
+    maxAttempts: 3,
+    failureClass: 'transient_network',
+    retryable: true,
+    attempts: [
+      {
+        attempt: 1,
+        startedAt: '2026-04-20T18:00:00.000Z',
+        finishedAt: '2026-04-20T18:00:02.000Z',
+        exitCode: 1,
+        failureClass: 'transient_network',
+        retryable: true,
+      },
+      {
+        attempt: 2,
+        startedAt: '2026-04-20T18:00:03.000Z',
+        finishedAt: '2026-04-20T18:00:05.000Z',
+        exitCode: 1,
+        failureClass: 'transient_network',
+        retryable: false,
+      },
+    ],
+  });
+
+  appendSetupRunLog(extensionPath, 'run-resilience', 'stderr', Buffer.from('network timeout\n'));
+
+  assert.equal(snapshot.attempt, 2);
+  assert.equal(snapshot.maxAttempts, 3);
+  assert.equal(snapshot.failureClass, 'transient_network');
+  assert.equal(snapshot.retryable, true);
+  assert.equal(snapshot.attempts.length, 2);
+  assert.deepEqual(readLatestSetupRun(extensionPath).attempts, snapshot.attempts);
+  assert.equal(readFileSync(getSetupRunPaths(extensionPath, 'run-resilience').logPath, 'utf8'), 'network timeout\n');
+});
+
 test('setup journal lock reconciles stale running state before reacquiring the stage lock', async (t) => {
   const stagePath = createTempStage(t);
   const {
