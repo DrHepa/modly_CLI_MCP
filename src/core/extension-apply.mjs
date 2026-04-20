@@ -183,15 +183,17 @@ function createApplyStageInvalidError(stagePath, stageInspection) {
   });
 }
 
-function planPaths({ extensionsDir, manifestId, destinationExists }) {
+function planPaths({ extensionsDir, manifestId, destinationExists, backupMode = 'when-destination-exists' }) {
+  const expectsBackup = backupMode === 'when-destination-exists' && destinationExists;
+
   return {
     destination: {
       path: path.join(extensionsDir, manifestId),
       exists: destinationExists,
     },
     backup: {
-      path: destinationExists ? path.join(extensionsDir, `${manifestId}.backup`) : null,
-      expected: destinationExists,
+      path: expectsBackup ? path.join(extensionsDir, `${manifestId}.backup`) : null,
+      expected: expectsBackup,
       created: false,
       restored: null,
     },
@@ -285,6 +287,7 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
     extensionsDir: resolution.extensionsDir,
     manifestId: manifest.id,
     destinationExists,
+    backupMode: statusMap.backupMode,
   });
 
   try {
@@ -326,6 +329,8 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
       await fs.rm(paths.backup.path, { recursive: true, force: true });
       await fs.rename(paths.destination.path, paths.backup.path);
       backupCreated = true;
+    } else if (paths.destination.exists) {
+      await fs.rm(paths.destination.path, { recursive: true, force: true });
     }
 
     await fs.rename(paths.candidate.path, paths.destination.path);
@@ -504,6 +509,7 @@ export async function applyStagedExtension(input = {}, deps = {}) {
     clean: 'applied',
     degraded: 'applied_degraded',
     flag: 'applied',
+    backupMode: 'when-destination-exists',
   });
 }
 
@@ -512,5 +518,6 @@ export async function repairStagedExtension(input = {}, deps = {}) {
     clean: 'repaired',
     degraded: 'repaired_degraded',
     flag: 'repaired',
+    backupMode: 'never',
   });
 }

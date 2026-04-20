@@ -144,11 +144,13 @@ test('repairStagedExtension revalidates the prepared stage before mutating the l
   assert.equal(readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), 'legacy destination');
 });
 
-test('repairStagedExtension reports observable backup restoration details when promote fails after backup creation', async (t) => {
+test('repairStagedExtension reports no backup details when promote fails under the default no-backup policy', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');
   const extensionsDir = path.join(tempRoot, 'extensions');
+  const candidatePath = path.join(extensionsDir, 'octo.valid.candidate');
   const destinationPath = path.join(extensionsDir, 'octo.valid');
+  const backupPath = path.join(extensionsDir, 'octo.valid.backup');
   writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
   mkdirSync(destinationPath, { recursive: true });
   writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
@@ -182,24 +184,24 @@ test('repairStagedExtension reports observable backup restoration details when p
       assert.equal(error.details.apply.phase, 'promote');
       assert.equal(error.details.apply.stagePath, stagePath);
       assert.deepEqual(error.details.apply.backup, {
-        path: path.join(extensionsDir, 'octo.valid.backup'),
-        expected: true,
-        created: true,
-        restored: true,
+        path: null,
+        expected: false,
+        created: false,
+        restored: null,
       });
       return true;
     },
   );
 
   assert.deepEqual(renameLog, [
-    [destinationPath, path.join(extensionsDir, 'octo.valid.backup')],
-    [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
-    [path.join(extensionsDir, 'octo.valid.backup'), destinationPath],
+    [candidatePath, destinationPath],
   ]);
-  assert.equal(readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), 'legacy destination');
+  assert.equal(readJson(path.join(candidatePath, 'manifest.json')).id, 'octo.valid');
+  assert.throws(() => readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), { code: 'ENOENT' });
+  assert.throws(() => readFileSync(path.join(backupPath, 'legacy.txt'), 'utf8'), { code: 'ENOENT' });
 });
 
-test('repairStagedExtension reports observable backup details when rollback cannot restore the previous destination', async (t) => {
+test('repairStagedExtension reports no backup details when promote fails and no restore is attempted', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');
   const extensionsDir = path.join(tempRoot, 'extensions');
@@ -228,12 +230,6 @@ test('repairStagedExtension reports observable backup details when rollback cann
               throw error;
             }
 
-            if (from === backupPath && to === destinationPath) {
-              const error = new Error('backup restore failed');
-              error.code = 'EPERM';
-              throw error;
-            }
-
             return fs.rename(from, to);
           },
         },
@@ -242,33 +238,45 @@ test('repairStagedExtension reports observable backup details when rollback cann
     (error) => {
       assert.equal(error.code, 'APPLY_PROMOTE_FAILED');
       assert.deepEqual(error.details.apply.backup, {
-        path: backupPath,
-        expected: true,
-        created: true,
-        restored: false,
+        path: null,
+        expected: false,
+        created: false,
+        restored: null,
       });
       return true;
     },
   );
 
   assert.deepEqual(renameLog, [
-    [destinationPath, backupPath],
     [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
-    [backupPath, destinationPath],
   ]);
-  assert.equal(readFileSync(path.join(backupPath, 'legacy.txt'), 'utf8'), 'legacy destination');
+  assert.throws(() => readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), { code: 'ENOENT' });
+  assert.throws(() => readFileSync(path.join(backupPath, 'legacy.txt'), 'utf8'), { code: 'ENOENT' });
 });
 
 test('repairStagedExtension reports repaired only when reload succeeds and matched runtime errors stay empty', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');
   const extensionsDir = path.join(tempRoot, 'extensions');
+  const destinationPath = path.join(extensionsDir, 'octo.valid');
+  const backupPath = path.join(extensionsDir, 'octo.valid.backup');
   writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  mkdirSync(destinationPath, { recursive: true });
+  writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
 
+  const renameLog = [];
+  const fs = await import('node:fs/promises');
   const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
   const result = await repairStagedExtension(
     { stagePath, extensionsDir },
     {
+      fs: {
+        ...fs,
+        async rename(from, to) {
+          renameLog.push([from, to]);
+          return fs.rename(from, to);
+        },
+      },
       reloadExtensions: async () => ({ ok: true }),
       getExtensionErrors: async () => [],
     },
@@ -280,10 +288,21 @@ test('repairStagedExtension reports repaired only when reload succeeds and match
     requested: true,
     succeeded: true,
   });
+  assert.deepEqual(result.backup, {
+    path: null,
+    expected: false,
+    created: false,
+    restored: null,
+  });
   assert.deepEqual(result.errors, {
     observed: true,
     matched: [],
   });
+  assert.deepEqual(renameLog, [
+    [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
+  ]);
+  assert.equal(readJson(path.join(destinationPath, 'manifest.json')).id, 'octo.valid');
+  assert.throws(() => readFileSync(path.join(backupPath, 'legacy.txt'), 'utf8'), { code: 'ENOENT' });
 });
 
 test('repairStagedExtension reports repaired_degraded when extension errors cannot be observed honestly', async (t) => {
@@ -331,12 +350,23 @@ test('applyStagedExtension applies cleanly when no previous destination exists',
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');
   const extensionsDir = path.join(tempRoot, 'extensions');
+  const destinationPath = path.join(extensionsDir, 'octo.valid');
+  const backupPath = path.join(extensionsDir, 'octo.valid.backup');
   writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
 
+  const renameLog = [];
+  const fs = await import('node:fs/promises');
   const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
   const result = await applyStagedExtension(
     { stagePath, extensionsDir },
     {
+      fs: {
+        ...fs,
+        async rename(from, to) {
+          renameLog.push([from, to]);
+          return fs.rename(from, to);
+        },
+      },
       reloadExtensions: async () => ({ ok: true }),
       getExtensionErrors: async () => [],
     },
@@ -350,7 +380,7 @@ test('applyStagedExtension applies cleanly when no previous destination exists',
     verified: true,
   });
   assert.deepEqual(result.destination, {
-    path: path.join(extensionsDir, 'octo.valid'),
+    path: destinationPath,
     exists: true,
   });
   assert.deepEqual(result.backup, {
@@ -367,7 +397,11 @@ test('applyStagedExtension applies cleanly when no previous destination exists',
     observed: true,
     matched: [],
   });
-  assert.equal(readJson(path.join(extensionsDir, 'octo.valid', 'manifest.json')).id, 'octo.valid');
+  assert.deepEqual(renameLog, [
+    [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
+  ]);
+  assert.equal(readJson(path.join(destinationPath, 'manifest.json')).id, 'octo.valid');
+  assert.throws(() => readFileSync(path.join(backupPath, 'manifest.json'), 'utf8'), { code: 'ENOENT' });
   assert.deepEqual(result.candidate, {
     path: path.join(extensionsDir, 'octo.valid.candidate'),
   });
@@ -641,14 +675,24 @@ test('applyStagedExtension keeps the backup artifact when a previous destination
   const stagePath = path.join(tempRoot, 'stage');
   const extensionsDir = path.join(tempRoot, 'extensions');
   const destinationPath = path.join(extensionsDir, 'octo.valid');
+  const backupPath = path.join(extensionsDir, 'octo.valid.backup');
   writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
   mkdirSync(destinationPath, { recursive: true });
   writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
 
+  const renameLog = [];
+  const fs = await import('node:fs/promises');
   const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
   const result = await applyStagedExtension(
     { stagePath, extensionsDir },
     {
+      fs: {
+        ...fs,
+        async rename(from, to) {
+          renameLog.push([from, to]);
+          return fs.rename(from, to);
+        },
+      },
       reloadExtensions: async () => ({ ok: true }),
       getExtensionErrors: async () => [],
     },
@@ -659,12 +703,17 @@ test('applyStagedExtension keeps the backup artifact when a previous destination
     exists: true,
   });
   assert.deepEqual(result.backup, {
-    path: path.join(extensionsDir, 'octo.valid.backup'),
+    path: backupPath,
     expected: true,
     created: true,
     restored: false,
   });
+  assert.deepEqual(renameLog, [
+    [destinationPath, backupPath],
+    [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
+  ]);
   assert.equal(readFileSync(path.join(result.backup.path, 'legacy.txt'), 'utf8'), 'legacy destination');
+  assert.equal(readJson(path.join(destinationPath, 'manifest.json')).id, 'octo.valid');
   assert.deepEqual(result.candidate, {
     path: path.join(extensionsDir, 'octo.valid.candidate'),
   });
@@ -800,6 +849,7 @@ test('applyStagedExtension restores the previous destination when promote fails 
   const stagePath = path.join(tempRoot, 'stage');
   const extensionsDir = path.join(tempRoot, 'extensions');
   const destinationPath = path.join(extensionsDir, 'octo.valid');
+  const backupPath = path.join(extensionsDir, 'octo.valid.backup');
   writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
   mkdirSync(destinationPath, { recursive: true });
   writeFileSync(path.join(destinationPath, 'legacy.txt'), 'legacy destination');
@@ -835,16 +885,23 @@ test('applyStagedExtension restores the previous destination when promote fails 
       assert.equal(error.details.apply.phase, 'promote');
       assert.equal(error.details.apply.stagePath, stagePath);
       assert.equal(error.details.apply.manifestId, 'octo.valid');
+      assert.deepEqual(error.details.apply.backup, {
+        path: backupPath,
+        expected: true,
+        created: true,
+        restored: true,
+      });
       return true;
     },
   );
 
   assert.deepEqual(renameLog, [
-    [destinationPath, path.join(extensionsDir, 'octo.valid.backup')],
+    [destinationPath, backupPath],
     [path.join(extensionsDir, 'octo.valid.candidate'), destinationPath],
-    [path.join(extensionsDir, 'octo.valid.backup'), destinationPath],
+    [backupPath, destinationPath],
   ]);
   assert.equal(readFileSync(path.join(destinationPath, 'legacy.txt'), 'utf8'), 'legacy destination');
+  assert.throws(() => readFileSync(path.join(backupPath, 'legacy.txt'), 'utf8'), { code: 'ENOENT' });
 });
 
 test('applyStagedExtension surfaces APPLY_COPY_FAILED before mutating the live destination', async (t) => {

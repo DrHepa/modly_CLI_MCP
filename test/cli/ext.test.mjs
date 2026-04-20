@@ -97,7 +97,7 @@ function createApplyResult(overrides = {}) {
       path: '/opt/modly/extensions/octo.tools.backup',
       expected: true,
       created: true,
-      restored: false,
+      restored: null,
     },
     reload: {
       requested: true,
@@ -133,10 +133,10 @@ function createRepairResult(overrides = {}) {
       exists: true,
     },
     backup: {
-      path: '/opt/modly/extensions/octo.tools.backup',
-      expected: true,
-      created: true,
-      restored: false,
+      path: null,
+      expected: false,
+      created: false,
+      restored: null,
     },
     reload: {
       requested: true,
@@ -1024,9 +1024,11 @@ test('runExtCommand delegates ext repair to the reusable core with explicit stag
   assert.equal(typeof calls[0].deps.reloadExtensions, 'function');
   assert.equal(typeof calls[0].deps.getExtensionErrors, 'function');
   assert.deepEqual(result.data, { repair });
+  assert.equal(result.data.repair.backup.created, false);
   assert.match(result.humanMessage, /CLI-only repair\/reapply over prepared stage: repaired/u);
   assert.match(result.humanMessage, /stagePath: \/tmp\/modly-ext-stage-123/u);
   assert.match(result.humanMessage, /extensionsDir: \/opt\/modly\/extensions/u);
+  assert.doesNotMatch(result.humanMessage, /backup: /u);
   assert.match(result.humanMessage, /May trigger live-target setup when the prepared stage requires it/u);
   assert.match(result.humanMessage, /No GitHub fetch, install, build, or general health fix was attempted/u);
 });
@@ -1056,8 +1058,10 @@ test('runExtCommand reports degraded repair honestly without claiming a healthy 
   });
 
   assert.equal(result.data.repair.status, 'repaired_degraded');
+  assert.equal(result.data.repair.backup.expected, false);
   assert.match(result.humanMessage, /CLI-only repair\/reapply over prepared stage: repaired_degraded/u);
   assert.match(result.humanMessage, /runtime errors: 1/u);
+  assert.doesNotMatch(result.humanMessage, /backup: /u);
   assert.doesNotMatch(result.humanMessage, /install complete|healthy install|dependencies repaired|health fix completed/u);
 });
 
@@ -1286,10 +1290,14 @@ test('runExtCommand delegates ext apply to the reusable core with explicit stage
   assert.equal(typeof calls[0].deps.reloadExtensions, 'function');
   assert.equal(typeof calls[0].deps.getExtensionErrors, 'function');
   assert.deepEqual(result.data, { apply });
+  assert.equal(result.data.apply.backup.expected, true);
+  assert.equal(result.data.apply.backup.created, true);
+  assert.equal(result.data.apply.backup.path, '/opt/modly/extensions/octo.tools.backup');
   assert.match(result.humanMessage, /Live-target apply from prepared stage: applied/u);
   assert.match(result.humanMessage, /stagePath: \/tmp\/modly-ext-stage-123/u);
   assert.match(result.humanMessage, /extensionsDir \(explicit\): \/opt\/modly\/extensions/u);
   assert.match(result.humanMessage, /targetPath: \/opt\/modly\/extensions\/octo\.tools/u);
+  assert.match(result.humanMessage, /backup: \/opt\/modly\/extensions\/octo\.tools\.backup/u);
   assert.match(result.humanMessage, /No GitHub fetch, install, build, or repair was attempted/u);
 });
 
@@ -1370,7 +1378,10 @@ test('runExtCommand reports degraded apply honestly without claiming a healthy i
   });
 
   assert.equal(result.data.apply.status, 'applied_degraded');
+  assert.equal(result.data.apply.backup.expected, true);
+  assert.equal(result.data.apply.backup.created, true);
   assert.match(result.humanMessage, /Live-target apply from prepared stage: applied_degraded/u);
+  assert.match(result.humanMessage, /backup: \/opt\/modly\/extensions\/octo\.tools\.backup/u);
   assert.match(result.humanMessage, /runtime errors: 1/u);
   assert.doesNotMatch(result.humanMessage, /install complete|repaired|healthy install/u);
 });
