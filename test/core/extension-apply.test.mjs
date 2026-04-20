@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
+import { ValidationError } from '../../src/core/errors.mjs';
+
 function createTempRoot(t) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'modly-ext-apply-test-'));
   t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
@@ -532,6 +534,106 @@ test('applyStagedExtension degrades when live-target setup reports a blocked res
       },
     },
   ]);
+});
+
+test('applyStagedExtension preserves observable setup guidance on degraded setup results', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  const destinationPath = path.join(extensionsDir, 'octo.valid');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  writeFileSync(path.join(stagePath, 'setup.py'), 'print("setup")\n');
+
+  const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
+  const result = await applyStagedExtension(
+    {
+      stagePath,
+      extensionsDir,
+      pythonExe: 'python3.11',
+      allowThirdParty: true,
+    },
+    {
+      configureExtension: async (input) => ({
+        status: 'interrupted',
+        blocked: false,
+        extensionPath: input.extensionPath,
+        runId: 'run-live-123',
+        logPath: path.join(input.extensionPath, '.modly', 'setup-runs', 'run-live-123.log'),
+        statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
+        staleReason: 'pid_not_alive',
+        blockers: [],
+        execution: { exitCode: null },
+        journal: {
+          status: 'interrupted',
+          runId: 'run-live-123',
+          logPath: path.join(input.extensionPath, '.modly', 'setup-runs', 'run-live-123.log'),
+          staleReason: 'pid_not_alive',
+        },
+        artifacts: {
+          before: { status: 'prepared' },
+          after: null,
+        },
+      }),
+      reloadExtensions: async () => ({ ok: true }),
+      getExtensionErrors: async () => [],
+    },
+  );
+
+  assert.equal(result.status, 'applied_degraded');
+  assert.deepEqual(result.setupObservation, {
+    status: 'interrupted',
+    runId: 'run-live-123',
+    logPath: path.join(destinationPath, '.modly', 'setup-runs', 'run-live-123.log'),
+    statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
+    staleReason: 'pid_not_alive',
+  });
+});
+
+test('repairStagedExtension preserves observable setup guidance when live-target setup throws reentry details', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  writeStageFixture(stagePath, { id: 'octo.valid', name: 'Octo Valid', version: '1.0.0' });
+  writeFileSync(path.join(stagePath, 'setup.py'), 'print("setup")\n');
+
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => repairStagedExtension(
+      {
+        stagePath,
+        extensionsDir,
+        pythonExe: 'python3.11',
+        allowThirdParty: true,
+      },
+      {
+        configureExtension: async (input) => {
+          throw new ValidationError('Live-target setup is already running.', {
+            code: 'SETUP_ALREADY_RUNNING',
+            details: {
+              setup: {
+                status: 'running',
+                runId: 'run-live-999',
+                logPath: path.join(input.extensionPath, '.modly', 'setup-runs', 'run-live-999.log'),
+                statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
+              },
+            },
+          });
+        },
+      },
+    ),
+    (error) => {
+      assert.equal(error.code, 'APPLY_PROMOTE_FAILED');
+      assert.deepEqual(error.details.apply.setupObservation, {
+        status: 'running',
+        runId: 'run-live-999',
+        logPath: path.join(extensionsDir, 'octo.valid', '.modly', 'setup-runs', 'run-live-999.log'),
+        statusCommand: `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "octo.valid"`,
+        staleReason: null,
+      });
+      return true;
+    },
+  );
 });
 
 test('applyStagedExtension keeps the backup artifact when a previous destination existed', async (t) => {

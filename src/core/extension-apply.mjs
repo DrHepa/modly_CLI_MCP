@@ -209,6 +209,35 @@ function setupCompletedCleanly(setup) {
   return !setup || setup.status === 'configured';
 }
 
+function buildSetupStatusCommand(extensionsDir, manifestId) {
+  return `modly ext setup-status --extensions-dir "${extensionsDir}" --manifest-id "${manifestId}"`;
+}
+
+function extractSetupObservation(setup, { extensionsDir, manifestId }) {
+  if (!setup || typeof setup !== 'object') {
+    return null;
+  }
+
+  const journal = setup.journal && typeof setup.journal === 'object' ? setup.journal : null;
+  const status = setup.status ?? journal?.status ?? null;
+  const runId = setup.runId ?? journal?.runId ?? null;
+  const logPath = setup.logPath ?? journal?.logPath ?? null;
+  const staleReason = setup.staleReason ?? journal?.staleReason ?? null;
+  const statusCommand = setup.statusCommand ?? buildSetupStatusCommand(extensionsDir, manifestId);
+
+  if (status === null && runId === null && logPath === null && staleReason === null) {
+    return null;
+  }
+
+  return {
+    status,
+    runId,
+    logPath,
+    statusCommand,
+    staleReason,
+  };
+}
+
 async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   const fs = {
     ...defaultFs,
@@ -287,6 +316,7 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   }
 
   let setup = null;
+  let setupObservation = null;
 
   let backupCreated = false;
   let backupRestored = paths.backup.expected ? false : null;
@@ -318,6 +348,10 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
       );
 
       if (!setupCompletedCleanly(setup)) {
+        setupObservation = extractSetupObservation(setup, {
+          extensionsDir: resolution.extensionsDir,
+          manifestId: manifest.id,
+        });
         warnings.push({
           code: 'SETUP_DEGRADED',
           message: 'Live-target setup did not complete cleanly after promotion.',
@@ -350,6 +384,15 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
           created: backupCreated,
           restored: backupRestored,
         },
+        ...(extractSetupObservation(error?.details?.setup, {
+          extensionsDir: resolution.extensionsDir,
+          manifestId: manifest.id,
+        }) ? {
+          setupObservation: extractSetupObservation(error?.details?.setup, {
+            extensionsDir: resolution.extensionsDir,
+            manifestId: manifest.id,
+          }),
+        } : {}),
       },
     });
   }
@@ -449,6 +492,7 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
     },
     candidate: paths.candidate,
     setup,
+    ...(setupObservation ? { setupObservation } : {}),
     reload,
     errors,
     warnings,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 
 import { main } from '../../src/cli/index.mjs';
 import { UnsupportedOperationError, UsageError, ValidationError } from '../../src/core/errors.mjs';
@@ -19,6 +19,30 @@ function createTempStage(t) {
 function writeManifest(stagePath, manifest) {
   mkdirSync(stagePath, { recursive: true });
   writeFileSync(path.join(stagePath, 'manifest.json'), JSON.stringify(manifest));
+}
+
+async function captureStderr(fn) {
+  const writes = [];
+  const originalWrite = process.stderr.write;
+
+  process.stderr.write = ((chunk, encoding, callback) => {
+    writes.push(String(chunk));
+
+    if (typeof encoding === 'function') {
+      encoding();
+    } else if (typeof callback === 'function') {
+      callback();
+    }
+
+    return true;
+  });
+
+  try {
+    const result = await fn();
+    return { result, stderr: writes.join('') };
+  } finally {
+    process.stderr.write = originalWrite;
+  }
 }
 
 function createPreparedStagingResult(overrides = {}) {
@@ -275,7 +299,7 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
   assert.match(extHelp, /modly ext apply --stage-path <path> --extensions-dir <abs-path> \[--source-repo <owner\/name> --source-ref <ref> --source-commit <sha>\] \[--python-exe <exe>\] \[--allow-third-party\] \[--setup-payload-json '\{\.\.\.\}'\]/u);
   assert.match(extHelp, /modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party/u);
-  assert.match(extHelp, /modly ext setup-status --extensions-dir <abs-path> \(--manifest-id <id> \| --stage-path <path>\)/u);
+  assert.match(extHelp, /modly ext setup-status --extensions-dir <abs-path> \(--manifest-id <id> \| --stage-path <path>\) \[--wait\] \[--follow\] \[--interval-ms <n>\] \[--timeout-ms <n>\]/u);
   assert.match(extHelp, /modly ext repair --stage-path <path> --extensions-dir <abs-path> \[--source-repo <owner\/name> --source-ref <ref> --source-commit <sha>\] \[--python-exe <exe>\] \[--allow-third-party\] \[--setup-payload-json '\{\.\.\.\}'\]/u);
   assert.match(extHelp, /instala un stage ya preparado sobre el target vivo/u);
   assert.match(extHelp, /puede disparar setup live-target si el contrato del stage lo requiere/u);
@@ -284,6 +308,10 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
   assert.match(extHelp, /setup-status\s+lee SOLO el journal live-target del target instalado/u);
   assert.match(extHelp, /requiere --extensions-dir explícito y \(--manifest-id o --stage-path solo para resolver manifest\.id\)/u);
   assert.match(extHelp, /NO reatacha, NO cancela y NO es un job manager general/u);
+  assert.match(extHelp, /--wait espera localmente hasta un estado terminal observable del journal/u);
+  assert.match(extHelp, /--follow sigue localmente el logPath del run observable más reciente/u);
+  assert.match(extHelp, /--timeout-ms solo corta la espera\/follow de la CLI; NO mata ni cancela el setup subyacente/u);
+  assert.match(extHelp, /sin background manager, reattach ni resume generalista/u);
   assert.match(extHelp, /soporte catalogado y limitado; no promete compatibilidad universal/u);
   assert.match(extHelp, /python_exe y ext_dir se auto-inyectan desde la CLI y el stage/u);
   assert.match(extHelp, /requiere consentimiento explícito porque ejecuta código de terceros/u);
@@ -432,6 +460,345 @@ test('main emits JSON envelope with data.setupStatus for ext setup-status', asyn
   assert.equal(payload.data.setupStatus.scope, 'live-target-journal');
   assert.equal(payload.data.setupStatus.targetPath, '/opt/modly/extensions/octo.tools');
   assert.equal(payload.data.setupStatus.exitCode, 9);
+});
+
+test('runExtCommand rejects setup-status polling timing flags without a continuous mode', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--interval-ms', '250'],
+      config: {},
+      client: {},
+    }),
+    (error) => {
+      assert.equal(error?.code, 'VALIDATION_ERROR');
+      assert.equal(error?.message, '--interval-ms requires --wait or --follow.');
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--timeout-ms', '1000'],
+      config: {},
+      client: {},
+    }),
+    (error) => {
+      assert.equal(error?.code, 'VALIDATION_ERROR');
+      assert.equal(error?.message, '--timeout-ms requires --wait or --follow.');
+      return true;
+    },
+  );
+});
+
+test('runExtCommand accepts setup-status continuous flags and validates positive integers before execution', async () => {
+  const calls = [];
+  const snapshots = [
+    {
+      status: 'running',
+      runId: 'run-123',
+      pid: 1234,
+      logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-123.log',
+      startedAt: '2026-04-20T01:00:00.000Z',
+      lastOutputAt: '2026-04-20T01:00:01.000Z',
+      finishedAt: null,
+      exitCode: null,
+      signal: null,
+    },
+    {
+      status: 'succeeded',
+      runId: 'run-123',
+      pid: 1234,
+      logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-123.log',
+      startedAt: '2026-04-20T01:00:00.000Z',
+      lastOutputAt: '2026-04-20T01:00:02.000Z',
+      finishedAt: '2026-04-20T01:00:03.000Z',
+      exitCode: 0,
+      signal: null,
+    },
+  ];
+
+  const result = await runExtCommand({
+    args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--wait', '--follow', '--interval-ms', '250', '--timeout-ms', '1000'],
+    config: {},
+    client: {},
+    reconcileLatestSetupRun(targetPath) {
+      calls.push(targetPath);
+      return snapshots.shift() ?? snapshots.at(-1);
+    },
+  });
+
+  assert.equal(calls.length, 2);
+  assert.equal(result.data.setupStatus.status, 'succeeded');
+  assert.equal(result.data.meta.polling.attempts, 2);
+
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--wait', '--interval-ms', '0'],
+      config: {},
+      client: {},
+    }),
+    (error) => {
+      assert.equal(error?.code, 'VALIDATION_ERROR');
+      assert.equal(error?.message, '--interval-ms must be >= 1.');
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--follow', '--timeout-ms', 'abc'],
+      config: {},
+      client: {},
+    }),
+    (error) => {
+      assert.equal(error?.code, 'VALIDATION_ERROR');
+      assert.equal(error?.message, '--timeout-ms must be an integer.');
+      return true;
+    },
+  );
+});
+
+test('main emits polling metadata for ext setup-status --wait after the live-target journal reaches success', async () => {
+  const writes = [];
+  const targetPath = '/opt/modly/extensions/octo.tools';
+  let attempts = 0;
+
+  const exitCode = await main([
+    '--json',
+    'ext',
+    'setup-status',
+    '--extensions-dir',
+    '/opt/modly/extensions',
+    '--manifest-id',
+    'octo.tools',
+    '--wait',
+    '--interval-ms',
+    '1',
+    '--timeout-ms',
+    '50',
+  ], {
+    stdout: { write(chunk) { writes.push(chunk); } },
+    stderr: { write() {} },
+    env: {},
+    cwd: '/workspace/modly_CLI_MCP',
+    platform: 'linux',
+    createClient() {
+      return {};
+    },
+    reconcileLatestSetupRun() {
+      attempts += 1;
+      return attempts === 1
+        ? {
+            status: 'running',
+            runId: 'run-123',
+            pid: 123,
+            logPath: `${targetPath}/.modly/setup-runs/run-123.log`,
+            startedAt: '2026-04-20T02:00:00.000Z',
+            lastOutputAt: '2026-04-20T02:00:01.000Z',
+            finishedAt: null,
+            exitCode: null,
+            signal: null,
+          }
+        : {
+            status: 'succeeded',
+            runId: 'run-123',
+            pid: 123,
+            logPath: `${targetPath}/.modly/setup-runs/run-123.log`,
+            startedAt: '2026-04-20T02:00:00.000Z',
+            lastOutputAt: '2026-04-20T02:00:02.000Z',
+            finishedAt: '2026-04-20T02:00:03.000Z',
+            exitCode: 0,
+            signal: null,
+            stdoutBytes: 4,
+            stderrBytes: 0,
+            totalBytes: 4,
+          };
+    },
+  });
+
+  assert.equal(exitCode, 0);
+  const payload = JSON.parse(writes.join(''));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.setupStatus.status, 'succeeded');
+  assert.equal(payload.data.setupStatus.totalBytes, 4);
+  assert.equal(payload.data.meta.polling.intervalMs, 1);
+  assert.equal(payload.data.meta.polling.timeoutMs, 50);
+  assert.equal(payload.data.meta.polling.attempts, 2);
+});
+
+test('runExtCommand returns interrupted terminal setup-status snapshots when waiting and surfaces staleReason telemetry', async () => {
+  const targetPath = '/opt/modly/extensions/octo.tools';
+  let attempts = 0;
+
+  const result = await runExtCommand({
+    args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--wait', '--interval-ms', '1', '--timeout-ms', '50'],
+    config: {},
+    client: {},
+    reconcileLatestSetupRun() {
+      attempts += 1;
+      return attempts === 1
+        ? {
+            status: 'running',
+            runId: 'run-stale',
+            pid: 321,
+            logPath: `${targetPath}/.modly/setup-runs/run-stale.log`,
+            startedAt: '2026-04-20T02:01:00.000Z',
+            lastOutputAt: '2026-04-20T02:01:01.000Z',
+            finishedAt: null,
+            exitCode: null,
+            signal: null,
+          }
+        : {
+            status: 'interrupted',
+            runId: 'run-stale',
+            pid: 321,
+            logPath: `${targetPath}/.modly/setup-runs/run-stale.log`,
+            startedAt: '2026-04-20T02:01:00.000Z',
+            lastOutputAt: '2026-04-20T02:01:01.000Z',
+            finishedAt: '2026-04-20T02:01:04.000Z',
+            exitCode: null,
+            signal: null,
+            stdoutBytes: 12,
+            stderrBytes: 3,
+            totalBytes: 15,
+            staleReason: 'pid_not_alive',
+          };
+    },
+  });
+
+  assert.equal(result.data.setupStatus.status, 'interrupted');
+  assert.equal(result.data.setupStatus.staleReason, 'pid_not_alive');
+  assert.equal(result.data.setupStatus.stdoutBytes, 12);
+  assert.equal(result.data.setupStatus.stderrBytes, 3);
+  assert.equal(result.data.setupStatus.totalBytes, 15);
+  assert.equal(result.data.meta.polling.attempts, 2);
+  assert.match(result.humanMessage, /Live target setup status: interrupted/u);
+  assert.match(result.humanMessage, /staleReason: pid_not_alive/u);
+  assert.match(result.humanMessage, /stdoutBytes: 12/u);
+  assert.match(result.humanMessage, /stderrBytes: 3/u);
+  assert.match(result.humanMessage, /totalBytes: 15/u);
+});
+
+test('runExtCommand times out locally while waiting for setup-status and clarifies the observed setup may still be running', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--wait', '--interval-ms', '1', '--timeout-ms', '5'],
+      config: {},
+      client: {},
+      reconcileLatestSetupRun() {
+        return {
+          status: 'running',
+          runId: 'run-timeout',
+          pid: 555,
+          logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-timeout.log',
+          startedAt: '2026-04-20T02:02:00.000Z',
+          lastOutputAt: '2026-04-20T02:02:01.000Z',
+          finishedAt: null,
+          exitCode: null,
+          signal: null,
+        };
+      },
+    }),
+    (error) => {
+      assert.equal(error?.code, 'TIMEOUT');
+      assert.match(error?.message, /setup-status observer timed out locally before reaching a terminal state/u);
+      assert.match(error?.message, /The observed setup may still be running/u);
+      assert.doesNotMatch(error?.message, /cancel|reattach|resume|background manager/u);
+      assert.equal(error?.details?.timeoutMs, 5);
+      assert.equal(error?.details?.intervalMs, 1);
+      assert.equal(error?.details?.lastObservedRun?.status, 'running');
+      return true;
+    },
+  );
+});
+
+test('runExtCommand follows appended setup log output and returns final telemetry from the terminal journal snapshot', async (t) => {
+  const stagePath = createTempStage(t);
+  const extensionsDir = path.join(path.dirname(stagePath), 'extensions');
+  const targetPath = path.join(extensionsDir, 'octo.tools');
+  const logPath = path.join(targetPath, '.modly', 'setup-runs', 'run-follow.log');
+  writeManifest(stagePath, { id: 'octo.tools', name: 'Octo Tools', version: '1.0.0' });
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  writeFileSync(logPath, 'boot\n');
+
+  let attempts = 0;
+  const { result, stderr } = await captureStderr(() => runExtCommand({
+    args: ['setup-status', '--stage-path', stagePath, '--extensions-dir', extensionsDir, '--follow', '--interval-ms', '1', '--timeout-ms', '50'],
+    config: {},
+    client: {},
+    reconcileLatestSetupRun() {
+      attempts += 1;
+
+      if (attempts === 1) {
+        return {
+          status: 'running',
+          runId: 'run-follow',
+          pid: 777,
+          logPath,
+          startedAt: '2026-04-20T02:03:00.000Z',
+          lastOutputAt: '2026-04-20T02:03:01.000Z',
+          finishedAt: null,
+          exitCode: null,
+          signal: null,
+          stdoutBytes: 5,
+          stderrBytes: 0,
+          totalBytes: 5,
+        };
+      }
+
+      appendFileSync(logPath, 'done\n');
+      return {
+        status: 'succeeded',
+        runId: 'run-follow',
+        pid: 777,
+        logPath,
+        startedAt: '2026-04-20T02:03:00.000Z',
+        lastOutputAt: '2026-04-20T02:03:02.000Z',
+        finishedAt: '2026-04-20T02:03:03.000Z',
+        exitCode: 0,
+        signal: null,
+        stdoutBytes: 10,
+        stderrBytes: 0,
+        totalBytes: 10,
+      };
+    },
+  }));
+
+  assert.match(stderr, /boot\n/u);
+  assert.match(stderr, /done\n/u);
+  assert.equal(result.data.setupStatus.status, 'succeeded');
+  assert.equal(result.data.setupStatus.logPath, logPath);
+  assert.equal(result.data.setupStatus.totalBytes, 10);
+  assert.equal(result.data.meta.polling.attempts, 2);
+});
+
+test('runExtCommand rejects --follow when no followable setup run log is available', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', 'octo.tools', '--follow', '--interval-ms', '1', '--timeout-ms', '50'],
+      config: {},
+      client: {},
+      reconcileLatestSetupRun() {
+        return {
+          status: 'running',
+          runId: 'run-without-log',
+          pid: 909,
+          logPath: null,
+          startedAt: '2026-04-20T02:04:00.000Z',
+          lastOutputAt: null,
+          finishedAt: null,
+          exitCode: null,
+          signal: null,
+        };
+      },
+    }),
+    (error) => {
+      assert.equal(error?.code, 'VALIDATION_ERROR');
+      assert.match(error?.message, /No followable setup run log is available for this live target/u);
+      assert.doesNotMatch(error?.message, /reattach|cancel|resume|background manager/u);
+      return true;
+    },
+  );
 });
 
 test('main surfaces ext setup reentry as local stage-scoped guidance toward setup-status', async () => {
@@ -692,6 +1059,140 @@ test('runExtCommand reports degraded repair honestly without claiming a healthy 
   assert.match(result.humanMessage, /CLI-only repair\/reapply over prepared stage: repaired_degraded/u);
   assert.match(result.humanMessage, /runtime errors: 1/u);
   assert.doesNotMatch(result.humanMessage, /install complete|healthy install|dependencies repaired|health fix completed/u);
+});
+
+test('runExtCommand adds observability-only setup guidance to degraded apply results', async () => {
+  const apply = createApplyResult({
+    status: 'applied_degraded',
+    setupObservation: {
+      status: 'interrupted',
+      runId: 'run-live-123',
+      logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-live-123.log',
+      statusCommand: 'modly ext setup-status --extensions-dir "/opt/modly/extensions" --manifest-id "octo.tools"',
+      staleReason: 'pid_not_alive',
+    },
+  });
+
+  const result = await runExtCommand({
+    args: ['apply', '--stage-path', 'tmp/stage/octo.tools', '--extensions-dir', '/opt/modly/extensions'],
+    config: {},
+    client: {},
+    async applyStagedExtension() {
+      return apply;
+    },
+  });
+
+  assert.match(result.humanMessage, /Live-target apply from prepared stage: applied_degraded/u);
+  assert.match(result.humanMessage, /Observe the live-target setup locally with: modly ext setup-status/u);
+  assert.match(result.humanMessage, /setup observation: interrupted/u);
+  assert.match(result.humanMessage, /runId: run-live-123/u);
+  assert.match(result.humanMessage, /staleReason: pid_not_alive/u);
+  assert.match(result.humanMessage, /logPath: .*run-live-123\.log/u);
+  assert.match(result.humanMessage, /Observability only: this does NOT reattach, cancel, or resume the setup/u);
+  assert.doesNotMatch(result.humanMessage, /background manager|job manager|reattach later/u);
+});
+
+test('runExtCommand adds observability-only setup guidance to degraded repair results', async () => {
+  const repair = createRepairResult({
+    status: 'repaired_degraded',
+    setupObservation: {
+      status: 'running',
+      runId: 'run-live-456',
+      logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-live-456.log',
+      statusCommand: 'modly ext setup-status --extensions-dir "/opt/modly/extensions" --manifest-id "octo.tools"',
+      staleReason: null,
+    },
+  });
+
+  const result = await runExtCommand({
+    args: ['repair', '--stage-path', 'tmp/stage/octo.tools', '--extensions-dir', '/opt/modly/extensions'],
+    config: {},
+    client: {},
+    async repairStagedExtension() {
+      return repair;
+    },
+  });
+
+  assert.match(result.humanMessage, /CLI-only repair\/reapply over prepared stage: repaired_degraded/u);
+  assert.match(result.humanMessage, /Observe the live-target setup locally with: modly ext setup-status/u);
+  assert.match(result.humanMessage, /setup observation: running/u);
+  assert.match(result.humanMessage, /runId: run-live-456/u);
+  assert.match(result.humanMessage, /logPath: .*run-live-456\.log/u);
+  assert.doesNotMatch(result.humanMessage, /staleReason:/u);
+  assert.match(result.humanMessage, /Observability only: this does NOT reattach, cancel, or resume the setup/u);
+  assert.doesNotMatch(result.humanMessage, /background manager|job manager|reattach later/u);
+});
+
+test('runExtCommand surfaces apply setup reentry errors with setup-status and logPath guidance only', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['apply', '--stage-path', 'tmp/stage/octo.tools', '--extensions-dir', '/opt/modly/extensions'],
+      config: {},
+      client: {},
+      async applyStagedExtension() {
+        throw new ValidationError('setup still running', {
+          code: 'APPLY_PROMOTE_FAILED',
+          details: {
+            apply: {
+              phase: 'promote',
+              setupObservation: {
+                status: 'running',
+                runId: 'run-live-777',
+                logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-live-777.log',
+                statusCommand: 'modly ext setup-status --extensions-dir "/opt/modly/extensions" --manifest-id "octo.tools"',
+                staleReason: null,
+              },
+            },
+          },
+        });
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'APPLY_PROMOTE_FAILED');
+      assert.match(error.message, /Inspect the live-target setup locally with modly ext setup-status/u);
+      assert.match(error.message, /run-live-777\.log/u);
+      assert.match(error.message, /Observability only/u);
+      assert.match(error.message, /does NOT reattach, cancel, or resume the setup/u);
+      assert.doesNotMatch(error.message, /background manager|cancel it for you|resume later/u);
+      return true;
+    },
+  );
+});
+
+test('runExtCommand surfaces repair setup reentry errors with setup-status and logPath guidance only', async () => {
+  await assert.rejects(
+    runExtCommand({
+      args: ['repair', '--stage-path', 'tmp/stage/octo.tools', '--extensions-dir', '/opt/modly/extensions'],
+      config: {},
+      client: {},
+      async repairStagedExtension() {
+        throw new ValidationError('setup still interrupted', {
+          code: 'APPLY_PROMOTE_FAILED',
+          details: {
+            apply: {
+              phase: 'promote',
+              setupObservation: {
+                status: 'interrupted',
+                runId: 'run-live-888',
+                logPath: '/opt/modly/extensions/octo.tools/.modly/setup-runs/run-live-888.log',
+                statusCommand: 'modly ext setup-status --extensions-dir "/opt/modly/extensions" --manifest-id "octo.tools"',
+                staleReason: 'pid_not_alive',
+              },
+            },
+          },
+        });
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'APPLY_PROMOTE_FAILED');
+      assert.match(error.message, /Inspect the live-target setup locally with modly ext setup-status/u);
+      assert.match(error.message, /run-live-888\.log/u);
+      assert.match(error.message, /staleReason: pid_not_alive/u);
+      assert.match(error.message, /Observability only/u);
+      assert.doesNotMatch(error.message, /background manager|cancel it for you|resume later/u);
+      return true;
+    },
+  );
 });
 
 test('runExtCommand requires --stage-path for ext repair', async () => {

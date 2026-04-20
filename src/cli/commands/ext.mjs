@@ -1,12 +1,18 @@
 import path from 'node:path';
 
-import { UnsupportedOperationError, UsageError, ValidationError } from '../../core/errors.mjs';
+import { TimeoutError, UnsupportedOperationError, UsageError, ValidationError } from '../../core/errors.mjs';
 import { applyStagedExtension, repairStagedExtension } from '../../core/extension-apply.mjs';
-import { reconcileLatestSetupRun } from '../../core/extension-setup-journal.mjs';
+import {
+  isFollowableSetupRun,
+  isObservableSetupTerminal,
+  readSetupRunLogDelta,
+  reconcileLatestSetupRun,
+} from '../../core/extension-setup-journal.mjs';
 import { configureStagedExtension } from '../../core/extension-setup.mjs';
 import { inspectStagedExtension, stageGitHubExtension } from '../../core/github-extension-staging.mjs';
 import { normalizeErrors } from '../../core/modly-normalizers.mjs';
-import { assertExactPositionals, parseCommandArgs, parseJsonObject } from './shared.mjs';
+import { pollUntilTerminal } from '../../core/polling.mjs';
+import { assertExactPositionals, parseCommandArgs, parseInteger, parseJsonObject } from './shared.mjs';
 
 const EXT_SUBCOMMANDS = ['reload', 'errors', 'stage github', 'apply', 'setup', 'setup-status', 'repair'];
 const STAGE_GITHUB_USAGE =
@@ -15,9 +21,38 @@ const APPLY_USAGE =
   "Usage: modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
 const SETUP_USAGE =
   "Usage: modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
-const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]';
+const SETUP_STATUS_USAGE = 'Usage: modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--wait] [--follow] [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]';
 const REPAIR_USAGE =
   "Usage: modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]";
+const DEFAULT_SETUP_STATUS_INTERVAL_MS = 1000;
+const DEFAULT_SETUP_STATUS_TIMEOUT_MS = 600000;
+
+function parseSetupStatusObservationOptions(options) {
+  const wait = options['--wait'] === true;
+  const follow = options['--follow'] === true;
+  const continuous = wait || follow;
+
+  if (options['--interval-ms'] !== undefined && !continuous) {
+    throw new ValidationError('--interval-ms requires --wait or --follow.');
+  }
+
+  if (options['--timeout-ms'] !== undefined && !continuous) {
+    throw new ValidationError('--timeout-ms requires --wait or --follow.');
+  }
+
+  return {
+    wait,
+    follow,
+    intervalMs:
+      options['--interval-ms'] !== undefined
+        ? parseInteger(options['--interval-ms'], '--interval-ms', { min: 1 })
+        : null,
+    timeoutMs:
+      options['--timeout-ms'] !== undefined
+        ? parseInteger(options['--timeout-ms'], '--timeout-ms', { min: 1 })
+        : null,
+  };
+}
 
 function resolveStagePath(stagePath, cwd, usage) {
   if (typeof stagePath !== 'string' || stagePath.trim() === '') {
@@ -209,7 +244,63 @@ function renderApplyHumanMessage(apply) {
     lines.push(`warnings: ${apply.warnings.length}`);
   }
 
+  const setupGuidance = renderLiveTargetSetupGuidance(apply.setupObservation);
+  if (setupGuidance) {
+    lines.push(...setupGuidance);
+  }
+
   return lines.join('\n');
+}
+
+function renderLiveTargetSetupGuidance(setupObservation) {
+  if (!setupObservation || typeof setupObservation !== 'object' || typeof setupObservation.statusCommand !== 'string') {
+    return null;
+  }
+
+  const lines = [
+    `Observe the live-target setup locally with: ${setupObservation.statusCommand}`,
+  ];
+
+  if (setupObservation.status) {
+    lines.push(`setup observation: ${setupObservation.status}`);
+  }
+
+  if (setupObservation.runId) {
+    lines.push(`runId: ${setupObservation.runId}`);
+  }
+
+  if (setupObservation.logPath) {
+    lines.push(`logPath: ${setupObservation.logPath}`);
+  }
+
+  if (setupObservation.staleReason) {
+    lines.push(`staleReason: ${setupObservation.staleReason}`);
+  }
+
+  lines.push('Observability only: this does NOT reattach, cancel, or resume the setup.');
+  return lines;
+}
+
+function normalizeLiveTargetSetupGuidanceError(error) {
+  const setupObservation = error?.details?.apply?.setupObservation;
+  const setupGuidance = renderLiveTargetSetupGuidance(setupObservation);
+
+  if (!setupGuidance) {
+    return error;
+  }
+
+  error.message = `${error.message} Inspect the live-target setup locally with ${setupObservation.statusCommand}.`;
+
+  if (setupObservation.logPath) {
+    error.message += ` Log: ${setupObservation.logPath}.`;
+  }
+
+  if (setupObservation.staleReason) {
+    error.message += ` staleReason: ${setupObservation.staleReason}.`;
+  }
+
+  error.message += ' Observability only: this does NOT reattach, cancel, or resume the setup.';
+  return error;
 }
 
 async function runApply(context, args) {
@@ -230,23 +321,29 @@ async function runApply(context, args) {
 
   const setupPayload = parseJsonObject(options['--setup-payload-json'], '--setup-payload-json');
   const apply = context.applyStagedExtension ?? applyStagedExtension;
-  const result = await apply(
-    {
-      stagePath: options['--stage-path'],
-      extensionsDir: options['--extensions-dir'],
-      sourceRepo: options['--source-repo'],
-      sourceRef: options['--source-ref'],
-      sourceCommit: options['--source-commit'],
-      pythonExe: options['--python-exe'],
-      allowThirdParty: options['--allow-third-party'] === true,
-      setupPayload,
-    },
-    {
-      cwd: context.cwd,
-      reloadExtensions: context.client.reloadExtensions?.bind(context.client),
-      getExtensionErrors: context.client.getExtensionErrors?.bind(context.client),
-    },
-  );
+  let result;
+
+  try {
+    result = await apply(
+      {
+        stagePath: options['--stage-path'],
+        extensionsDir: options['--extensions-dir'],
+        sourceRepo: options['--source-repo'],
+        sourceRef: options['--source-ref'],
+        sourceCommit: options['--source-commit'],
+        pythonExe: options['--python-exe'],
+        allowThirdParty: options['--allow-third-party'] === true,
+        setupPayload,
+      },
+      {
+        cwd: context.cwd,
+        reloadExtensions: context.client.reloadExtensions?.bind(context.client),
+        getExtensionErrors: context.client.getExtensionErrors?.bind(context.client),
+      },
+    );
+  } catch (error) {
+    throw normalizeLiveTargetSetupGuidanceError(error);
+  }
 
   return {
     data: { apply: result },
@@ -323,6 +420,9 @@ function normalizeSetupStatus(target, journal) {
     finishedAt: journal.finishedAt ?? null,
     exitCode: journal.exitCode ?? null,
     signal: journal.signal ?? null,
+    ...(typeof journal.stdoutBytes === 'number' ? { stdoutBytes: journal.stdoutBytes } : {}),
+    ...(typeof journal.stderrBytes === 'number' ? { stderrBytes: journal.stderrBytes } : {}),
+    ...(typeof journal.totalBytes === 'number' ? { totalBytes: journal.totalBytes } : {}),
     ...(journal.staleReason ? { staleReason: journal.staleReason } : {}),
   };
 }
@@ -365,6 +465,22 @@ function renderSetupStatusHumanMessage(setupStatus) {
 
   if (setupStatus.signal) {
     lines.push(`signal: ${setupStatus.signal}`);
+  }
+
+  if (typeof setupStatus.stdoutBytes === 'number') {
+    lines.push(`stdoutBytes: ${setupStatus.stdoutBytes}`);
+  }
+
+  if (typeof setupStatus.stderrBytes === 'number') {
+    lines.push(`stderrBytes: ${setupStatus.stderrBytes}`);
+  }
+
+  if (typeof setupStatus.totalBytes === 'number') {
+    lines.push(`totalBytes: ${setupStatus.totalBytes}`);
+  }
+
+  if (setupStatus.staleReason) {
+    lines.push(`staleReason: ${setupStatus.staleReason}`);
   }
 
   if (setupStatus.status === 'unknown') {
@@ -427,13 +543,15 @@ async function runSetup(context, args) {
 async function runSetupStatus(context, args) {
   const { positionals, options } = parseCommandArgs(args, {
     usage: SETUP_STATUS_USAGE,
-    valueFlags: ['--extensions-dir', '--manifest-id', '--stage-path'],
+    valueFlags: ['--extensions-dir', '--manifest-id', '--stage-path', '--interval-ms', '--timeout-ms'],
+    booleanFlags: ['--wait', '--follow'],
   });
   assertExactPositionals(positionals, 0, SETUP_STATUS_USAGE);
+  const observation = parseSetupStatusObservationOptions(options);
 
   const target = await resolveSetupStatusTarget(options, context);
   const reconcile = context.reconcileLatestSetupRun ?? reconcileLatestSetupRun;
-  const setupStatus = normalizeSetupStatus(
+  const loadSetupStatus = () => normalizeSetupStatus(
     target,
     reconcile(target.targetPath, {
       isProcessAlive: context.isProcessAlive,
@@ -441,8 +559,84 @@ async function runSetupStatus(context, args) {
     }),
   );
 
+  if (!observation.wait && !observation.follow) {
+    const setupStatus = loadSetupStatus();
+
+    return {
+      data: { setupStatus },
+      humanMessage: renderSetupStatusHumanMessage(setupStatus),
+    };
+  }
+
+  const intervalMs = observation.intervalMs ?? DEFAULT_SETUP_STATUS_INTERVAL_MS;
+  const timeoutMs = observation.timeoutMs ?? DEFAULT_SETUP_STATUS_TIMEOUT_MS;
+  const followState = { offset: 0, validated: false };
+  let setupStatus;
+  let polling;
+
+  try {
+    const observed = await pollUntilTerminal({
+      intervalMs,
+      timeoutMs,
+      load: async () => {
+        const snapshot = loadSetupStatus();
+
+        if (observation.follow && !followState.validated) {
+          if (!isFollowableSetupRun(snapshot)) {
+            throw new ValidationError('No followable setup run log is available for this live target.', {
+              details: {
+                setupStatus: snapshot,
+              },
+            });
+          }
+
+          followState.validated = true;
+        }
+
+        return snapshot;
+      },
+      isTerminal: isObservableSetupTerminal,
+      onProgress: (snapshot) => {
+        if (!observation.follow || !isFollowableSetupRun(snapshot)) {
+          return;
+        }
+
+        const delta = readSetupRunLogDelta(snapshot.logPath, followState.offset);
+        followState.offset = delta.nextOffset;
+
+        if (delta.text !== '') {
+          process.stderr.write(delta.text);
+        }
+      },
+    });
+
+    setupStatus = observed.payload;
+    polling = observed.polling;
+  } catch (error) {
+    if (error?.code !== 'TIMEOUT') {
+      throw error;
+    }
+
+    throw new TimeoutError(
+      'setup-status observer timed out locally before reaching a terminal state. The observed setup may still be running.',
+      {
+        details: {
+          ...(error.details ?? {}),
+          manifestId: target.manifestId,
+          targetPath: target.targetPath,
+        },
+      },
+    );
+  }
+
   return {
-    data: { setupStatus },
+    data: {
+      setupStatus,
+      meta: {
+        terminal: true,
+        polling,
+      },
+    },
     humanMessage: renderSetupStatusHumanMessage(setupStatus),
   };
 }
@@ -474,6 +668,11 @@ function renderRepairHumanMessage(repair) {
     lines.push(`warnings: ${repair.warnings.length}`);
   }
 
+  const setupGuidance = renderLiveTargetSetupGuidance(repair.setupObservation);
+  if (setupGuidance) {
+    lines.push(...setupGuidance);
+  }
+
   return lines.join('\n');
 }
 
@@ -495,23 +694,29 @@ async function runRepair(context, args) {
 
   const setupPayload = parseJsonObject(options['--setup-payload-json'], '--setup-payload-json');
   const repair = context.repairStagedExtension ?? repairStagedExtension;
-  const result = await repair(
-    {
-      stagePath: options['--stage-path'],
-      extensionsDir: options['--extensions-dir'],
-      sourceRepo: options['--source-repo'],
-      sourceRef: options['--source-ref'],
-      sourceCommit: options['--source-commit'],
-      pythonExe: options['--python-exe'],
-      allowThirdParty: options['--allow-third-party'] === true,
-      setupPayload,
-    },
-    {
-      cwd: context.cwd,
-      reloadExtensions: context.client.reloadExtensions?.bind(context.client),
-      getExtensionErrors: context.client.getExtensionErrors?.bind(context.client),
-    },
-  );
+  let result;
+
+  try {
+    result = await repair(
+      {
+        stagePath: options['--stage-path'],
+        extensionsDir: options['--extensions-dir'],
+        sourceRepo: options['--source-repo'],
+        sourceRef: options['--source-ref'],
+        sourceCommit: options['--source-commit'],
+        pythonExe: options['--python-exe'],
+        allowThirdParty: options['--allow-third-party'] === true,
+        setupPayload,
+      },
+      {
+        cwd: context.cwd,
+        reloadExtensions: context.client.reloadExtensions?.bind(context.client),
+        getExtensionErrors: context.client.getExtensionErrors?.bind(context.client),
+      },
+    );
+  } catch (error) {
+    throw normalizeLiveTargetSetupGuidanceError(error);
+  }
 
   return {
     data: { repair: result },

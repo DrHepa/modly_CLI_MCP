@@ -14,6 +14,8 @@ import {
 
 import { ValidationError } from './errors.mjs';
 
+const OBSERVABLE_TERMINAL_SETUP_STATUSES = new Set(['succeeded', 'failed', 'interrupted']);
+
 function ensureSetupRunDir(extensionPath) {
   const rootPath = path.join(extensionPath, '.modly', 'setup-runs');
   mkdirSync(rootPath, { recursive: true });
@@ -74,6 +76,43 @@ export function appendSetupRunLog(extensionPath, runId, _streamName, chunk) {
   return {
     logPath,
     bytesWritten: normalizedChunk.byteLength,
+  };
+}
+
+export function isObservableSetupTerminal(snapshot) {
+  return OBSERVABLE_TERMINAL_SETUP_STATUSES.has(snapshot?.status);
+}
+
+export function isFollowableSetupRun(snapshot) {
+  return typeof snapshot?.runId === 'string'
+    && snapshot.runId.trim() !== ''
+    && typeof snapshot?.logPath === 'string'
+    && snapshot.logPath.trim() !== '';
+}
+
+export function readSetupRunLogDelta(logPath, offset = 0) {
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    throw new ValidationError('offset must be a non-negative safe integer.');
+  }
+
+  if (!existsSync(logPath)) {
+    return {
+      text: '',
+      nextOffset: offset,
+      bytesRead: 0,
+      missing: true,
+    };
+  }
+
+  const content = readFileSync(logPath);
+  const start = Math.min(offset, content.byteLength);
+  const chunk = content.subarray(start);
+
+  return {
+    text: chunk.toString('utf8'),
+    nextOffset: content.byteLength,
+    bytesRead: chunk.byteLength,
+    missing: false,
   };
 }
 

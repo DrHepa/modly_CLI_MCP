@@ -165,3 +165,74 @@ test('setup journal lock clears a stale active lock without latest.json when the
   assert.equal(recoveredLock.pid, 3333);
   releaseSetupRunLock(recoveredLock);
 });
+
+test('setup journal exposes observable terminal states for setup status snapshots', async () => {
+  const { isObservableSetupTerminal } = await import('../../src/core/extension-setup-journal.mjs');
+
+  assert.equal(isObservableSetupTerminal({ status: 'running' }), false);
+  assert.equal(isObservableSetupTerminal({ status: 'succeeded' }), true);
+  assert.equal(isObservableSetupTerminal({ status: 'failed' }), true);
+  assert.equal(isObservableSetupTerminal({ status: 'interrupted' }), true);
+  assert.equal(isObservableSetupTerminal({ status: 'unknown' }), false);
+  assert.equal(isObservableSetupTerminal(null), false);
+});
+
+test('setup journal reads only appended log bytes from a local offset', async (t) => {
+  const stagePath = createTempStage(t);
+  const extensionPath = path.join(path.dirname(stagePath), 'extensions', 'octo.tools');
+  const {
+    appendSetupRunLog,
+    getSetupRunPaths,
+    readSetupRunLogDelta,
+  } = await import('../../src/core/extension-setup-journal.mjs');
+
+  appendSetupRunLog(extensionPath, 'run-follow', 'stdout', Buffer.from('hello\n'));
+  const logPath = getSetupRunPaths(extensionPath, 'run-follow').logPath;
+
+  const firstRead = readSetupRunLogDelta(logPath, 0);
+  assert.deepEqual(firstRead, {
+    text: 'hello\n',
+    nextOffset: 6,
+    bytesRead: 6,
+    missing: false,
+  });
+
+  const secondRead = readSetupRunLogDelta(logPath, firstRead.nextOffset);
+  assert.deepEqual(secondRead, {
+    text: '',
+    nextOffset: 6,
+    bytesRead: 0,
+    missing: false,
+  });
+
+  appendSetupRunLog(extensionPath, 'run-follow', 'stderr', Buffer.from('boom\n'));
+  const thirdRead = readSetupRunLogDelta(logPath, secondRead.nextOffset);
+  assert.deepEqual(thirdRead, {
+    text: 'boom\n',
+    nextOffset: 11,
+    bytesRead: 5,
+    missing: false,
+  });
+});
+
+test('setup journal delta reader reports missing logs without failing', async (t) => {
+  const stagePath = createTempStage(t);
+  const { getSetupRunPaths, readSetupRunLogDelta } = await import('../../src/core/extension-setup-journal.mjs');
+  const logPath = getSetupRunPaths(stagePath, 'run-missing').logPath;
+
+  assert.deepEqual(readSetupRunLogDelta(logPath, 0), {
+    text: '',
+    nextOffset: 0,
+    bytesRead: 0,
+    missing: true,
+  });
+});
+
+test('setup journal identifies whether a latest snapshot can be followed locally from its persisted logPath', async () => {
+  const { isFollowableSetupRun } = await import('../../src/core/extension-setup-journal.mjs');
+
+  assert.equal(isFollowableSetupRun({ runId: 'run-1', logPath: '/tmp/run-1.log' }), true);
+  assert.equal(isFollowableSetupRun({ runId: 'run-1', logPath: '' }), false);
+  assert.equal(isFollowableSetupRun({ runId: null, logPath: '/tmp/run-1.log' }), false);
+  assert.equal(isFollowableSetupRun(null), false);
+});

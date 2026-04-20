@@ -176,7 +176,7 @@ Uso:
   modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]
   modly ext apply --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]
   modly ext setup --stage-path <path> --python-exe <exe> --allow-third-party [--setup-payload-json '{...}'] [--api-url <url>] [--json]
-  modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--api-url <url>] [--json]
+  modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--wait] [--follow] [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
   modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]
 
 Subcomandos disponibles:
@@ -196,7 +196,10 @@ Notas:
   - ext setup ejecuta SOLO un contrato explícito soportado; soporte catalogado y limitado; no promete compatibilidad universal; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup: python_exe y ext_dir se auto-inyectan desde la CLI y el stage; el payload JSON no debe intentar sobrescribirlos.
   - ext setup-status lee SOLO el journal live-target reconciliado desde el target instalado; --stage-path solo ayuda a resolver manifest.id.
-  - ext setup-status NO reatacha, NO cancela y NO es un job manager general.
+  - ext setup-status --wait espera localmente hasta un estado terminal observable del journal.
+  - ext setup-status --follow sigue localmente el logPath del run observable más reciente.
+  - ext setup-status --timeout-ms solo corta la espera/follow de la CLI; NO mata ni cancela el setup subyacente.
+  - ext setup-status NO reatacha, NO cancela y NO es un job manager general; sin background manager, reattach ni resume generalista.
   - ext repair reaplica solo un stage ya preparado al directorio real de extensiones.
   - ext repair acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target cuando el stage lo requiera.
   - ext repair puede disparar setup live-target si el stage lo exige.
