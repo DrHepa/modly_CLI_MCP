@@ -35,6 +35,7 @@ const EXPECTED_CLI_GROUPS = [
   'workflow-run',
   'mesh',
   'ext',
+  'ext-dev',
   'config',
 ];
 
@@ -179,6 +180,7 @@ Grupos disponibles:
   workflow-run
   mesh
   ext
+  ext-dev
   config
 
 Notas:
@@ -229,6 +231,7 @@ Grupos disponibles:
   workflow-run
   mesh
   ext
+  ext-dev
   config
 
 Notas:
@@ -344,6 +347,7 @@ Grupos disponibles:
   workflow-run <subcomando> from-image | status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
   ext <subcomando>          reload | errors
+  ext-dev <subcomando>      bucket-detect | preflight | scaffold | audit | release-plan
   config <subcomando>       paths get | paths set
 
 Estado del bootstrap:
@@ -362,7 +366,7 @@ Estado del bootstrap:
       {
         code: 'contracts.command-groups.missing',
         source: 'src/core/contracts.mjs',
-        missing: ['workflow-run'],
+        missing: ['workflow-run', 'ext-dev'],
       },
       {
         code: 'contracts.mcp-tool-ids.hidden-by-default-exposed',
@@ -431,6 +435,7 @@ Grupos disponibles:
   workflow-run
   mesh
   ext
+  ext-dev
   config
 
 Notas:
@@ -486,6 +491,9 @@ test('renderHelp describes workflow/process runs as primary and recipe execution
   );
   assert.equal(helpText.indexOf('process-run <subcomando>') < helpText.indexOf('generate <subcomando>'), true);
   assert.equal(helpText.indexOf('workflow-run <subcomando>') < helpText.indexOf('job <subcomando>'), true);
+  assert.match(helpText, /ext-dev <subcomando>\s+bucket-detect \| preflight \| scaffold \| audit \| release-plan/u);
+  assert.match(helpText, /ext-dev\s+Planner local plan-only visible en V1; \/health opcional solo con evidencia backend y bridge opcional solo para confirmación\/colisión\./u);
+  assert.equal(helpText.includes('modly.ext-dev'), false);
 });
 
 test('MCP tool catalog uses taxonomy wording for canonical runs, wrappers, and legacy compatibility', () => {
@@ -522,7 +530,7 @@ test('detectDocumentationContractDrift enumerates Batch 3 doc drift when stale d
 
   const staleGlobalDoc = `# Global install
 
-\`command\`: [\"node\", \"src/mcp/server.mjs\"]
+\`command\`: ["node", "src/mcp/server.mjs"]
 `;
 
   const staleRepoLocalDoc = `# Repo local

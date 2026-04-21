@@ -5,11 +5,12 @@ import { realpathSync } from 'node:fs';
 
 import { resolveRuntimeConfig } from '../core/config.mjs';
 import { EXIT_CODES } from '../core/contracts.mjs';
-import { NotFoundError, UsageError, extractErrorEnvelope, normalizeError } from '../core/errors.mjs';
+import { UsageError, extractErrorEnvelope, normalizeError } from '../core/errors.mjs';
 import { createModlyApiClient } from '../core/modly-api.mjs';
 import { runCapabilitiesCommand } from './commands/capabilities.mjs';
 import { runConfigCommand } from './commands/config.mjs';
 import { runExtCommand } from './commands/ext.mjs';
+import { runExtDevCommand } from './commands/ext-dev.mjs';
 import { runGenerateCommand } from './commands/generate.mjs';
 import { runHealthCommand } from './commands/health.mjs';
 import { runJobCommand } from './commands/job.mjs';
@@ -21,6 +22,7 @@ import {
   renderCapabilitiesHelp,
   renderConfigHelp,
   renderExtHelp,
+  renderExtDevHelp,
   renderGenerateHelp,
   renderHelp,
   renderJobHelp,
@@ -40,6 +42,7 @@ const commandHandlers = {
   'workflow-run': runWorkflowRunCommand,
   mesh: runMeshCommand,
   ext: runExtCommand,
+  'ext-dev': runExtDevCommand,
   config: runConfigCommand,
 };
 
@@ -52,6 +55,7 @@ const commandHelpRenderers = {
   'workflow-run': renderWorkflowRunHelp,
   mesh: renderMeshHelp,
   ext: renderExtHelp,
+  'ext-dev': renderExtDevHelp,
   config: renderConfigHelp,
 };
 
@@ -97,54 +101,66 @@ function emitError(error, config, { stdout = process.stdout, stderr = process.st
 export async function main(argv = process.argv.slice(2), deps = {}) {
   const env = deps.env ?? process.env;
   const stdout = deps.stdout ?? process.stdout;
+  const stderr = deps.stderr ?? process.stderr;
   const config = resolveRuntimeConfig({
     argv,
     env,
     experimentalRecipeExecution: deps.experimentalRecipeExecution,
   });
 
-  if (config.positionals.length === 0) {
-    stdout.write(renderHelp());
+  try {
+    if (config.positionals.length === 0) {
+      stdout.write(renderHelp());
+      return EXIT_CODES.SUCCESS;
+    }
+
+    if (config.help) {
+      const [group] = config.positionals;
+      const renderCommandHelp = (deps.commandHelpRenderers ?? commandHelpRenderers)[group];
+
+      stdout.write(renderCommandHelp ? renderCommandHelp() : renderHelp());
+      return EXIT_CODES.SUCCESS;
+    }
+
+    const [group, ...args] = config.positionals;
+    const handler = (deps.commandHandlers ?? commandHandlers)[group];
+
+    if (!handler) {
+      throw new UsageError(`Unknown command group: ${group}`);
+    }
+
+    const createClient = deps.createClient ?? createModlyApiClient;
+    const client = createClient({ apiUrl: config.apiUrl });
+    const result = await handler({
+      config,
+      args,
+      client,
+      cwd: deps.cwd ?? process.cwd(),
+      env,
+      platform: deps.platform ?? process.platform,
+      stageGitHubExtension: deps.stageGitHubExtension,
+      applyStagedExtension: deps.applyStagedExtension,
+      configureStagedExtension: deps.configureStagedExtension,
+      repairStagedExtension: deps.repairStagedExtension,
+      reconcileLatestSetupRun: deps.reconcileLatestSetupRun,
+      tmpdir: deps.tmpdir,
+      spawnImpl: deps.spawnImpl,
+      isProcessAlive: deps.isProcessAlive,
+      now: deps.now,
+    });
+
+    emitSuccess(result, config, { stdout });
     return EXIT_CODES.SUCCESS;
+  } catch (error) {
+    const normalized = normalizeError(error);
+
+    if (config.json || deps.captureErrors === true) {
+      emitError(normalized, config, { stdout, stderr });
+      return normalized.exitCode ?? EXIT_CODES.FAILURE;
+    }
+
+    throw normalized;
   }
-
-  if (config.help) {
-    const [group] = config.positionals;
-    const renderCommandHelp = (deps.commandHelpRenderers ?? commandHelpRenderers)[group];
-
-    stdout.write(renderCommandHelp ? renderCommandHelp() : renderHelp());
-    return EXIT_CODES.SUCCESS;
-  }
-
-  const [group, ...args] = config.positionals;
-  const handler = (deps.commandHandlers ?? commandHandlers)[group];
-
-  if (!handler) {
-    throw new UsageError(`Unknown command group: ${group}`);
-  }
-
-  const createClient = deps.createClient ?? createModlyApiClient;
-  const client = createClient({ apiUrl: config.apiUrl });
-  const result = await handler({
-    config,
-    args,
-    client,
-    cwd: deps.cwd ?? process.cwd(),
-    env,
-    platform: deps.platform ?? process.platform,
-    stageGitHubExtension: deps.stageGitHubExtension,
-    applyStagedExtension: deps.applyStagedExtension,
-    configureStagedExtension: deps.configureStagedExtension,
-    repairStagedExtension: deps.repairStagedExtension,
-    reconcileLatestSetupRun: deps.reconcileLatestSetupRun,
-    tmpdir: deps.tmpdir,
-    spawnImpl: deps.spawnImpl,
-    isProcessAlive: deps.isProcessAlive,
-    now: deps.now,
-  });
-
-  emitSuccess(result, config, { stdout });
-  return EXIT_CODES.SUCCESS;
 }
 
 async function runCliEntrypoint() {

@@ -16,6 +16,7 @@ Grupos disponibles:
   job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
   ext <subcomando>          reload | errors | stage github | apply | setup | setup-status | repair
+  ext-dev <subcomando>      bucket-detect | preflight | scaffold | audit | release-plan
   config <subcomando>       paths get | paths set | launcher locate | launcher open
 
 Nota launcher:
@@ -27,7 +28,7 @@ Flags globales:
   -h, --help                Muestra esta ayuda
 
 Estado del bootstrap:
-  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, ext y config ya son funcionales
+  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, ext, ext-dev y config ya son funcionales
   - workflow-run y process-run son las superficies run principales y canónicas para recovery/polling
   - modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.
   - generate/job se mantienen como compatibilidad observable actual
@@ -37,6 +38,7 @@ Estado del bootstrap:
   - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; la resiliencia por PIP_* puede ser parcial o nula si setup.py ignora esas variables o hace descargas propias; requiere consentimiento explícito porque ejecuta código de terceros.
   - ext setup-status             Lee SOLO el journal del target instalado del último setup observable; no reatacha, no cancela y no es job control general.
   - ext repair                   Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige. NO hace fetch GitHub, install, build ni health-fix general.
+  - ext-dev                      Planner local plan-only visible en V1; /health opcional solo con evidencia backend y bridge opcional solo para confirmación/colisión.
 `;
 }
 
@@ -206,6 +208,28 @@ Notas:
   - ext repair puede disparar setup live-target si el stage lo exige.
   - NO hace fetch GitHub, install, build ni health-fix general.
   - No expone capability MCP estable ni hace install/apply headless desde GitHub.
+`;
+}
+
+export function renderExtDevHelp() {
+  return `modly ext-dev — surface CLI de planificación observable
+
+Uso:
+  modly ext-dev bucket-detect [--api-url <url>] [--json]
+  modly ext-dev preflight [--api-url <url>] [--json]
+  modly ext-dev scaffold [--api-url <url>] [--json]
+  modly ext-dev audit [--api-url <url>] [--json]
+  modly ext-dev release-plan [--api-url <url>] [--json]
+
+Resumen:
+  bucket-detect | preflight | scaffold | audit | release-plan
+
+Subcomandos disponibles:
+  bucket-detect              Plan-only; surface contractual visible
+  preflight                  Plan-only; validación local con chequeo opcional de /health
+  scaffold                   Plan-only; plan de implementación no ejecutable por bucket
+  audit                      Plan-only; gaps/riesgos con confirmación bridge opcional
+  release-plan               Plan-only; checklist ordenado de release y documentación
 `;
 }
 

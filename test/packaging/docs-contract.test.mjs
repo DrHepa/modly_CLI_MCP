@@ -21,6 +21,7 @@ const globalDoc = readText('docs/install/global.md');
 const repoLocalDoc = readText('docs/install/repo-local.md');
 const mvpSpec = readText('docs/specs/modly-cli-mvp.md');
 const operatorSkill = readText('skills/modly-operator/SKILL.md');
+const plannerSkill = readText('skills/modly-extension-planner/SKILL.md');
 const template = readJson('templates/opencode/opencode.json');
 
 function assertExperimentalRecipeContract(name, content) {
@@ -112,6 +113,54 @@ test('docs and README stay aligned with supported global and repo-local flows', 
   assertExecutionSurfaceTaxonomy('docs/specs/modly-cli-mvp.md', mvpSpec);
 });
 
+test('README and MVP spec separate ext runtime from ext-dev planning in V1', () => {
+  for (const [name, content] of [
+    ['README.md', readme],
+    ['docs/specs/modly-cli-mvp.md', mvpSpec],
+  ]) {
+    assert.match(content, /`ext-dev`/u, `${name} must mention ext-dev explicitly`);
+    assert.match(content, /plan-only/iu, `${name} must describe ext-dev as plan-only`);
+    assert.match(content, /manifest\.json/u, `${name} must document manifest.json-only scope for V1`);
+    assert.match(content, /model-simple/u, `${name} must document the model-simple bucket`);
+    assert.match(content, /model-managed-setup/u, `${name} must document the model-managed-setup bucket`);
+    assert.match(content, /process-extension/u, `${name} must document the process-extension bucket`);
+    assert.match(content, /resolution/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /implementation_profile/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /setup_contract/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /support_state/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /surface_owner/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /headless_eligible/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /linux_arm64_risk/u, `${name} must mention mandatory metadata keys`);
+    assert.match(content, /does \*\*not\*\* install, build, release, or repair|does not install, build, release, or repair|no instala, build, release ni repair/u, `${name} must keep ext-dev strictly plan-only`);
+    assert.match(content, /FastAPI/u, `${name} must mention FastAPI boundaries`);
+    assert.match(content, /Electron/u, `${name} must mention Electron boundaries`);
+  }
+
+  assert.match(readme, /`ext`.*runtime|runtime.*`ext`/isu, 'README.md must describe ext as the runtime-oriented surface');
+  assert.match(mvpSpec, /`ext`.*runtime|runtime.*`ext`/isu, 'docs/specs/modly-cli-mvp.md must describe ext as the runtime-oriented surface');
+  assert.match(readme, /`bucket-detect`/u, 'README.md must document ext-dev commands');
+  assert.match(readme, /`preflight`/u, 'README.md must document ext-dev commands');
+  assert.match(readme, /`scaffold`/u, 'README.md must document ext-dev commands');
+  assert.match(readme, /`audit`/u, 'README.md must document ext-dev commands');
+  assert.match(readme, /`release-plan`/u, 'README.md must document ext-dev commands');
+});
+
 test('operator skill documents the same experimental recipe opt-in contract', () => {
   assertExperimentalRecipeContract('skills/modly-operator/SKILL.md', operatorSkill);
+});
+
+test('modly extension planner skill stays aligned and registered in repo guidance', () => {
+  assert.match(plannerSkill, /^---\nname: modly-extension-planner/um, 'planner skill must define frontmatter name');
+  assert.match(plannerSkill, /Trigger:/u, 'planner skill must document trigger text');
+  assert.match(plannerSkill, /plan-only/iu, 'planner skill must keep V1 plan-only');
+  assert.match(plannerSkill, /manifest\.json/u, 'planner skill must document manifest.json-only scope');
+  assert.match(plannerSkill, /model-simple/u, 'planner skill must document bucket heuristics');
+  assert.match(plannerSkill, /model-managed-setup/u, 'planner skill must document bucket heuristics');
+  assert.match(plannerSkill, /process-extension/u, 'planner skill must document bucket heuristics');
+  assert.match(plannerSkill, /resolution/u, 'planner skill must document mandatory metadata');
+  assert.match(plannerSkill, /surface_owner/u, 'planner skill must document mandatory metadata');
+  assert.match(plannerSkill, /JSON/u, 'planner skill must prefer JSON output');
+  assert.match(plannerSkill, /FastAPI/u, 'planner skill must mention FastAPI boundaries');
+  assert.match(plannerSkill, /Electron/u, 'planner skill must mention Electron boundaries');
+  assert.match(readme, /modly-extension-planner/u, 'README.md must register the new planner skill in repo guidance');
 });

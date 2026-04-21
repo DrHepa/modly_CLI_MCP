@@ -23,7 +23,47 @@ This repository keeps the operational automation layer **outside** the upstream 
 - `workflow-run`
 - `mesh`
 - `ext`
+- `ext-dev`
 - `config`
+
+`ext` is the runtime-oriented extension surface.
+`ext-dev` is the V1 plan-only extension development surface.
+
+## `ext-dev` planning contract (V1)
+
+`modly ext-dev` analyzes a **local** extension workspace and emits planning evidence only. It does **not** install, build, release, or repair, and it does not mutate runtime state.
+
+### Command purpose
+
+- `bucket-detect` — classify the workspace into one planning bucket and emit mandatory metadata
+- `preflight` — validate workspace boundaries and optionally attach FastAPI readiness evidence
+- `scaffold` — emit a non-executing implementation plan
+- `audit` — report risks, gaps, and optional bridge confirmation/collision evidence
+- `release-plan` — emit an ordered release checklist without publishing anything
+
+### Scope and heuristics
+
+- V1 supports `manifest.json` only
+- `model-simple` when the manifest has no `setup` or `process` object
+- `model-managed-setup` when the manifest declares `setup`
+- `process-extension` when the manifest declares `process`
+
+### Mandatory metadata in every plan
+
+- `resolution`
+- `implementation_profile`
+- `setup_contract`
+- `support_state`
+- `surface_owner`
+- `headless_eligible`
+- `linux_arm64_risk`
+
+### Boundary limits
+
+- FastAPI-backed evidence stays limited to readiness/business-operation boundaries
+- Electron owns setup, workflow, install/repair, and live extension operations
+- planned identity stays separate from live identity confirmation
+- V1 stays plan-only even when optional FastAPI or bridge checks are available
 
 ### Default public MCP catalog
 
@@ -136,6 +176,7 @@ The public contract is an observable envelope with `recipe`, `status`, `steps`, 
 │   └── specs/
 ├── skills/
 │   └── modly-operator/
+│   └── modly-extension-planner/
 ├── src/
 │   ├── cli/
 │   ├── core/
@@ -156,8 +197,16 @@ These commands are for **developing this source repository**, not for consumer-p
 ```bash
 node src/cli/index.mjs --help
 node src/mcp/server.mjs --help
-node --test test/core/modly-api.test.mjs test/cli/workflow-run.test.mjs test/mcp/*.test.mjs
+npm run test
+npm run coverage
+npm run lint
+npm run type-check
 ```
+
+## Reusable AI skills in this repo
+
+- `skills/modly-operator/SKILL.md` — headless/runtime Modly operating guidance
+- `skills/modly-extension-planner/SKILL.md` — `ext-dev` planning guidance for local `manifest.json` workspaces
 
 ## Installable usage
 

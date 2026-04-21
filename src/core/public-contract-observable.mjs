@@ -5,6 +5,7 @@ const DEFAULT_LOCAL_ENV_PATH = 'tools/_tmp/modly_mcp/local.env';
 const DEFAULT_GLOBAL_COMMAND = ['modly-mcp'];
 const DEFAULT_RECIPE_TOOL_ID = 'modly.recipe.execute';
 const DEFAULT_RECIPE_FLAG = 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE';
+const DOCUMENTATION_OPTIONAL_CLI_GROUPS = new Set(['ext-dev']);
 const WRAPPER_ENV_PATH_FRAGMENTS = ["'tools'", "'_tmp'", "'modly_mcp'", "'local.env'"];
 const CANONICAL_RECOVERY_SURFACES = Object.freeze({
   cliGroups: Object.freeze(['workflow-run', 'process-run']),
@@ -86,6 +87,10 @@ function extractHelpGroups(helpText) {
 function difference(expected, actual) {
   const actualSet = new Set(actual);
   return expected.filter((value) => !actualSet.has(value));
+}
+
+function filterDocumentationCliGroups(groups) {
+  return groups.filter((group) => !DOCUMENTATION_OPTIONAL_CLI_GROUPS.has(group));
 }
 
 function extractInlineCodeTokens(markdown) {
@@ -348,7 +353,7 @@ export function detectDocumentationContractDrift({
 }) {
   const drifts = [];
   const readmeTokens = extractInlineCodeTokens(readmeText);
-  const missingReadmeGroups = difference(observableContract.cliGroups, readmeTokens);
+  const missingReadmeGroups = difference(filterDocumentationCliGroups(observableContract.cliGroups), readmeTokens);
 
   if (missingReadmeGroups.length > 0) {
     drifts.push({
@@ -515,7 +520,7 @@ export function detectDocumentationContractDrift({
 
   if (typeof mvpSpecText === 'string') {
     const specTokens = extractInlineCodeTokens(mvpSpecText);
-    const missingSpecGroups = difference(observableContract.cliGroups, specTokens);
+    const missingSpecGroups = difference(filterDocumentationCliGroups(observableContract.cliGroups), specTokens);
 
     if (missingSpecGroups.length > 0) {
       drifts.push({

@@ -28,9 +28,51 @@ This spec covers the visible contract exposed by the shipped package binaries, t
 - `workflow-run`
 - `mesh`
 - `ext`
+- `ext-dev`
 - `config`
 
 These groups are the current observable top-level CLI contract. The CLI help is the canonical human-facing reference for their currently supported subcommands.
+
+`ext` is the runtime-oriented extension surface.
+`ext-dev` is the V1 plan-only extension development surface.
+
+## `ext-dev` planning contract (V1)
+
+`modly ext-dev` provides local, plan-only analysis for extension workspaces. It does **not** install, build, release, or repair, and it never claims Electron-only runtime behavior is available headlessly.
+
+### Command purpose
+
+- `bucket-detect` classifies the workspace and returns planning metadata
+- `preflight` validates workspace boundaries and may attach FastAPI readiness evidence after `GET /health`
+- `scaffold` emits a non-executing implementation plan
+- `audit` reports gaps, risks, and optional bridge confirmation/collision evidence
+- `release-plan` emits an ordered release checklist without publishing anything
+
+### Scope and bucket heuristics
+
+- V1 supports `manifest.json` only
+- `model-simple` when the manifest has neither `setup` nor `process`
+- `model-managed-setup` when the manifest declares `setup`
+- `process-extension` when the manifest declares `process`
+
+### Mandatory metadata
+
+Every `ext-dev` plan returns:
+
+- `resolution`
+- `implementation_profile`
+- `setup_contract`
+- `support_state`
+- `surface_owner`
+- `headless_eligible`
+- `linux_arm64_risk`
+
+### Boundary limits
+
+- FastAPI evidence is optional and bounded by readiness checks before backend-backed business operations
+- Electron owns setup, workflow, install/repair, and other live extension operations
+- bridge confirmation is optional and only confirms/collides with live identity; it does not replace planned identity
+- V1 remains plan-only even when FastAPI or bridge evidence is available
 
 ## Default public MCP catalog
 

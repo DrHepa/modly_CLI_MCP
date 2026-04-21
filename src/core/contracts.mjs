@@ -21,6 +21,7 @@ export const COMMAND_GROUPS = Object.freeze([
   'workflow-run',
   'mesh',
   'ext',
+  'ext-dev',
   'config',
 ]);
 
