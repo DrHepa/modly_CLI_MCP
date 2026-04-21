@@ -1,10 +1,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import {
   resolveAutomationCapabilitiesUrl,
   resolveProcessRunsUrl,
+  resolveRecipeWorkflowCatalogDir,
   resolveRuntimeConfig,
 } from '../../src/core/config.mjs';
+
+test('resolveRecipeWorkflowCatalogDir returns null when the configured directory is missing or empty', () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'modly-workflow-catalog-config-'));
+  const missingDir = path.join(tempRoot, 'missing');
+  const emptyDir = path.join(tempRoot, 'empty');
+
+  try {
+    mkdirSync(emptyDir);
+
+    assert.equal(resolveRecipeWorkflowCatalogDir({ catalogDir: missingDir }), null);
+    assert.equal(resolveRecipeWorkflowCatalogDir({ catalogDir: emptyDir }), null);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('resolveRuntimeConfig enables workflow catalog discovery only for non-empty explicit directories', () => {
+  const fixtureDir = path.resolve('test/fixtures/workflow-recipes');
+
+  const enabled = resolveRuntimeConfig({
+    argv: [],
+    env: { MODLY_RECIPE_WORKFLOW_CATALOG_DIR: fixtureDir },
+  });
+  const disabled = resolveRuntimeConfig({
+    argv: [],
+    env: { MODLY_RECIPE_WORKFLOW_CATALOG_DIR: '   ' },
+  });
+
+  assert.equal(enabled.recipeWorkflowCatalogDir, fixtureDir);
+  assert.equal(disabled.recipeWorkflowCatalogDir, null);
+});
 
 test('resolveAutomationCapabilitiesUrl gives precedence to MODLY_AUTOMATION_URL', () => {
   const result = resolveAutomationCapabilitiesUrl({

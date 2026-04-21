@@ -204,6 +204,13 @@ function sanitizeValue({ schema, value, path, toolName }) {
       );
     }
 
+    if (schema.pattern !== undefined && !(new RegExp(schema.pattern, 'u').test(trimmed))) {
+      throw toValidationError(
+        `${path} must match pattern: ${schema.pattern}.`,
+        createValidationDetails({ path, toolName, reason: 'pattern_no_match', pattern: schema.pattern, received: trimmed }),
+      );
+    }
+
     applyEnumConstraint({ schema, value: trimmed, path, toolName });
 
     return trimmed;

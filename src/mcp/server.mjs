@@ -120,6 +120,7 @@ async function main(argv = process.argv.slice(2)) {
   const registry = createToolRegistry({
     apiUrl: config.apiUrl,
     experimentalRecipeExecution: config.experimentalRecipeExecution,
+    recipeWorkflowCatalogDir: config.recipeWorkflowCatalogDir,
   });
   const server = createMcpServer({ registry });
   const transport = new StdioServerTransport();

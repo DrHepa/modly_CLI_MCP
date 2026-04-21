@@ -6,6 +6,7 @@ export const PREFLIGHT_EXEMPT_TOOLS = new Set([
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.recipe.catalog',
   'modly.health',
 ]);
 

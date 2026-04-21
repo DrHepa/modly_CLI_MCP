@@ -11,9 +11,19 @@ import {
 
 export { OPEN_INPUT_PATH_ALLOWLIST, matchesOpenInputPath } from './internal/registry-validation.mjs';
 
-export function createToolRegistry({ apiUrl, experimentalRecipeExecution = false }) {
+export function createToolRegistry({
+  apiUrl,
+  experimentalRecipeExecution = false,
+  recipeWorkflowCatalogDir = null,
+  resolveDerivedRecipeSnapshotForExecution,
+}) {
   const client = createModlyApiClient({ apiUrl });
-  const handlers = createToolHandlers({ client, apiUrl });
+  const handlers = createToolHandlers({
+    client,
+    apiUrl,
+    recipeWorkflowCatalogDir,
+    resolveDerivedRecipeSnapshotForExecution,
+  });
   const catalogByName = new Map(MCP_TOOL_CATALOG.map((tool) => [tool.name, tool]));
   const publicCatalog = createPublicCatalog({ catalog: MCP_TOOL_CATALOG, experimentalRecipeExecution });
 

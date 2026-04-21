@@ -1,0 +1,41 @@
+{
+  "name": "Recipe Hunyuan3d / Template",
+  "nodes": [
+    {
+      "id": "image-input",
+      "type": "imageNode",
+      "data": {
+        "label": "Input image"
+      }
+    },
+    {
+      "id": "generate",
+      "type": "hunyuan3d-mini/generate",
+      "data": {
+        "modelId": "hunyuan3d-mini"
+      }
+    },
+    {
+      "id": "optimize",
+      "type": "mesh-optimizer/optimize"
+    },
+    {
+      "id": "export",
+      "type": "mesh-exporter/export"
+    }
+  ],
+  "edges": [
+    {
+      "from": "image-input",
+      "to": "generate"
+    },
+    {
+      "from": "generate",
+      "to": "optimize"
+    },
+    {
+      "from": "optimize",
+      "to": "export"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ const EXPECTED_TOOLS = [
 
 const EXPECTED_TOOLS_WITH_EXPERIMENTAL_RECIPE = [
   ...EXPECTED_TOOLS.slice(0, 5),
+  'modly.recipe.catalog',
   'modly.recipe.execute',
   ...EXPECTED_TOOLS.slice(5),
 ];

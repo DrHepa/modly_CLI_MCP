@@ -1,5 +1,7 @@
 import { DEFAULT_API_URL } from './contracts.mjs';
 import { UsageError } from './errors.mjs';
+import path from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
 
 export function resolveAutomationCapabilitiesUrl({ apiUrl = DEFAULT_API_URL, automationUrl } = {}) {
   const url = new URL(automationUrl ?? apiUrl);
@@ -49,6 +51,28 @@ function resolveExperimentalRecipeExecutionFlag(value) {
       return true;
     default:
       return false;
+  }
+}
+
+export function resolveRecipeWorkflowCatalogDir({ catalogDir } = {}) {
+  if (typeof catalogDir !== 'string' || catalogDir.trim() === '') {
+    return null;
+  }
+
+  const resolvedDir = path.resolve(catalogDir.trim());
+
+  try {
+    if (!statSync(resolvedDir).isDirectory()) {
+      return null;
+    }
+
+    const hasJsonWorkflow = readdirSync(resolvedDir, { withFileTypes: true }).some(
+      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json'),
+    );
+
+    return hasJsonWorkflow ? resolvedDir : null;
+  } catch {
+    return null;
   }
 }
 
@@ -107,5 +131,8 @@ export function resolveRuntimeConfig({
     positionals,
     experimentalRecipeExecution:
       experimentalRecipeExecution ?? resolveExperimentalRecipeExecutionFlag(env.MODLY_EXPERIMENTAL_RECIPE_EXECUTE),
+    recipeWorkflowCatalogDir: resolveRecipeWorkflowCatalogDir({
+      catalogDir: env.MODLY_RECIPE_WORKFLOW_CATALOG_DIR,
+    }),
   };
 }

@@ -68,6 +68,7 @@ const EXPECTED_EXPERIMENTAL_PUBLIC_TOOLS = [
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.recipe.catalog',
   'modly.recipe.execute',
   'modly.health',
   'modly.model.list',
@@ -274,6 +275,7 @@ test('buildObservableContract includes recipe execution only in the opt-in publi
   });
 
   assert.deepEqual(observableContract.mcp.defaultPublicToolIds, EXPECTED_EXPERIMENTAL_PUBLIC_TOOLS);
+  assert.equal(observableContract.mcp.defaultPublicToolIds.includes('modly.recipe.catalog'), true);
   assert.equal(observableContract.mcp.defaultPublicToolIds.includes('modly.recipe.execute'), true);
 });
 
@@ -508,6 +510,8 @@ test('MCP tool catalog uses taxonomy wording for canonical runs, wrappers, and l
   assert.match(capabilityExecuteTool.description, /orchestration wrapper/iu);
   assert.match(capabilityExecuteTool.description, /canonical recovery surface/iu);
   assert.match(recipeExecuteTool.description, /experimental orchestration wrapper/iu);
+  assert.match(recipeExecuteTool.description, /validated workflow\/\* derived snapshot/iu);
+  assert.doesNotMatch(recipeExecuteTool.description, /arbitrary DAG execution/iu);
   assert.match(jobStatusTool.description, /legacy compatibility surface/iu);
 });
 

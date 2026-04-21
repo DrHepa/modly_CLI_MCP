@@ -1,0 +1,38 @@
+{
+  "name": "Recipe TripoSG / Template",
+  "nodes": [
+    {
+      "id": "image-input",
+      "type": "imageNode"
+    },
+    {
+      "id": "prompt",
+      "type": "textNode",
+      "data": {
+        "value": "make it glossy"
+      }
+    },
+    {
+      "id": "generate",
+      "type": "triposg/generate"
+    },
+    {
+      "id": "export",
+      "type": "mesh-exporter/export"
+    }
+  ],
+  "edges": [
+    {
+      "from": "image-input",
+      "to": "generate"
+    },
+    {
+      "from": "prompt",
+      "to": "generate"
+    },
+    {
+      "from": "generate",
+      "to": "export"
+    }
+  ]
+}

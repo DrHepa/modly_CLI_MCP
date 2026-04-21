@@ -41,6 +41,7 @@ test('EXECUTION_SURFACE_TAXONOMY keeps every visible execution surface in exactl
   assert.equal(allMcpToolIds.includes('modly.capability.plan'), false);
   assert.equal(allMcpToolIds.includes('modly.capability.guide'), false);
   assert.equal(allMcpToolIds.includes('modly.diagnostic.guidance'), false);
+  assert.equal(allMcpToolIds.includes('modly.recipe.catalog'), false);
 });
 
 test('PRIVATE_EXTENSION_CLI_SEAMS documents setup as CLI-only and absent from the stable public taxonomy', () => {

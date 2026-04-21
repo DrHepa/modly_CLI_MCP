@@ -1,17 +1,17 @@
 import { ModlyError } from '../../../core/errors.mjs';
 
-const EXPERIMENTAL_RECIPE_TOOL = 'modly.recipe.execute';
+const EXPERIMENTAL_RECIPE_TOOLS = new Set(['modly.recipe.catalog', 'modly.recipe.execute']);
 const EXPERIMENTAL_RECIPE_FLAG = 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE';
 
 function isExperimentalRecipeDisabled({ name, experimentalRecipeExecution }) {
-  return name === EXPERIMENTAL_RECIPE_TOOL && experimentalRecipeExecution !== true;
+  return EXPERIMENTAL_RECIPE_TOOLS.has(name) && experimentalRecipeExecution !== true;
 }
 
-function createExperimentalRecipeDisabledError() {
-  return new ModlyError(`${EXPERIMENTAL_RECIPE_TOOL} requires explicit opt-in.`, {
+function createExperimentalRecipeDisabledError(name) {
+  return new ModlyError(`${name} requires explicit opt-in.`, {
     code: 'EXPERIMENTAL_FEATURE_DISABLED',
     details: {
-      tool: EXPERIMENTAL_RECIPE_TOOL,
+      tool: name,
       flag: EXPERIMENTAL_RECIPE_FLAG,
       reason: 'experimental_feature_disabled',
     },
@@ -29,5 +29,5 @@ export function ensureToolEnabled({ name, experimentalRecipeExecution }) {
     return;
   }
 
-  throw createExperimentalRecipeDisabledError();
+  throw createExperimentalRecipeDisabledError(name);
 }

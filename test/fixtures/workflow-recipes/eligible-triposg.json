@@ -1,0 +1,52 @@
+{
+  "name": "Recipe TripoSG / Template",
+  "nodes": [
+    {
+      "id": "image-input",
+      "type": "imageNode",
+      "data": {
+        "label": "Input image"
+      }
+    },
+    {
+      "id": "generate",
+      "type": "triposg/generate",
+      "data": {
+        "modelId": "triposg"
+      }
+    },
+    {
+      "id": "optimize",
+      "type": "mesh-optimizer/optimize"
+    },
+    {
+      "id": "export",
+      "type": "mesh-exporter/export"
+    },
+    {
+      "id": "preview",
+      "type": "outputNode",
+      "data": {
+        "label": "Preview mesh"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "image-input",
+      "to": "generate"
+    },
+    {
+      "from": "generate",
+      "to": "optimize"
+    },
+    {
+      "from": "optimize",
+      "to": "export"
+    },
+    {
+      "from": "generate",
+      "to": "preview"
+    }
+  ]
+}

@@ -23,6 +23,7 @@ import {
   resolveRecipeRuntime,
   updateRecipeStepFromRun,
 } from './recipe-runtime.mjs';
+import { resolveDerivedRecipeSnapshotForExecution as resolveDerivedRecipeSnapshotForExecutionDefault } from './workflow-recipe-catalog.mjs';
 
 const EXPORTER_PROCESS_ID = 'mesh-exporter/export';
 
@@ -127,9 +128,32 @@ async function pollRecipeStepRun(modlyClient, recipeRuntime, step) {
   return updateRecipeStepFromRun(step, stepDefinition, toProcessRun(runId, response));
 }
 
-export function createRecipeExecuteHandler(modlyClient) {
+function isWorkflowRecipeId(recipe) {
+  return typeof recipe === 'string' && recipe.trim().startsWith('workflow/');
+}
+
+async function resolveRecipeForExecution(recipe, {
+  recipeWorkflowCatalogDir,
+  resolveDerivedRecipeSnapshotForExecution,
+}) {
+  if (isWorkflowRecipeId(recipe)) {
+    return resolveDerivedRecipeSnapshotForExecution(recipe, { catalogDir: recipeWorkflowCatalogDir });
+  }
+
+  return recipe;
+}
+
+export function createRecipeExecuteHandler(modlyClient, {
+  recipeWorkflowCatalogDir = null,
+  resolveDerivedRecipeSnapshotForExecution = resolveDerivedRecipeSnapshotForExecutionDefault,
+} = {}) {
   return async function recipeExecuteHandler({ recipe, input, options }) {
-    const recipeRuntime = resolveRecipeRuntime(recipe);
+    const resolvedRecipe = await resolveRecipeForExecution(recipe, {
+      recipeWorkflowCatalogDir,
+      resolveDerivedRecipeSnapshotForExecution,
+    });
+    const recipeRuntime = resolveRecipeRuntime(resolvedRecipe);
+    const recipeId = recipeRuntime.id;
     const recipeInput = normalizeGuidedRecipeInput(recipeRuntime, input);
     const resume = parseRecipeResume(options?.resume);
     const { health, capabilities } = await prepareAutomationContext(modlyClient);
@@ -143,7 +167,7 @@ export function createRecipeExecuteHandler(modlyClient) {
         ? activeStepIndex
         : Math.max(steps.findIndex((step) => step.status === 'pending'), 0);
       markRecipeStepBoundaryFailure(steps, fallbackStepIndex, error);
-      return buildRecipeResult({ recipe, input: recipeInput, steps });
+      return buildRecipeResult({ recipe: recipeId, recipeRuntime, input: recipeInput, steps });
     }
 
     if (activeStepIndex >= 0) {
@@ -168,17 +192,17 @@ export function createRecipeExecuteHandler(modlyClient) {
         }
       }
 
-      return buildRecipeResult({ recipe, input: recipeInput, steps });
+      return buildRecipeResult({ recipe: recipeId, recipeRuntime, input: recipeInput, steps });
     }
 
     if (steps.some((step) => step.status === 'failed' || step.status === 'partial_failed' || step.status === 'cancelled')) {
-      return buildRecipeResult({ recipe, input: recipeInput, steps });
+      return buildRecipeResult({ recipe: recipeId, recipeRuntime, input: recipeInput, steps });
     }
 
     const nextPendingIndex = steps.findIndex((step) => step.status === 'pending');
 
     if (nextPendingIndex === -1) {
-      return buildRecipeResult({ recipe, input: recipeInput, steps });
+      return buildRecipeResult({ recipe: recipeId, recipeRuntime, input: recipeInput, steps });
     }
 
     try {
@@ -193,6 +217,6 @@ export function createRecipeExecuteHandler(modlyClient) {
       markRecipeStepBoundaryFailure(steps, nextPendingIndex, error);
     }
 
-    return buildRecipeResult({ recipe, input: recipeInput, steps });
+    return buildRecipeResult({ recipe: recipeId, recipeRuntime, input: recipeInput, steps });
   };
 }

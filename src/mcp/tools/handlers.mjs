@@ -18,6 +18,7 @@ import {
   createCapabilityExecuteHandler,
 } from './internal/capability-execute.mjs';
 import { createRecipeExecuteHandler } from './internal/recipe-executor.mjs';
+import { listDerivedRecipeCatalogEntries } from './internal/workflow-recipe-catalog.mjs';
 import {
   assertCanonicalModelId,
   dispatchProcessRun,
@@ -93,11 +94,23 @@ function summarizeDiagnosticGuidance(result) {
   return `Diagnostic guidance: ${result.status}/${result.category}/${result.confidence}.`;
 }
 
+function summarizeRecipeCatalog(recipes) {
+  return recipes.length === 0 ? 'Derived recipe catalog is empty.' : `Derived recipe catalog entries: ${recipes.length}.`;
+}
 
-export function createToolHandlers({ client, apiUrl } = {}) {
+
+export function createToolHandlers({
+  client,
+  apiUrl,
+  recipeWorkflowCatalogDir = null,
+  resolveDerivedRecipeSnapshotForExecution,
+} = {}) {
   const modlyClient = client ?? createModlyApiClient({ apiUrl });
   const capabilityExecuteHandler = createCapabilityExecuteHandler(modlyClient);
-  const recipeExecuteHandler = createRecipeExecuteHandler(modlyClient);
+  const recipeExecuteHandler = createRecipeExecuteHandler(modlyClient, {
+    recipeWorkflowCatalogDir,
+    ...(resolveDerivedRecipeSnapshotForExecution ? { resolveDerivedRecipeSnapshotForExecution } : {}),
+  });
 
   return {
     async 'modly.capabilities.get'() {
@@ -126,6 +139,11 @@ export function createToolHandlers({ client, apiUrl } = {}) {
     },
 
     'modly.capability.execute': capabilityExecuteHandler,
+
+    async 'modly.recipe.catalog'() {
+      const recipes = await listDerivedRecipeCatalogEntries(recipeWorkflowCatalogDir);
+      return { data: { recipes }, text: summarizeRecipeCatalog(recipes) };
+    },
 
     'modly.recipe.execute': recipeExecuteHandler,
 

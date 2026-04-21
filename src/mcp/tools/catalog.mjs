@@ -143,17 +143,20 @@ export const MCP_TOOL_CATALOG = [
     },
   },
   {
-    name: MCP_TOOL_IDS[31],
+    name: 'modly.recipe.catalog',
+    title: 'List Derived Recipe Catalog',
+    description: 'Experimental read-only catalog of validated workflow-backed recipe snapshots from MODLY_RECIPE_WORKFLOW_CATALOG_DIR; returns derived workflow/* entries only, with source metadata, and does not advertise built-ins or arbitrary DAG execution.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'modly.recipe.execute',
     title: 'Execute Guided Recipe',
-    description: 'Experimental orchestration wrapper that executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
+    description: 'Experimental orchestration wrapper that executes one built-in guided recipe or one validated workflow/* derived snapshot over existing workflow-run/process-run surfaces; fail-closed on raw DAG execution, drift, branching, retries, and hidden waits.',
     inputSchema: {
       type: 'object',
       required: ['recipe', 'input'],
       properties: {
-        recipe: {
-          type: 'string',
-          enum: ['image_to_mesh', 'image_to_mesh_optimized', 'image_to_mesh_exported'],
-        },
+        recipe: { type: 'string', pattern: '^(image_to_mesh|image_to_mesh_optimized|image_to_mesh_exported|workflow/[^\\s]+)$' },
         input: { type: 'object' },
         options: {
           type: 'object',

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { ValidationError } from '../../src/core/errors.mjs';
 import { OPEN_INPUT_PATH_ALLOWLIST, createToolRegistry, matchesOpenInputPath } from '../../src/mcp/tools/index.mjs';
 import { deriveRecipeStatusFromSteps } from '../../src/mcp/tools/handlers.mjs';
 
@@ -182,12 +184,15 @@ function getRecipeResume(result) {
   return result.structuredContent.data.nextAction.input.options.resume;
 }
 
-function createRecipeRegistry() {
+function createRecipeRegistry(overrides = {}) {
   return createToolRegistry({
     apiUrl: 'http://127.0.0.1:8765',
     experimentalRecipeExecution: true,
+    ...overrides,
   });
 }
+
+const WORKFLOW_RECIPE_FIXTURES_DIR = path.resolve('test/fixtures/workflow-recipes');
 
 test('registry catalog exposes modly.capabilities.get with empty input schema', () => {
   const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
@@ -373,6 +378,26 @@ test('registry catalog hides modly.recipe.execute by default when experimental e
   assert.equal(tool, undefined);
 });
 
+test('registry catalog hides modly.recipe.catalog by default when experimental execution is disabled', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.recipe.catalog');
+
+  assert.equal(tool, undefined);
+});
+
+test('registry catalog exposes modly.recipe.catalog as a read-only derived seam when experimental execution is enabled', () => {
+  const registry = createRecipeRegistry();
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.recipe.catalog');
+
+  assert.deepEqual(tool, {
+    name: 'modly.recipe.catalog',
+    title: 'List Derived Recipe Catalog',
+    description:
+      'Experimental read-only catalog of validated workflow-backed recipe snapshots from MODLY_RECIPE_WORKFLOW_CATALOG_DIR; returns derived workflow/* entries only, with source metadata, and does not advertise built-ins or arbitrary DAG execution.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  });
+});
+
 test('registry catalog exposes modly.recipe.execute with closed recipe v1 polling-first wording when experimental execution is enabled', () => {
   const registry = createRecipeRegistry();
   const tool = registry.catalog.find((entry) => entry.name === 'modly.recipe.execute');
@@ -381,14 +406,14 @@ test('registry catalog exposes modly.recipe.execute with closed recipe v1 pollin
     name: 'modly.recipe.execute',
     title: 'Execute Guided Recipe',
     description:
-      'Experimental orchestration wrapper that executes one allowlisted guided recipe over existing capability, workflow-run, and process-run surfaces; polling-first via options.resume, with no free-form goals, branching, retries, or hidden waits.',
+      'Experimental orchestration wrapper that executes one built-in guided recipe or one validated workflow/* derived snapshot over existing workflow-run/process-run surfaces; fail-closed on raw DAG execution, drift, branching, retries, and hidden waits.',
     inputSchema: {
       type: 'object',
       required: ['recipe', 'input'],
       properties: {
         recipe: {
           type: 'string',
-          enum: ['image_to_mesh', 'image_to_mesh_optimized', 'image_to_mesh_exported'],
+          pattern: '^(image_to_mesh|image_to_mesh_optimized|image_to_mesh_exported|workflow/[^\\s]+)$',
         },
         input: { type: 'object' },
         options: {
@@ -402,6 +427,197 @@ test('registry catalog exposes modly.recipe.execute with closed recipe v1 pollin
       additionalProperties: false,
     },
   });
+});
+
+test('modly.recipe.execute resolves workflow/* ids from the derived catalog and launches only canonical workflow runs', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-recipe-execute-derived-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  await writeFile(
+    path.join(directory, 'eligible-hunyuan.json'),
+    readFileSync(path.join(WORKFLOW_RECIPE_FIXTURES_DIR, 'eligible-hunyuan.json'), 'utf8'),
+  );
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [
+          {
+            id: 'hunyuan3d-mini',
+            name: 'Hunyuan3D Mini',
+            params_schema: [{ id: 'seed', type: 'integer' }],
+          },
+        ],
+        processes: [
+          { id: 'mesh-optimizer/optimize', name: 'Optimize Mesh', params_schema: [] },
+          { id: 'mesh-exporter/export', name: 'Mesh Exporter', params_schema: [] },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(method, 'POST');
+      const body = init.body;
+      assert.equal(body instanceof FormData, true);
+      assert.equal(body.get('model_id'), 'hunyuan3d-mini');
+      return jsonResponse({
+        run_id: 'derived-workflow-run-1',
+        status: 'queued',
+        progress: 0,
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createRecipeRegistry({ recipeWorkflowCatalogDir: directory });
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Guided recipe workflow/recipe-hunyuan3d-template: running.');
+  assert.equal(result.structuredContent.data.recipe, 'workflow/recipe-hunyuan3d-template');
+  assert.equal(result.structuredContent.data.limits.branching, false);
+  assert.equal(result.structuredContent.data.steps[0].run.runId, 'derived-workflow-run-1');
+  assert.equal(calls.filter((call) => call.method === 'POST' && call.path === '/workflow-runs/from-image').length, 1);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), false);
+});
+
+test('modly.recipe.execute fails closed for derived workflow drift before any workflowRun/processRun POST', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({ backend_ready: true, models: [], processes: [], errors: [] });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createRecipeRegistry({
+    recipeWorkflowCatalogDir: WORKFLOW_RECIPE_FIXTURES_DIR,
+    resolveDerivedRecipeSnapshotForExecution: async () => {
+      throw new ValidationError('Workflow-backed recipe workflow/recipe-hunyuan3d-template changed after catalog resolution; refresh modly.recipe.catalog before execution.', {
+        details: {
+          field: 'recipe',
+          reason: 'derived_recipe_drift',
+          recipe: 'workflow/recipe-hunyuan3d-template',
+        },
+      });
+    },
+  });
+
+  const result = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.reason, 'derived_recipe_drift');
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/workflow-runs/from-image'), false);
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), false);
+});
+
+test('modly.recipe.catalog returns only valid derived entries from the configured directory without backend preflight', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path }) => {
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-recipe-catalog-handler-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  for (const fileName of ['eligible-hunyuan.json', 'eligible-triposg.json', 'invalid-text-node.json', 'invalid-branch.json']) {
+    await writeFile(
+      path.join(directory, fileName),
+      readFileSync(path.join(WORKFLOW_RECIPE_FIXTURES_DIR, fileName), 'utf8'),
+    );
+  }
+
+  await writeFile(
+    path.join(directory, 'hidden.json'),
+    JSON.stringify({
+      name: 'Test_Uni',
+      nodes: [
+        { id: 'image-input', type: 'imageNode', data: {} },
+        { id: 'generate', type: 'triposg/generate', data: {} },
+      ],
+      edges: [{ from: 'image-input', to: 'generate' }],
+    }, null, 2),
+  );
+
+  const registry = createToolRegistry({
+    apiUrl: 'http://127.0.0.1:8765',
+    experimentalRecipeExecution: true,
+    recipeWorkflowCatalogDir: directory,
+  });
+  const result = await registry.invoke('modly.recipe.catalog', {});
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Derived recipe catalog entries: 2.');
+  assert.deepEqual(
+    result.structuredContent.data.recipes.map((entry) => ({
+      id: entry.id,
+      relativePath: entry.sourceWorkflow.relativePath,
+      kind: entry.kind,
+    })),
+    [
+      { id: 'workflow/recipe-hunyuan3d-template', relativePath: 'eligible-hunyuan.json', kind: 'derived' },
+      { id: 'workflow/recipe-triposg-template', relativePath: 'eligible-triposg.json', kind: 'derived' },
+    ],
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('modly.recipe.catalog fails closed to an empty list when the configured directory is missing', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+
+  const calls = installFetchStub(async ({ path }) => {
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({
+    apiUrl: 'http://127.0.0.1:8765',
+    experimentalRecipeExecution: true,
+    recipeWorkflowCatalogDir: path.join(os.tmpdir(), 'missing-modly-recipe-catalog-dir'),
+  });
+  const result = await registry.invoke('modly.recipe.catalog', {});
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Derived recipe catalog is empty.');
+  assert.deepEqual(result.structuredContent.data.recipes, []);
+  assert.equal(calls.length, 0);
 });
 
 test('modly.recipe.execute fails closed before validation, preflight, or handler work when experimental execution is disabled', { concurrency: false }, async (t) => {
@@ -1957,14 +2173,8 @@ test('modly.recipe.execute rejects recipes outside the closed v1 allowlist befor
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.ok, false);
   assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
-  assert.equal(result.structuredContent.error.details.tool, 'modly.recipe.execute');
   assert.equal(result.structuredContent.error.details.path, 'input.recipe');
-  assert.equal(result.structuredContent.error.details.reason, 'enum_no_match');
-  assert.deepEqual(result.structuredContent.error.details.expected, [
-    'image_to_mesh',
-    'image_to_mesh_optimized',
-    'image_to_mesh_exported',
-  ]);
+  assert.equal(result.structuredContent.error.details.reason, 'pattern_no_match');
   assert.equal(result.structuredContent.error.details.received, 'custom_goal');
   assert.equal(calls.length, 0);
 });

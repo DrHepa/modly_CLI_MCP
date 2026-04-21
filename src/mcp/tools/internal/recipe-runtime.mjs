@@ -14,6 +14,33 @@ const DEFAULT_POLL_INTERVAL_MS = 1000;
 const RECIPE_STEP_STATUSES = new Set(['pending', 'running', 'succeeded', 'failed', 'partial_failed', 'cancelled']);
 const RECIPE_STATUSES = new Set(['running', 'succeeded', 'failed', 'partial_failed', 'cancelled']);
 const RECIPE_RUN_KINDS = new Set(['workflowRun', 'processRun']);
+const DERIVED_RECIPE_STEP_ORDER = Object.freeze(['generate_mesh', 'optimize_mesh', 'export_mesh']);
+const DERIVED_RECIPE_STEP_DEFINITIONS = Object.freeze({
+  generate_mesh: Object.freeze({
+    id: 'generate_mesh',
+    title: 'Generate mesh from image',
+    capability: 'image_to_mesh',
+    surface: 'modly.workflowRun.createFromImage',
+    runKind: 'workflowRun',
+    statusTool: 'modly.workflowRun.status',
+  }),
+  optimize_mesh: Object.freeze({
+    id: 'optimize_mesh',
+    title: 'Optimize generated mesh',
+    capability: 'mesh-optimizer',
+    surface: 'modly.processRun.create',
+    runKind: 'processRun',
+    statusTool: 'modly.processRun.status',
+  }),
+  export_mesh: Object.freeze({
+    id: 'export_mesh',
+    title: 'Export generated mesh',
+    capability: 'mesh-exporter',
+    surface: 'modly.processRun.create',
+    runKind: 'processRun',
+    statusTool: 'modly.processRun.status',
+  }),
+});
 
 function deepFreeze(value) {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value)) {
@@ -125,6 +152,78 @@ function normalizeNonEmptyString(value) {
 
 function cloneIfObject(value) {
   return isObject(value) ? { ...value } : undefined;
+}
+
+export function isDerivedRecipeSnapshot(recipe) {
+  return isObject(recipe) && recipe.kind === 'derived' && normalizeNonEmptyString(recipe.id)?.startsWith('workflow/');
+}
+
+export function normalizeDerivedRecipeSnapshotSteps(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    throw new ValidationError('Derived recipe snapshot steps must be a non-empty array.', {
+      details: { field: 'recipe.steps', reason: 'invalid_derived_recipe_steps' },
+    });
+  }
+
+  const normalized = steps.map((step, index) => normalizeNonEmptyString(step));
+
+  if (normalized.some((stepId) => !stepId || !Object.hasOwn(DERIVED_RECIPE_STEP_DEFINITIONS, stepId))) {
+    throw new ValidationError('Derived recipe snapshot contains unsupported step ids.', {
+      details: { field: 'recipe.steps', reason: 'unsupported_derived_recipe_step', steps },
+    });
+  }
+
+  const deduped = new Set(normalized);
+
+  if (deduped.size !== normalized.length) {
+    throw new ValidationError('Derived recipe snapshot must not repeat step ids.', {
+      details: { field: 'recipe.steps', reason: 'duplicate_derived_recipe_step', steps: normalized },
+    });
+  }
+
+  const expected = DERIVED_RECIPE_STEP_ORDER.slice(0, normalized.length);
+
+  if (normalized.length > DERIVED_RECIPE_STEP_ORDER.length || normalized.some((stepId, index) => stepId !== expected[index])) {
+    throw new ValidationError('Derived recipe snapshot steps must follow the supported linear subset.', {
+      details: { field: 'recipe.steps', reason: 'invalid_derived_recipe_step_order', steps: normalized },
+    });
+  }
+
+  return normalized;
+}
+
+export function resolveDerivedRecipeRuntime(recipe) {
+  const recipeId = normalizeNonEmptyString(recipe.id);
+
+  if (!recipeId) {
+    throw new ValidationError('Derived recipe snapshot id must be a non-empty string.', {
+      details: { field: 'recipe.id', reason: 'invalid_derived_recipe_id' },
+    });
+  }
+
+  const steps = normalizeDerivedRecipeSnapshotSteps(recipe.steps);
+  const limits = {
+    ...(isObject(recipe.limits) ? recipe.limits : {}),
+    allowlisted: false,
+    pollingFirst: true,
+    branching: false,
+    automaticRetries: false,
+    maxNewRunsPerCall: 1,
+  };
+
+  if (steps.includes('export_mesh')) {
+    limits.exporterMode = 'default_output_only';
+  }
+
+  return deepFreeze({
+    id: recipeId,
+    kind: 'derived',
+    displayName: normalizeNonEmptyString(recipe.displayName) ?? recipeId,
+    modelId: normalizeNonEmptyString(recipe.modelId),
+    sourceWorkflow: cloneIfObject(recipe.sourceWorkflow),
+    steps: steps.map((stepId) => ({ ...DERIVED_RECIPE_STEP_DEFINITIONS[stepId] })),
+    limits,
+  });
 }
 
 function validateRecipeStepStatus(status, field) {
@@ -279,6 +378,10 @@ function normalizeRecipeStepPoll(poll, field) {
 }
 
 export function resolveRecipeRuntime(recipe) {
+  if (isDerivedRecipeSnapshot(recipe)) {
+    return resolveDerivedRecipeRuntime(recipe);
+  }
+
   const recipeId = normalizeNonEmptyString(recipe);
 
   if (!recipeId || !Object.hasOwn(RECIPE_V1_RUNTIME, recipeId)) {
@@ -436,7 +539,9 @@ export function normalizeGuidedRecipeInput(recipeRuntime, input) {
     modelParams: normalizeRecipeParams(input.modelParams, 'input.modelParams'),
   };
 
-  if (recipeRuntime.id === 'image_to_mesh_optimized') {
+  const stepIds = new Set(Array.isArray(recipeRuntime?.steps) ? recipeRuntime.steps.map((step) => step.id) : []);
+
+  if (stepIds.has('optimize_mesh')) {
     const optimize = input.optimize === undefined ? {} : normalizeRecipeParams(input.optimize, 'input.optimize');
     normalized.optimize = {
       ...(optimize.outputPath !== undefined ? { outputPath: optimize.outputPath } : {}),
@@ -444,12 +549,12 @@ export function normalizeGuidedRecipeInput(recipeRuntime, input) {
     };
   }
 
-  if (recipeRuntime.id === 'image_to_mesh_exported') {
+  if (stepIds.has('export_mesh')) {
     const exportInput = input.export === undefined ? {} : normalizeRecipeParams(input.export, 'input.export');
     const exportParams = normalizeRecipeParams(exportInput.params, 'input.export.params');
 
     if (Object.hasOwn(exportInput, 'outputPath')) {
-      throw new ValidationError('input.export.outputPath is unsupported for image_to_mesh_exported in this MVP.', {
+      throw new ValidationError(`input.export.outputPath is unsupported for ${recipeRuntime.id} in this MVP.`, {
         details: {
           field: 'input.export.outputPath',
           reason: 'unsupported_output_path_mvp',
@@ -459,7 +564,7 @@ export function normalizeGuidedRecipeInput(recipeRuntime, input) {
     }
 
     if (Object.hasOwn(exportParams, 'output_path') || Object.hasOwn(exportParams, 'outputPath')) {
-      throw new ValidationError('input.export.params.output_path is unsupported for image_to_mesh_exported in this MVP.', {
+      throw new ValidationError(`input.export.params.output_path is unsupported for ${recipeRuntime.id} in this MVP.`, {
         details: {
           field: Object.hasOwn(exportParams, 'output_path') ? 'input.export.params.output_path' : 'input.export.params.outputPath',
           reason: 'unsupported_output_path_mvp',
@@ -701,10 +806,10 @@ export function assertRecipeBackendReady({ health, capabilities, recipe }) {
   throw createRecipeBackendNotReadyError({ health, capabilities, recipe });
 }
 
-export function buildRecipeResult({ recipe, input, steps }) {
+export function buildRecipeResult({ recipe, recipeRuntime, input, steps }) {
   const status = deriveRecipeStatusFromSteps(steps);
   return {
-    data: buildRecipeEnvelope({ recipe, input, status, steps }),
+    data: buildRecipeEnvelope({ recipe, recipeRuntime, input, status, steps }),
     text: summarizeRecipeExecution(recipe, status),
   };
 }
@@ -884,7 +989,7 @@ function buildRecipeRunIds(steps) {
   return runIds;
 }
 
-export function buildRecipeEnvelope({ recipe, input, status, steps }) {
+export function buildRecipeEnvelope({ recipe, recipeRuntime, input, status, steps }) {
   const resolvedSteps = Array.isArray(steps) ? steps : [];
 
   return {
@@ -893,7 +998,7 @@ export function buildRecipeEnvelope({ recipe, input, status, steps }) {
     steps: resolvedSteps,
     runIds: buildRecipeRunIds(resolvedSteps),
     outputs: buildRecipeOutputs(resolvedSteps),
-    limits: buildRecipeLimits(recipe),
+    limits: buildRecipeLimits(recipeRuntime ?? recipe),
     nextAction: buildRecipeNextAction({ recipe, input, steps: resolvedSteps, status }),
   };
 }
