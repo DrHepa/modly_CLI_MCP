@@ -83,7 +83,9 @@ function normalizeNodes(nodes) {
     }
 
     const id = asNonEmptyString(node.id);
-    const type = asNonEmptyString(node.type);
+    const rawType = asNonEmptyString(node.type);
+    const extensionId = asNonEmptyString(node.data?.extensionId);
+    const type = rawType === 'extensionNode' ? extensionId : rawType;
 
     if (!id || !type) {
       throw toValidationError('Workflow node id and type must be non-empty strings.', {
@@ -128,8 +130,8 @@ function normalizeEdges(edges, nodeMap) {
       });
     }
 
-    const from = asNonEmptyString(edge.from);
-    const to = asNonEmptyString(edge.to);
+    const from = asNonEmptyString(edge.from) ?? asNonEmptyString(edge.source);
+    const to = asNonEmptyString(edge.to) ?? asNonEmptyString(edge.target);
 
     if (!from || !to) {
       throw toValidationError('Workflow edge endpoints must be non-empty strings.', {

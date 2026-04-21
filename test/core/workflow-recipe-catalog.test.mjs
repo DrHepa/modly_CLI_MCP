@@ -24,9 +24,50 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function toStoredModlyWorkflow(workflow) {
+  return {
+    ...workflow,
+    nodes: workflow.nodes.map((node) => {
+      if (node.type === 'imageNode' || node.type === 'outputNode') {
+        return node;
+      }
+
+      return {
+        ...node,
+        type: 'extensionNode',
+        data: {
+          ...node.data,
+          extensionId: node.type,
+        },
+      };
+    }),
+    edges: workflow.edges.map((edge) => ({
+      source: edge.from,
+      target: edge.to,
+    })),
+  };
+}
+
 test('validateWorkflowRecipeDocument accepts the eligible workflow subset for Hunyuan and TripoSG fixtures', () => {
   const hunyuan = validateWorkflowRecipeDocument(readFixture('eligible-hunyuan'));
   const triposg = validateWorkflowRecipeDocument(readFixture('eligible-triposg'));
+
+  assert.deepEqual(hunyuan, {
+    displayName: 'Recipe Hunyuan3d / Template',
+    modelId: 'hunyuan3d-mini',
+    steps: ['generate_mesh', 'optimize_mesh', 'export_mesh'],
+  });
+
+  assert.deepEqual(triposg, {
+    displayName: 'Recipe TripoSG / Template',
+    modelId: 'triposg',
+    steps: ['generate_mesh', 'optimize_mesh', 'export_mesh'],
+  });
+});
+
+test('validateWorkflowRecipeDocument accepts the real Modly stored workflow shape with extensionNode and source/target edges', () => {
+  const hunyuan = validateWorkflowRecipeDocument(toStoredModlyWorkflow(readFixture('eligible-hunyuan')));
+  const triposg = validateWorkflowRecipeDocument(toStoredModlyWorkflow(readFixture('eligible-triposg')));
 
   assert.deepEqual(hunyuan, {
     displayName: 'Recipe Hunyuan3d / Template',
