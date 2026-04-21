@@ -102,7 +102,7 @@ function resolveCommand() {
   }
 
   const sourceCheckoutHint = scriptFile.includes(`${path.sep}templates${path.sep}opencode${path.sep}`)
-    ? ' This file is a template inside the source checkout; copy it into a consumer repo as tools/modly_mcp/run_server.mjs instead of pointing OpenCode at this checkout.'
+    ? ' This file is a template inside the source checkout; copy it into a consumer repo as tools/modly_mcp/run_server.mjs instead of pointing OpenCode or Codex at this checkout.'
     : '';
 
   throw new Error(

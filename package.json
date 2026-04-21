@@ -12,7 +12,8 @@
     "README.md",
     "LICENSE",
     "docs/install/**",
-    "templates/opencode/**"
+    "templates/opencode/**",
+    "templates/codex/**"
   ],
   "scripts": {
     "cli": "node ./src/cli/index.mjs",
@@ -35,7 +36,8 @@
     "modly",
     "cli",
     "mcp",
-    "opencode"
+    "opencode",
+    "codex"
   ],
   "license": "MIT",
   "dependencies": {

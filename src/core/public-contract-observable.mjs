@@ -16,6 +16,25 @@ const CANONICAL_RECOVERY_SURFACES = Object.freeze({
     'modly.processRun.wait',
   ]),
 });
+const DEFAULT_SUPPORTED_CLIENTS = Object.freeze({
+  opencode: Object.freeze({
+    name: 'OpenCode',
+    globalDoc: 'docs/install/global.md',
+    repoLocalDoc: 'docs/install/repo-local.md',
+    globalTemplate: 'templates/opencode/opencode.json',
+    repoLocalTemplate: 'templates/opencode/run_server.mjs',
+  }),
+  codex: Object.freeze({
+    name: 'Codex',
+    globalDoc: 'docs/install/codex-global.md',
+    repoLocalDoc: 'docs/install/codex-repo-local.md',
+    globalTemplate: 'templates/codex/global.config.toml',
+    repoLocalTemplate: 'templates/codex/repo-local.config.toml',
+    userConfigPath: '~/.codex/config.toml',
+    repoConfigPath: '.codex/config.toml',
+    trustedProjectRequired: true,
+  }),
+});
 
 function extractObjectLiteralBlock(source, declarationName) {
   const declarationIndex = source.indexOf(`const ${declarationName} = {`);
@@ -210,6 +229,7 @@ export function buildObservableContract({
         sourceCheckoutUnsupported: hasWrapperFeature(wrapperSource, ['source checkout', 'tools/modly_mcp/run_server.mjs']),
       },
     },
+    supportedClients: DEFAULT_SUPPORTED_CLIENTS,
     recipeGating: {
       toolId: DEFAULT_RECIPE_TOOL_ID,
       envFlag: DEFAULT_RECIPE_FLAG,
@@ -392,6 +412,42 @@ export function detectDocumentationContractDrift({
     });
   }
 
+  const missingReadmeSupportedClients = [];
+  for (const client of Object.values(observableContract.supportedClients ?? {})) {
+    if (!readmeText.includes(client.name)) {
+      missingReadmeSupportedClients.push(client.name);
+    }
+    if (client.globalDoc && !readmeText.includes(client.globalDoc)) {
+      missingReadmeSupportedClients.push(client.globalDoc);
+    }
+    if (client.repoLocalDoc && !readmeText.includes(client.repoLocalDoc)) {
+      missingReadmeSupportedClients.push(client.repoLocalDoc);
+    }
+    if (client.globalTemplate && !readmeText.includes(client.globalTemplate)) {
+      missingReadmeSupportedClients.push(client.globalTemplate);
+    }
+    if (client.repoLocalTemplate && !readmeText.includes(client.repoLocalTemplate)) {
+      missingReadmeSupportedClients.push(client.repoLocalTemplate);
+    }
+  }
+  if ((observableContract.supportedClients?.codex?.userConfigPath ?? null) && !readmeText.includes(observableContract.supportedClients.codex.userConfigPath)) {
+    missingReadmeSupportedClients.push(observableContract.supportedClients.codex.userConfigPath);
+  }
+  if ((observableContract.supportedClients?.codex?.repoConfigPath ?? null) && !readmeText.includes(observableContract.supportedClients.codex.repoConfigPath)) {
+    missingReadmeSupportedClients.push(observableContract.supportedClients.codex.repoConfigPath);
+  }
+  if ((observableContract.supportedClients?.codex?.trustedProjectRequired ?? false) && !/trusted project/iu.test(readmeText)) {
+    missingReadmeSupportedClients.push('trusted-project');
+  }
+
+  if (missingReadmeSupportedClients.length > 0) {
+    drifts.push({
+      code: 'readme.supported-clients.missing',
+      source: 'README.md',
+      missing: missingReadmeSupportedClients,
+    });
+  }
+
   const missingReadmeExecutionBoundaries = [];
   if (!readmeText.includes('workflow-run` / `process-run` are the primary run surfaces')) {
     missingReadmeExecutionBoundaries.push('workflow-process-primary');
@@ -566,6 +622,36 @@ export function detectDocumentationContractDrift({
         code: 'mvp-spec.install-modes.missing',
         source: 'docs/specs/modly-cli-mvp.md',
         missing: missingSpecInstallModes,
+      });
+    }
+
+    const missingSpecSupportedClients = [];
+    for (const client of Object.values(observableContract.supportedClients ?? {})) {
+      if (!mvpSpecText.includes(client.name)) {
+        missingSpecSupportedClients.push(client.name);
+      }
+      if (client.globalTemplate && !mvpSpecText.includes(client.globalTemplate)) {
+        missingSpecSupportedClients.push(client.globalTemplate);
+      }
+      if (client.repoLocalTemplate && !mvpSpecText.includes(client.repoLocalTemplate)) {
+        missingSpecSupportedClients.push(client.repoLocalTemplate);
+      }
+    }
+    if ((observableContract.supportedClients?.codex?.userConfigPath ?? null) && !mvpSpecText.includes(observableContract.supportedClients.codex.userConfigPath)) {
+      missingSpecSupportedClients.push(observableContract.supportedClients.codex.userConfigPath);
+    }
+    if ((observableContract.supportedClients?.codex?.repoConfigPath ?? null) && !mvpSpecText.includes(observableContract.supportedClients.codex.repoConfigPath)) {
+      missingSpecSupportedClients.push(observableContract.supportedClients.codex.repoConfigPath);
+    }
+    if ((observableContract.supportedClients?.codex?.trustedProjectRequired ?? false) && !/trusted project/iu.test(mvpSpecText)) {
+      missingSpecSupportedClients.push('trusted-project');
+    }
+
+    if (missingSpecSupportedClients.length > 0) {
+      drifts.push({
+        code: 'mvp-spec.supported-clients.missing',
+        source: 'docs/specs/modly-cli-mvp.md',
+        missing: missingSpecSupportedClients,
       });
     }
 

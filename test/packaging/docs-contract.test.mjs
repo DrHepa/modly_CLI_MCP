@@ -19,10 +19,14 @@ const packageJson = readJson('package.json');
 const readme = readText('README.md');
 const globalDoc = readText('docs/install/global.md');
 const repoLocalDoc = readText('docs/install/repo-local.md');
+const codexGlobalDoc = readText('docs/install/codex-global.md');
+const codexRepoLocalDoc = readText('docs/install/codex-repo-local.md');
 const mvpSpec = readText('docs/specs/modly-cli-mvp.md');
 const operatorSkill = readText('skills/modly-operator/SKILL.md');
 const plannerSkill = readText('skills/modly-extension-planner/SKILL.md');
 const template = readJson('templates/opencode/opencode.json');
+const codexGlobalTemplate = readText('templates/codex/global.config.toml');
+const codexRepoLocalTemplate = readText('templates/codex/repo-local.config.toml');
 
 function assertExperimentalRecipeContract(name, content) {
   assert.match(content, /`modly\.recipe\.execute`/u, `${name} must name modly.recipe.execute explicitly`);
@@ -52,6 +56,7 @@ test('package bins and published assets stay aligned with the packaging contract
     'LICENSE',
     'docs/install/**',
     'templates/opencode/**',
+    'templates/codex/**',
   ]);
 });
 
@@ -66,11 +71,21 @@ test('OpenCode template uses the verified schema and consumable modly-mcp comman
   assert.deepEqual(template.mcp.modly.command, ['modly-mcp']);
 });
 
-test('docs and README stay aligned with supported global and repo-local flows', () => {
+test('Codex templates use the verified config root and consumable modly-mcp/wrapper commands', () => {
+  assert.match(codexGlobalTemplate, /\[mcp_servers\.modly\]/u);
+  assert.match(codexGlobalTemplate, /command = "modly-mcp"/u);
+  assert.match(codexRepoLocalTemplate, /\[mcp_servers\.modly\]/u);
+  assert.match(codexRepoLocalTemplate, /command = "node"/u);
+  assert.match(codexRepoLocalTemplate, /args = \["tools\/modly_mcp\/run_server\.mjs"\]/u);
+});
+
+test('docs and README stay aligned with supported OpenCode and Codex install flows', () => {
   for (const [name, content] of [
     ['README.md', readme],
     ['docs/install/global.md', globalDoc],
     ['docs/install/repo-local.md', repoLocalDoc],
+    ['docs/install/codex-global.md', codexGlobalDoc],
+    ['docs/install/codex-repo-local.md', codexRepoLocalDoc],
   ]) {
     assert.ok(!/"mcpServers"\s*:/u.test(content), `${name} must not use mcpServers as config root`);
     assert.match(content, /checkout fuente|source checkout/u, `${name} must explicitly forbid source-checkout integration`);
@@ -85,7 +100,14 @@ test('docs and README stay aligned with supported global and repo-local flows', 
   assert.match(readme, /"timeout": 30000/u);
   assert.match(readme, /"command": \["modly-mcp"\]/u);
   assert.match(readme, /"node",\s+"tools\/modly_mcp\/run_server\.mjs"/u);
+  assert.match(readme, /OpenCode/u);
+  assert.match(readme, /Codex/u);
+  assert.match(readme, /~\/\.codex\/config\.toml/u);
+  assert.match(readme, /`\.codex\/config\.toml`/u);
+  assert.match(readme, /trusted project/iu);
   assert.match(readme, /templates\/opencode\/run_server\.mjs/u);
+  assert.match(readme, /templates\/codex\/global\.config\.toml/u);
+  assert.match(readme, /templates\/codex\/repo-local\.config\.toml/u);
   assert.match(readme, /`workflow-run wait`/u);
   assert.match(readme, /`modly\.workflowRun\.wait`/u);
   assert.match(readme, /do \*\*not\*\* imply workflow management, \*\*Add to Scene\*\*, or blocking `from-image` behavior/u);
@@ -110,6 +132,26 @@ test('docs and README stay aligned with supported global and repo-local flows', 
   assert.match(repoLocalDoc, /does \*\*not\*\* use `dotenv`/u);
   assertExperimentalRecipeContract('docs/install/repo-local.md', repoLocalDoc);
   assertExecutionSurfaceTaxonomy('docs/install/repo-local.md', repoLocalDoc);
+  assert.match(codexGlobalDoc, /~\/\.codex\/config\.toml/u);
+  assert.match(codexGlobalDoc, /codex mcp add modly -- modly-mcp/u);
+  assert.match(codexGlobalDoc, /command = "modly-mcp"/u);
+  assert.match(codexGlobalDoc, /MODLY_API_URL/u);
+  assert.match(codexGlobalDoc, /MODLY_AUTOMATION_URL/u);
+  assert.match(codexGlobalDoc, /MODLY_PROCESS_URL/u);
+  assertExperimentalRecipeContract('docs/install/codex-global.md', codexGlobalDoc);
+  assertExecutionSurfaceTaxonomy('docs/install/codex-global.md', codexGlobalDoc);
+
+  assert.match(codexRepoLocalDoc, /`\.codex\/config\.toml`/u);
+  assert.match(codexRepoLocalDoc, /trusted project/iu);
+  assert.match(codexRepoLocalDoc, /tools\/modly_mcp\/run_server\.mjs/u);
+  assert.match(codexRepoLocalDoc, /tools\/_tmp\/modly_mcp\/local\.env/u);
+  assert.match(codexRepoLocalDoc, /node tools\/modly_mcp\/run_server\.mjs --check/u);
+  assert.match(codexRepoLocalDoc, /local-first/u);
+  assert.match(codexRepoLocalDoc, /global-fallback|falls back to a global/u);
+  assert.match(codexRepoLocalDoc, /command = "node"/u);
+  assert.match(codexRepoLocalDoc, /args = \["tools\/modly_mcp\/run_server\.mjs"\]/u);
+  assertExperimentalRecipeContract('docs/install/codex-repo-local.md', codexRepoLocalDoc);
+  assertExecutionSurfaceTaxonomy('docs/install/codex-repo-local.md', codexRepoLocalDoc);
   assertExecutionSurfaceTaxonomy('docs/specs/modly-cli-mvp.md', mvpSpec);
 });
 

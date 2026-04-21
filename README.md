@@ -2,7 +2,7 @@
 
 External headless tooling for **Modly**.
 
-This repository keeps the operational automation layer **outside** the upstream Modly desktop app so CLI, MCP, OpenCode integration, and packaging concerns do not pollute the product repository.
+This repository keeps the operational automation layer **outside** the upstream Modly desktop app so CLI, MCP, OpenCode/Codex integration, and packaging concerns do not pollute the product repository.
 
 ## What this package provides
 
@@ -196,6 +196,7 @@ The public contract is an observable envelope with `recipe`, `status`, `steps`, 
 │   ├── core/
 │   └── mcp/
 ├── templates/
+│   ├── codex/
 │   └── opencode/
 └── test/
     ├── cli/
@@ -238,11 +239,23 @@ Runtime note:
 
 Consumer repositories should use those installed binaries directly, or the documented repo-local wrapper.
 
-They should **not** point OpenCode at the source checkout of this repository as a supported integration model.
+They should **not** point OpenCode or Codex at the source checkout of this repository as a supported integration model.
+
+## Supported installable modes
+
+There are exactly two supported installable modes:
+
+1. global installed binary
+2. repo-local wrapper
+
+Those installable modes are supported for these clients:
+
+- OpenCode
+- Codex
+
+Pointing OpenCode or Codex at the source checkout of this repository is unsupported.
 
 ## OpenCode integration
-
-There are exactly two supported OpenCode integration modes: global installed binary and repo-local wrapper. Pointing OpenCode at the source checkout of this repository is unsupported.
 
 ### Global installed binary
 
@@ -283,13 +296,38 @@ Canonical shape:
 }
 ```
 
+## Codex integration
+
+Codex uses MCP configuration in `~/.codex/config.toml` for global defaults and `.codex/config.toml` for repository-scoped overrides in trusted projects.
+
+### Global installed binary
+
+Canonical shape:
+
+```toml
+[mcp_servers.modly]
+command = "modly-mcp"
+```
+
+### Repo-local wrapper
+
+Canonical shape:
+
+```toml
+[mcp_servers.modly]
+command = "node"
+args = ["tools/modly_mcp/run_server.mjs"]
+```
+
+Repo-local Codex configuration lives in `.codex/config.toml` and is loaded only in a trusted project.
+
 ### Global installation
 
 See:
 
 - [`docs/install/global.md`](docs/install/global.md)
 
-### Repo-local installation
+### OpenCode repo-local installation
 
 See:
 
@@ -297,7 +335,16 @@ See:
 - [`templates/opencode/opencode.json`](templates/opencode/opencode.json)
 - [`templates/opencode/run_server.mjs`](templates/opencode/run_server.mjs)
 
-`tools/modly_mcp/run_server.mjs` is the supported repo-local wrapper path.
+### Codex installation
+
+See:
+
+- [`docs/install/codex-global.md`](docs/install/codex-global.md)
+- [`docs/install/codex-repo-local.md`](docs/install/codex-repo-local.md)
+- [`templates/codex/global.config.toml`](templates/codex/global.config.toml)
+- [`templates/codex/repo-local.config.toml`](templates/codex/repo-local.config.toml)
+
+`tools/modly_mcp/run_server.mjs` is the supported repo-local wrapper path for OpenCode and Codex consumer repositories.
 
 ## Wait capability boundaries
 

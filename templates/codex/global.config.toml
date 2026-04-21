@@ -1,0 +1,3 @@
+# Merge this table into ~/.codex/config.toml.
+[mcp_servers.modly]
+command = "modly-mcp"

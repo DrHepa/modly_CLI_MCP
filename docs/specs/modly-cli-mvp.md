@@ -10,7 +10,7 @@ Describe the Modly CLI + MCP package exactly as it exists today, without inventi
 
 ## Scope
 
-This spec covers the visible contract exposed by the shipped package binaries, the CLI help, the default public MCP catalog, and the supported OpenCode installation modes.
+This spec covers the visible contract exposed by the shipped package binaries, the CLI help, the default public MCP catalog, and the supported installable integration modes for OpenCode and Codex.
 
 ## Installable binaries
 
@@ -189,16 +189,21 @@ This MVP does **not** add or imply:
 
 `scene_candidate` is descriptive output only, not a scene mutation.
 
-## Supported OpenCode integration modes
+## Supported installable integration modes
 
-There are exactly two supported OpenCode integration modes:
+There are exactly two supported installable integration modes:
 
 1. global installed binary
 2. repo-local wrapper
 
-Pointing OpenCode at the source checkout of this repository is unsupported. Any source checkout or checkout fuente invocation such as `node /path/to/checkout/src/mcp/server.mjs` is outside the contract.
+Those modes are supported for these clients:
 
-### Global installed binary
+- OpenCode
+- Codex
+
+Pointing OpenCode or Codex at the source checkout of this repository is unsupported. Any source checkout or checkout fuente invocation such as `node /path/to/checkout/src/mcp/server.mjs` is outside the contract.
+
+### OpenCode global installed binary
 
 Canonical shape:
 
@@ -221,7 +226,7 @@ Runtime notes:
 - FastAPI-backed surfaces use `MODLY_API_URL` (default `http://127.0.0.1:8765`)
 - capabilities and process-runs derive bridge endpoints from `MODLY_API_URL` unless overridden with `MODLY_AUTOMATION_URL` and `MODLY_PROCESS_URL`
 
-### Repo-local wrapper
+### OpenCode repo-local wrapper
 
 Canonical wrapper path: `tools/modly_mcp/run_server.mjs`
 
@@ -231,6 +236,33 @@ Repo-local checks and boundaries:
 - resolution order is local-first with global-fallback
 - optional local environment file: `tools/_tmp/modly_mcp/local.env`
 - the wrapper contract is for consumer repositories, not direct source checkout execution
+
+### Codex global installed binary
+
+Global Codex configuration lives in `~/.codex/config.toml`.
+
+Canonical shape:
+
+```toml
+[mcp_servers.modly]
+command = "modly-mcp"
+```
+
+The equivalent CLI flow is `codex mcp add modly -- modly-mcp`.
+
+### Codex repo-local wrapper
+
+Repo-local Codex configuration lives in `.codex/config.toml`.
+
+Canonical shape:
+
+```toml
+[mcp_servers.modly]
+command = "node"
+args = ["tools/modly_mcp/run_server.mjs"]
+```
+
+Repo-local Codex configuration is loaded only in a trusted project.
 
 ## Experimental recipe surface
 
@@ -257,5 +289,6 @@ This document must stay aligned with these observable sources:
 - `src/core/contracts.mjs` for visible contract constants
 - `src/mcp/tools/catalog.mjs` plus gating in `src/mcp/tools/internal/registry-gating.mjs` for the public MCP catalog
 - `templates/opencode/opencode.json` and `templates/opencode/run_server.mjs` for supported OpenCode integration shapes
+- `templates/codex/global.config.toml` and `templates/codex/repo-local.config.toml` for supported Codex integration shapes
 
 If those observable sources change, this spec must follow the shipped truth instead of documenting an aspirational future.

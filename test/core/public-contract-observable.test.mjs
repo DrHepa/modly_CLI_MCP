@@ -114,6 +114,25 @@ test('buildObservableContract freezes bins, groups, install modes, and default p
       sourceCheckoutUnsupported: true,
     },
   });
+  assert.deepEqual(observableContract.supportedClients, {
+    opencode: {
+      name: 'OpenCode',
+      globalDoc: 'docs/install/global.md',
+      repoLocalDoc: 'docs/install/repo-local.md',
+      globalTemplate: 'templates/opencode/opencode.json',
+      repoLocalTemplate: 'templates/opencode/run_server.mjs',
+    },
+    codex: {
+      name: 'Codex',
+      globalDoc: 'docs/install/codex-global.md',
+      repoLocalDoc: 'docs/install/codex-repo-local.md',
+      globalTemplate: 'templates/codex/global.config.toml',
+      repoLocalTemplate: 'templates/codex/repo-local.config.toml',
+      userConfigPath: '~/.codex/config.toml',
+      repoConfigPath: '.codex/config.toml',
+      trustedProjectRequired: true,
+    },
+  });
   assert.deepEqual(observableContract.recipeGating, {
     toolId: 'modly.recipe.execute',
     envFlag: 'MODLY_EXPERIMENTAL_RECIPE_EXECUTE',
@@ -567,6 +586,25 @@ Use any local script.
         missing: ['global-command', 'repo-local-wrapper', 'source-checkout-unsupported'],
       },
       {
+        code: 'readme.supported-clients.missing',
+        source: 'README.md',
+        missing: [
+          'OpenCode',
+          'docs/install/global.md',
+          'docs/install/repo-local.md',
+          'templates/opencode/opencode.json',
+          'templates/opencode/run_server.mjs',
+          'Codex',
+          'docs/install/codex-global.md',
+          'docs/install/codex-repo-local.md',
+          'templates/codex/global.config.toml',
+          'templates/codex/repo-local.config.toml',
+          '~/.codex/config.toml',
+          '.codex/config.toml',
+          'trusted-project',
+        ],
+      },
+      {
         code: 'readme.execution-boundaries.missing',
         source: 'README.md',
         missing: ['workflow-process-primary', 'generate-job-compatibility'],
@@ -670,6 +708,21 @@ Use any checkout-based setup you want.
         code: 'mvp-spec.install-modes.missing',
         source: 'docs/specs/modly-cli-mvp.md',
         missing: ['global-command', 'repo-local-wrapper', 'source-checkout-unsupported'],
+      },
+      {
+        code: 'mvp-spec.supported-clients.missing',
+        source: 'docs/specs/modly-cli-mvp.md',
+        missing: [
+          'OpenCode',
+          'templates/opencode/opencode.json',
+          'templates/opencode/run_server.mjs',
+          'Codex',
+          'templates/codex/global.config.toml',
+          'templates/codex/repo-local.config.toml',
+          '~/.codex/config.toml',
+          '.codex/config.toml',
+          'trusted-project',
+        ],
       },
       {
         code: 'mvp-spec.execution-boundaries.missing',

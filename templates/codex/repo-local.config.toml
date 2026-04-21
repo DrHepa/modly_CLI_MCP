@@ -1,0 +1,4 @@
+# Merge this table into <consumer-repo>/.codex/config.toml in a trusted project.
+[mcp_servers.modly]
+command = "node"
+args = ["tools/modly_mcp/run_server.mjs"]

@@ -45,8 +45,12 @@ test('packed artifact can be installed and exposes working modly + modly-mcp bin
     'README.md',
     'docs/install/global.md',
     'docs/install/repo-local.md',
+    'docs/install/codex-global.md',
+    'docs/install/codex-repo-local.md',
     'templates/opencode/opencode.json',
     'templates/opencode/run_server.mjs',
+    'templates/codex/global.config.toml',
+    'templates/codex/repo-local.config.toml',
     'src/cli/index.mjs',
     'src/mcp/server.mjs',
   ]) {
@@ -94,4 +98,10 @@ test('packed artifact can be installed and exposes working modly + modly-mcp bin
 
   const installedTemplate = JSON.parse(readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'opencode', 'opencode.json'), 'utf8'));
   assert.equal(installedTemplate.$schema, 'https://opencode.ai/config.json');
+
+  const installedCodexGlobalTemplate = readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'codex', 'global.config.toml'), 'utf8');
+  const installedCodexRepoLocalTemplate = readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'codex', 'repo-local.config.toml'), 'utf8');
+  assert.match(installedCodexGlobalTemplate, /command = "modly-mcp"/u);
+  assert.match(installedCodexRepoLocalTemplate, /command = "node"/u);
+  assert.match(installedCodexRepoLocalTemplate, /args = \["tools\/modly_mcp\/run_server\.mjs"\]/u);
 });

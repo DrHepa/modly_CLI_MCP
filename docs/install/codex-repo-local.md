@@ -1,22 +1,23 @@
-# Repo-local installation for OpenCode
+# Repo-local installation for Codex
 
-Use this guide when you want a consumer repository to control its own installation of `modly-cli-mcp`.
+Use this guide when you want a consumer repository to control its own installation of `modly-cli-mcp` for Codex.
 
 ## Supported contract
 
 The consumer repository should have:
 
-- an `opencode.json`
+- a `.codex/config.toml`
 - a local wrapper in `tools/modly_mcp/run_server.mjs`
 - optionally `tools/_tmp/modly_mcp/local.env`
+- a trusted project entry in Codex so project-scoped `.codex/config.toml` is loaded
 
 The wrapper resolves `node_modules/.bin/modly-mcp` in the consumer repository first and falls back to a global `modly-mcp` in `PATH` only if the local one is missing. In other words, the supported resolution order is local-first with global-fallback.
 
 ## Not supported
 
-- pointing `opencode.json` to the source checkout of `modly_CLI_MCP`
+- pointing Codex at the source checkout of `modly_CLI_MCP`
 - executing `node /path/to/checkout/src/mcp/server.mjs` from the consumer repository
-- depending on OpenCode `cwd` to discover binaries or configuration files
+- depending on Codex `cwd` to discover binaries or configuration files
 
 ## 1) Install the package in the consumer repository
 
@@ -37,30 +38,27 @@ Copy this file from the package into your consumer repository:
 
 The script computes the repository root from `import.meta.url`, **not** from `cwd`.
 
-## 3) Create `opencode.json`
+## 3) Create `.codex/config.toml`
 
-Configure OpenCode to invoke the local wrapper:
+Configure Codex to invoke the local wrapper:
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "modly": {
-      "type": "local",
-      "enabled": true,
-      "timeout": 30000,
-      "command": [
-        "node",
-        "tools/modly_mcp/run_server.mjs"
-      ]
-    }
-  }
-}
+```toml
+[mcp_servers.modly]
+command = "node"
+args = ["tools/modly_mcp/run_server.mjs"]
 ```
 
-That `opencode.json` lives in the consumer repository. It must **not** reference files inside the source checkout of `modly_CLI_MCP`.
+Template shipped in this package:
 
-## 4) Optional local configuration
+- [`templates/codex/repo-local.config.toml`](../../templates/codex/repo-local.config.toml)
+
+That `.codex/config.toml` lives in the consumer repository. It must **not** reference files inside the source checkout of `modly_CLI_MCP`.
+
+## 4) Trust the project
+
+Codex loads project-scoped `.codex/config.toml` only in trusted projects. Mark the consumer repository as trusted in your Codex setup before relying on this repo-local configuration.
+
+## 5) Optional local configuration
 
 If the consumer repository needs local-only variables, create this optional file:
 
@@ -82,7 +80,7 @@ Important notes:
 - It merges those variables over `process.env` only for the child process.
 - The file is optional and local to the consumer repository.
 
-## 5) Verify resolution without starting MCP
+## 6) Verify resolution without starting MCP
 
 ```bash
 node tools/modly_mcp/run_server.mjs --check
@@ -113,5 +111,4 @@ MODLY_EXPERIMENTAL_RECIPE_EXECUTE=1
 - **Global**: simpler if one environment uses a single installed version in `PATH`.
 - **Repo-local**: better when each repository needs to pin its own package version.
 
-If you want the global flow, use [`docs/install/global.md`](./global.md).
-If you want the Codex variant of this same repo-local flow, use [`docs/install/codex-repo-local.md`](./codex-repo-local.md).
+If you want the global flow, use [`docs/install/codex-global.md`](./codex-global.md).
