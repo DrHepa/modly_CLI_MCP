@@ -305,10 +305,11 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
 
   assert.match(globalHelp, /ext <subcomando>\s+reload \| errors \| stage github \| apply \| setup \| setup-status \| repair/u);
   assert.match(globalHelp, /stage github\s+Stage\/preflight only desde GitHub; prepara e inspecciona, NO instala ni aplica en vivo/u);
-  assert.match(globalHelp, /apply\s+Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito y puede disparar setup live-target si el stage lo exige/u);
+  assert.match(globalHelp, /apply\s+Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito, puede disparar setup live-target si el stage lo exige y puede terminar en applied_degraded cuando falla ese setup/u);
   assert.match(globalHelp, /setup\s+Ejecuta SOLO un contrato explícito/u);
-  assert.match(globalHelp, /setup-status\s+Lee SOLO el journal del target instalado del último setup observable/u);
-  assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige/u);
+  assert.match(globalHelp, /algunas extensiones exigen inputs explícitos como gpu_sm/u);
+  assert.match(globalHelp, /setup-status\s+Lee SOLO el journal del target instalado del último setup observable; --wait\/--follow observan localmente, --timeout-ms no mata el proceso/u);
+  assert.match(globalHelp, /repair\s+Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige, acepta los mismos flags relevantes de setup que apply y por defecto ya no hace backup si la extensión existe/u);
   assert.doesNotMatch(globalHelp, /install headless|live install|auto-reload|repair automático|setup automático/u);
 
   assert.match(extHelp, /modly ext stage github --repo <owner\/name>/u);
@@ -334,6 +335,11 @@ test('help advertises ext stage github as preflight only, ext apply as live-targ
   assert.match(extHelp, /repair como reapply CLI-only sobre un stage ya preparado/u);
   assert.match(extHelp, /ext repair acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target cuando el stage lo requiera/u);
   assert.match(extHelp, /puede disparar setup live-target si el stage lo exige/u);
+  assert.match(extHelp, /el resultado puede quedar observable como applied_degraded/u);
+  assert.match(extHelp, /algunas extensiones requieren inputs explícitos del payload, por ejemplo gpu_sm/u);
+  assert.match(extHelp, /por defecto ya no crea backup cuando el target existe/u);
+  assert.match(extHelp, /fallo del seam vs fallo propio de la extensión/u);
+  assert.match(extHelp, /Linux ARM64/u);
   assert.match(extHelp, /NO hace fetch GitHub, install, build ni health-fix general/u);
   assert.doesNotMatch(extHelp, /repair puede.*nunca|repair.*NO hace.*setup implícito/u);
   assert.match(extHelp, /staging\/preflight only/u);

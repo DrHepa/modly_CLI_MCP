@@ -36,6 +36,20 @@ These groups are the current observable top-level CLI contract. The CLI help is 
 `ext` is the runtime-oriented extension surface.
 `ext-dev` is the V1 plan-only extension development surface.
 
+## Operational reality of extension installs
+
+The observable contract for extension work must stay aligned with what real external-extension trials demonstrated:
+
+- `modly ext stage github` is **preflight only**. It stages and inspects source material from GitHub, but does **not** install it and does **not** make the extension operational by itself.
+- `modly ext apply` is the real install seam against a live target. It applies a **prepared** stage into the live extensions directory and may trigger live-target setup when the staged contract requires it.
+- If that live-target setup fails after the apply seam already copied the staged extension, the terminal result may legitimately be `applied_degraded`.
+- `modly ext repair` is reapply against an already prepared stage. It may trigger live-target setup, accepts the same relevant setup flags as `apply`, and currently defaults to backup mode `never` for the reapply path.
+- `modly ext setup` runs an explicit, limited setup contract for a prepared stage. It is **not** a universal install manager and some extensions require explicit payload inputs such as `gpu_sm`.
+- If a third-party `setup.py` ignores `PIP_*` variables or performs its own network/download logic, CLI-side resilience may be partial or absent.
+- `modly ext setup-status` is a live-target observer only. `--wait` and `--follow` are local observation loops, `--timeout-ms` stops the observer rather than the setup process, and there is no general cancel/reattach/job-manager contract.
+- Real ecosystem failures often come from the extension itself rather than the seam: broken `setup.py`, missing wheels, ABI issues, or Linux ARM64 incompatibilities.
+- The CLI/MCP contract may diagnose seam failure vs extension failure reasonably well, but it does **not** promise universal compatibility and cannot repair a missing wheel by itself.
+
 ## `ext-dev` planning contract (V1)
 
 `modly ext-dev` provides local, plan-only analysis for extension workspaces. It does **not** install, build, release, or repair, and it never claims Electron-only runtime behavior is available headlessly.
@@ -73,6 +87,12 @@ Every `ext-dev` plan returns:
 - Electron owns setup, workflow, install/repair, and other live extension operations
 - bridge confirmation is optional and only confirms/collides with live identity; it does not replace planned identity
 - V1 remains plan-only even when FastAPI or bridge evidence is available
+
+### Linux ARM64 and heavy dependency reality
+
+- Some third-party extensions on Linux ARM64 may require CPU fallbacks, ABI-specific packaging fixes, or extension-side patches.
+- The CLI/MCP layer can improve staging, observation, and diagnostics around those failures.
+- The CLI/MCP layer cannot create missing wheels, override broken upstream packaging, or guarantee GPU-path success for every external extension.
 
 ## Default public MCP catalog
 

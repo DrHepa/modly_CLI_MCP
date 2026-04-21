@@ -29,6 +29,20 @@ This repository keeps the operational automation layer **outside** the upstream 
 `ext` is the runtime-oriented extension surface.
 `ext-dev` is the V1 plan-only extension development surface.
 
+## Operational reality of extension installs
+
+Real-world testing against external extensions made these boundaries explicit:
+
+- `modly ext stage github` is **preflight only**. It fetches and inspects a candidate stage, but it does **not** install the extension and does **not** leave it operational by itself.
+- `modly ext apply` is the real install seam against a live target. It applies a **prepared** stage into the real extensions directory and may trigger live-target setup when the staged contract requires it.
+- If that live-target setup fails after files were applied, `ext apply` can legitimately end in `applied_degraded`. That means the install seam worked, but setup did not finish cleanly.
+- `modly ext repair` is reapply over an already prepared stage. It may also trigger live-target setup, now accepts the same relevant setup flags as `apply`, and defaults to **no backup** when the extension already exists.
+- `modly ext setup` executes an explicit, limited setup contract. It is **not** a universal install manager. Some extensions require explicit inputs such as `gpu_sm`.
+- If a third-party `setup.py` ignores `PIP_*` variables or performs its own downloads, CLI resilience can be partial or absent. The seam can improve observation and diagnostics, but it cannot force a broken setup script to behave.
+- `modly ext setup-status` is only a live-target observer. `--wait` and `--follow` are local observation modes, `--timeout-ms` only stops the observer, and there is no general cancel/reattach/job-manager layer here.
+- In practice the CLI/MCP already separates seam failures from extension failures reasonably well, but third-party extensions can still fail for their own reasons: `setup.py`, missing wheels, ABI mismatches, or Linux ARM64 constraints.
+- Do **not** promise universal compatibility. Some heavy stacks on Linux ARM64 need CPU fallbacks or extension-side patches; the CLI can help observe and diagnose, but it cannot invent a missing wheel.
+
 ## `ext-dev` planning contract (V1)
 
 `modly ext-dev` analyzes a **local** extension workspace and emits planning evidence only. It does **not** install, build, release, or repair, and it does not mutate runtime state.
