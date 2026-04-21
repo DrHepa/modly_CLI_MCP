@@ -502,6 +502,315 @@ test('modly.recipe.execute resolves workflow/* ids from the derived catalog and 
   assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), false);
 });
 
+test('modly.recipe.execute promotes a local derived workflow output_url into mesh_path for optimize_mesh', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-recipe-execute-derived-local-output-url-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  await writeFile(
+    path.join(directory, 'eligible-hunyuan.json'),
+    readFileSync(path.join(WORKFLOW_RECIPE_FIXTURES_DIR, 'eligible-hunyuan.json'), 'utf8'),
+  );
+
+  let phase = 'first';
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini', params_schema: [] }],
+        processes: [
+          { id: 'mesh-optimizer/optimize', name: 'Optimize Mesh', params_schema: [] },
+          { id: 'mesh-exporter/export', name: 'Mesh Exporter', params_schema: [] },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(phase, 'first');
+      assert.equal(method, 'POST');
+      return jsonResponse({ run_id: 'derived-local-output-url-run', status: 'queued', progress: 0 });
+    }
+
+    if (path === '/workflow-runs/derived-local-output-url-run') {
+      assert.equal(phase, 'second');
+      assert.equal(method, 'GET');
+      return jsonResponse({
+        run_id: 'derived-local-output-url-run',
+        status: 'done',
+        output_url: 'Default/generated.glb',
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(phase, 'second');
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'Default/generated.glb',
+        },
+        workspace_path: 'Default/generated.glb',
+      });
+      return jsonResponse({
+        run_id: 'derived-local-output-url-process',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'Default/generated.glb',
+        },
+        workspace_path: 'Default/generated.glb',
+      });
+    }
+
+    throw new Error(`Unexpected path in phase ${phase}: ${path}`);
+  });
+
+  const registry = createRecipeRegistry({ recipeWorkflowCatalogDir: directory });
+  const first = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+  });
+
+  phase = 'second';
+  const second = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+    options: {
+      resume: getRecipeResume(first),
+    },
+  });
+
+  assert.equal(second.isError, undefined);
+  assert.equal(second.structuredContent.data.status, 'running');
+  assert.deepEqual(second.structuredContent.data.steps[0].outputs, {
+    meshPath: 'Default/generated.glb',
+    exportUrl: 'Default/generated.glb',
+  });
+  assert.equal(second.structuredContent.data.steps[1].status, 'running');
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), true);
+});
+
+test('modly.recipe.execute keeps missing_required_output for remote derived workflow output_url values', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-recipe-execute-derived-remote-output-url-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  await writeFile(
+    path.join(directory, 'eligible-hunyuan.json'),
+    readFileSync(path.join(WORKFLOW_RECIPE_FIXTURES_DIR, 'eligible-hunyuan.json'), 'utf8'),
+  );
+
+  let phase = 'first';
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini', params_schema: [] }],
+        processes: [
+          { id: 'mesh-optimizer/optimize', name: 'Optimize Mesh', params_schema: [] },
+          { id: 'mesh-exporter/export', name: 'Mesh Exporter', params_schema: [] },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(phase, 'first');
+      return jsonResponse({ run_id: 'derived-remote-output-url-run', status: 'queued', progress: 0 });
+    }
+
+    if (path === '/workflow-runs/derived-remote-output-url-run') {
+      assert.equal(phase, 'second');
+      return jsonResponse({
+        run_id: 'derived-remote-output-url-run',
+        status: 'done',
+        output_url: 'https://example.com/generated.glb',
+      });
+    }
+
+    throw new Error(`Unexpected path in phase ${phase}: ${path}`);
+  });
+
+  const registry = createRecipeRegistry({ recipeWorkflowCatalogDir: directory });
+  const first = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+  });
+
+  phase = 'second';
+  const second = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+    options: {
+      resume: getRecipeResume(first),
+    },
+  });
+
+  assert.equal(second.isError, undefined);
+  assert.equal(second.structuredContent.data.status, 'failed');
+  assert.deepEqual(second.structuredContent.data.steps[0].outputs, {
+    exportUrl: 'https://example.com/generated.glb',
+  });
+  assert.deepEqual(second.structuredContent.data.steps[0].error, {
+    code: 'VALIDATION_ERROR',
+    message: 'Recipe step optimize_mesh requires an observed meshPath from a previous step.',
+    details: {
+      field: 'steps.outputs.meshPath',
+      reason: 'missing_required_output',
+      recipe: 'workflow/recipe-hunyuan3d-template',
+      stepId: 'optimize_mesh',
+      required: 'meshPath',
+    },
+  });
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), false);
+});
+
+test('modly.recipe.execute promotes scene_candidate.workspace_path into mesh_path for derived workflow recipes', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const imagePath = await createTempImage(t);
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-recipe-execute-derived-scene-workspace-path-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  await writeFile(
+    path.join(directory, 'eligible-hunyuan.json'),
+    readFileSync(path.join(WORKFLOW_RECIPE_FIXTURES_DIR, 'eligible-hunyuan.json'), 'utf8'),
+  );
+
+  let phase = 'first';
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({
+        backend_ready: true,
+        models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini', params_schema: [] }],
+        processes: [
+          { id: 'mesh-optimizer/optimize', name: 'Optimize Mesh', params_schema: [] },
+          { id: 'mesh-exporter/export', name: 'Mesh Exporter', params_schema: [] },
+        ],
+        errors: [],
+      });
+    }
+
+    if (path === '/model/all') {
+      return jsonResponse({ models: [{ id: 'hunyuan3d-mini', name: 'Hunyuan3D Mini' }] });
+    }
+
+    if (path === '/workflow-runs/from-image') {
+      assert.equal(phase, 'first');
+      return jsonResponse({ run_id: 'derived-scene-workspace-run', status: 'queued', progress: 0 });
+    }
+
+    if (path === '/workflow-runs/derived-scene-workspace-run') {
+      assert.equal(phase, 'second');
+      return jsonResponse({
+        run_id: 'derived-scene-workspace-run',
+        status: 'done',
+        output_url: '/workspace/Default/generated.glb',
+        scene_candidate: {
+          workspace_path: 'Default/generated.glb',
+          output_url: '/workspace/Default/generated.glb',
+        },
+      });
+    }
+
+    if (path === '/process-runs') {
+      assert.equal(phase, 'second');
+      assert.deepEqual(JSON.parse(init.body), {
+        process_id: 'mesh-optimizer/optimize',
+        params: {
+          mesh_path: 'Default/generated.glb',
+        },
+        workspace_path: 'Default/generated.glb',
+      });
+      return jsonResponse({
+        run_id: 'derived-scene-workspace-process',
+        process_id: 'mesh-optimizer/optimize',
+        status: 'accepted',
+        params: {
+          mesh_path: 'Default/generated.glb',
+        },
+        workspace_path: 'Default/generated.glb',
+      });
+    }
+
+    throw new Error(`Unexpected path in phase ${phase}: ${path}`);
+  });
+
+  const registry = createRecipeRegistry({ recipeWorkflowCatalogDir: directory });
+  const first = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+  });
+
+  phase = 'second';
+  const second = await registry.invoke('modly.recipe.execute', {
+    recipe: 'workflow/recipe-hunyuan3d-template',
+    input: {
+      imagePath,
+      modelId: 'hunyuan3d-mini',
+    },
+    options: {
+      resume: getRecipeResume(first),
+    },
+  });
+
+  assert.equal(second.isError, undefined);
+  assert.equal(second.structuredContent.data.status, 'running');
+  assert.deepEqual(second.structuredContent.data.steps[0].outputs, {
+    meshPath: 'Default/generated.glb',
+    exportUrl: '/workspace/Default/generated.glb',
+    sceneCandidate: {
+      workspace_path: 'Default/generated.glb',
+      output_url: '/workspace/Default/generated.glb',
+    },
+  });
+  assert.equal(second.structuredContent.data.steps[1].status, 'running');
+  assert.equal(calls.some((call) => call.method === 'POST' && call.path === '/process-runs'), true);
+});
+
 test('modly.recipe.execute fails closed for derived workflow drift before any workflowRun/processRun POST', { concurrency: false }, async (t) => {
   t.after(resetFetch);
   const imagePath = await createTempImage(t);

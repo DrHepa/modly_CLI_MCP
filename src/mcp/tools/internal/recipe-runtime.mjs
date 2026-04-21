@@ -4,6 +4,7 @@ import {
   toObservedMeshPath,
   toObservedSceneCandidate,
 } from '../../../core/modly-normalizers.mjs';
+import { normalizeWorkspaceRelativePath } from '../../../core/process-run-input.mjs';
 import {
   isProcessRunTerminal,
   isWorkflowRunTerminal,
@@ -306,7 +307,7 @@ function normalizeRecipeStepOutputs(outputs, field) {
 }
 
 function normalizeRecipeStepError(error, field) {
-  if (error === undefined) {
+  if (error === undefined || error === null) {
     return undefined;
   }
 
@@ -476,9 +477,85 @@ export function parseRecipeResume(resume) {
   return { steps };
 }
 
-function buildRecipeStepOutputsFromRun(run) {
+function isDerivedWorkflowRecipeRunContext(recipeRuntime, stepDefinition) {
+  return recipeRuntime?.kind === 'derived'
+    && normalizeNonEmptyString(recipeRuntime.id)?.startsWith('workflow/')
+    && stepDefinition?.runKind === 'workflowRun';
+}
+
+function normalizeLocalMeshPathCandidate(candidate) {
+  const normalized = normalizeNonEmptyString(candidate);
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  try {
+    return normalizeWorkspaceRelativePath(normalized, 'steps.outputs.meshPath');
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeLocalFileUrlMeshPathCandidate(outputUrl) {
+  if (/^file:\/\/localhost(?=\/)/i.test(outputUrl)) {
+    return undefined;
+  }
+
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(outputUrl);
+  } catch {
+    return undefined;
+  }
+
+  if (parsedUrl.protocol !== 'file:' || parsedUrl.host !== '') {
+    return undefined;
+  }
+
+  return normalizeLocalMeshPathCandidate(parsedUrl.pathname.replace(/^\/+/, ''));
+}
+
+function resolveDerivedWorkflowOutputUrlMeshPathFallback(run, { recipeRuntime, stepDefinition } = {}) {
+  if (!isDerivedWorkflowRecipeRunContext(recipeRuntime, stepDefinition) || toObservedMeshPath(run) !== undefined) {
+    return undefined;
+  }
+
+  const sceneCandidate = toObservedSceneCandidate(run);
+  const workspaceCandidate = normalizeLocalMeshPathCandidate(
+    normalizeNonEmptyString(sceneCandidate?.workspace_path) ?? normalizeNonEmptyString(sceneCandidate?.workspacePath),
+  );
+
+  if (workspaceCandidate !== undefined) {
+    return workspaceCandidate;
+  }
+
+  const outputUrl = toObservedExportUrl(run);
+  const normalizedOutputUrl = normalizeNonEmptyString(outputUrl);
+
+  if (!normalizedOutputUrl) {
+    return undefined;
+  }
+
+  const schemeMatch = /^[a-zA-Z][a-zA-Z\d+.-]*:/.exec(normalizedOutputUrl);
+
+  if (!schemeMatch) {
+    return normalizeLocalMeshPathCandidate(normalizedOutputUrl);
+  }
+
+  const scheme = schemeMatch[0].slice(0, -1).toLowerCase();
+
+  if (scheme === 'file') {
+    return normalizeLocalFileUrlMeshPathCandidate(normalizedOutputUrl);
+  }
+
+  return undefined;
+}
+
+function buildRecipeStepOutputsFromRun(run, context) {
   const outputs = {};
-  const meshPath = toObservedMeshPath(run);
+  const meshPath = toObservedMeshPath(run) ?? resolveDerivedWorkflowOutputUrlMeshPathFallback(run, context);
   const exportUrl = toObservedExportUrl(run);
   const sceneCandidate = toObservedSceneCandidate(run);
 
@@ -655,11 +732,11 @@ function buildRecipeStepPoll(stepDefinition, runId) {
   };
 }
 
-export function updateRecipeStepFromRun(step, stepDefinition, run) {
+export function updateRecipeStepFromRun(step, stepDefinition, run, recipeRuntime) {
   const runId = getRunId(run) ?? step.run?.runId;
   const outputs = {
     ...(step.outputs ?? {}),
-    ...buildRecipeStepOutputsFromRun(run),
+    ...buildRecipeStepOutputsFromRun(run, { recipeRuntime, stepDefinition }),
   };
   const nextStep = {
     ...step,
@@ -716,11 +793,11 @@ export function markRecipeStepBoundaryFailure(steps, failedStepIndex, error) {
   }
 }
 
-export function markRecipeStepRunning(step, stepDefinition, run) {
+export function markRecipeStepRunning(step, stepDefinition, run, recipeRuntime) {
   const runId = getRunId(run);
   const outputs = {
     ...(step.outputs ?? {}),
-    ...buildRecipeStepOutputsFromRun(run),
+    ...buildRecipeStepOutputsFromRun(run, { recipeRuntime, stepDefinition }),
   };
 
   if (stepDefinition.runKind === 'processRun') {
@@ -877,7 +954,7 @@ export function buildRecipeSteps(recipeRuntime, resume = { steps: [] }) {
     const resumeStep = resumeById.get(stepDefinition.id);
     const outputs = {
       ...(resumeStep?.outputs ?? {}),
-      ...(resumeStep?.run ? buildRecipeStepOutputsFromRun(resumeStep.run) : {}),
+      ...(resumeStep?.run ? buildRecipeStepOutputsFromRun(resumeStep.run, { recipeRuntime: runtime, stepDefinition }) : {}),
     };
     const step = {
       id: stepDefinition.id,

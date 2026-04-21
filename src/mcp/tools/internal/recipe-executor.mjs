@@ -37,7 +37,7 @@ async function launchRecipeStep(modlyClient, { recipeRuntime, recipeInput, step,
       params: normalizeRecipeModelParams(recipeInput.modelParams),
     });
 
-    return markRecipeStepRunning(step, stepDefinition, run);
+    return markRecipeStepRunning(step, stepDefinition, run, recipeRuntime);
   }
 
   if (stepDefinition.id === 'optimize_mesh') {
@@ -62,7 +62,7 @@ async function launchRecipeStep(modlyClient, { recipeRuntime, recipeInput, step,
     const payload = prepareProcessRunCreateInput(resolvedExecution.payload, { capabilities });
     const { run } = await dispatchProcessRun(modlyClient, capabilities, payload, { prepared: true });
 
-    return markRecipeStepRunning(step, stepDefinition, run);
+    return markRecipeStepRunning(step, stepDefinition, run, recipeRuntime);
   }
 
   if (stepDefinition.id === 'export_mesh') {
@@ -101,7 +101,7 @@ async function launchRecipeStep(modlyClient, { recipeRuntime, recipeInput, step,
     const payload = prepareProcessRunCreateInput(resolvedExecution.payload, { capabilities });
     const { run } = await dispatchProcessRun(modlyClient, capabilities, payload, { prepared: true });
 
-    return markRecipeStepRunning(step, stepDefinition, run);
+    return markRecipeStepRunning(step, stepDefinition, run, recipeRuntime);
   }
 
   throw new ValidationError(`Unsupported recipe step launch: ${stepDefinition.id}.`, {
@@ -121,11 +121,11 @@ async function pollRecipeStepRun(modlyClient, recipeRuntime, step) {
 
   if (stepDefinition.runKind === 'workflowRun') {
     const response = await modlyClient.getWorkflowRun(runId);
-    return updateRecipeStepFromRun(step, stepDefinition, toWorkflowRun(runId, response));
+    return updateRecipeStepFromRun(step, stepDefinition, toWorkflowRun(runId, response), recipeRuntime);
   }
 
   const response = await modlyClient.getProcessRun(runId);
-  return updateRecipeStepFromRun(step, stepDefinition, toProcessRun(runId, response));
+  return updateRecipeStepFromRun(step, stepDefinition, toProcessRun(runId, response), recipeRuntime);
 }
 
 function isWorkflowRecipeId(recipe) {
