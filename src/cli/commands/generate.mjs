@@ -6,7 +6,7 @@ const GENERATE_SUBCOMMANDS = ['from-image'];
 const FROM_IMAGE_USAGE =
   "Usage: modly generate from-image --image <path> --model <id> [--collection <name>] [--remesh quad|triangle|none] [--texture] [--texture-resolution <n>] [--params-json '<json>'] [--wait] [--api-url <url>] [--json]";
 const REMESH_VALUES = new Set(['quad', 'triangle', 'none']);
-const INVALID_COLLECTION_CHARS = /[\/:*?"<>|\\]/;
+const INVALID_COLLECTION_CHARS = /[/:*?"<>|\\]/;
 
 function parseParamsJson(raw) {
   if (!raw) {

@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "files": [
+    "src/core/contracts.mjs",
+    "src/core/errors.mjs",
+    "src/core/public-contract-observable.mjs",
+    "src/core/smart-capability-registry.mjs",
+    "src/core/modly-normalizers.mjs",
+    "src/core/polling.mjs",
+    "src/core/process-run-wait.mjs",
+    "src/core/workflow-run-wait.mjs",
+    "src/core/ext-dev/classification.mjs",
+    "src/core/ext-dev/evidence.mjs"
+  ],
+  "exclude": ["node_modules", "coverage"]
+}

@@ -6,8 +6,6 @@ import { assertBackendReady, PREFLIGHT_EXEMPT_TOOLS } from './internal/registry-
 import { createErrorResult, createSuccessResult } from './internal/registry-results.mjs';
 import { createPublicCatalog, ensureToolEnabled } from './internal/registry-gating.mjs';
 import {
-  OPEN_INPUT_PATH_ALLOWLIST,
-  matchesOpenInputPath,
   sanitizeArguments,
 } from './internal/registry-validation.mjs';
 
