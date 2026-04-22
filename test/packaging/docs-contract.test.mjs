@@ -155,6 +155,13 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assertExecutionSurfaceTaxonomy('docs/specs/modly-cli-mvp.md', mvpSpec);
 });
 
+test('README documents the root package as bin-only without root or deep import support', () => {
+  assert.doesNotMatch(readme, /`src\/core\/\*`/u, 'README.md must not advertise src/core/* as public package surface');
+  assert.match(readme, /bin-only/u, 'README.md must call the root package bin-only explicitly');
+  assert.match(readme, /root imports?[^\n]*not supported|package root imports?[^\n]*not supported/u, 'README.md must state that package-root imports are not supported');
+  assert.match(readme, /deep imports?[^\n]*not supported|`src\/` imports?[^\n]*not supported/u, 'README.md must state that deep imports are not supported');
+});
+
 test('README and MVP spec separate ext runtime from ext-dev planning in V1', () => {
   for (const [name, content] of [
     ['README.md', readme],

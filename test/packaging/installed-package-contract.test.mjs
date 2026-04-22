@@ -75,6 +75,13 @@ test('packed artifact can be installed and exposes working modly + modly-mcp bin
   const install = runNpm(['install', tarballPath], { cwd: consumerDir });
   assert.equal(install.status, 0, install.stderr);
 
+  const installedManifest = JSON.parse(
+    readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'package.json'), 'utf8'),
+  );
+
+  assert.ok(!('main' in installedManifest), 'installed package must not declare a root main entrypoint');
+  assert.ok(!('exports' in installedManifest && installedManifest.exports?.['.'] !== undefined), 'installed package must not advertise a supported package-root import');
+
   const binDir = path.join(consumerDir, 'node_modules', '.bin');
   const modlyBin = path.join(binDir, process.platform === 'win32' ? 'modly.cmd' : 'modly');
   const modlyMcpBin = path.join(binDir, process.platform === 'win32' ? 'modly-mcp.cmd' : 'modly-mcp');

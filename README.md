@@ -8,7 +8,8 @@ This repository keeps the operational automation layer **outside** the upstream 
 
 - **`modly`** — installable headless CLI
 - **`modly-mcp`** — installable MCP server over stdio
-- **`src/core/*`** — shared HTTP client, contracts, normalizers, and error handling used by both CLI and MCP
+
+The root npm package is **bin-only**. Package-root imports are not supported, and deep imports such as `src/*` are not supported public entrypoints.
 
 ## Current capabilities
 
@@ -240,6 +241,7 @@ Runtime note:
 Consumer repositories should use those installed binaries directly, or the documented repo-local wrapper.
 
 They should **not** point OpenCode or Codex at the source checkout of this repository as a supported integration model.
+They should also **not** rely on package-root imports or deep imports from this package.
 
 ## Supported installable modes
 

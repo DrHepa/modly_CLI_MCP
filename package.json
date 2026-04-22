@@ -44,7 +44,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
   },
-  "main": "index.js",
   "directories": {
     "doc": "docs",
     "test": "test"
