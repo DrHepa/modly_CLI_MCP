@@ -166,7 +166,7 @@ export function normalizeDerivedRecipeSnapshotSteps(steps) {
     });
   }
 
-  const normalized = steps.map((step, index) => normalizeNonEmptyString(step));
+  const normalized = steps.map((step) => normalizeNonEmptyString(step));
 
   if (normalized.some((stepId) => !stepId || !Object.hasOwn(DERIVED_RECIPE_STEP_DEFINITIONS, stepId))) {
     throw new ValidationError('Derived recipe snapshot contains unsupported step ids.', {

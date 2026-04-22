@@ -442,7 +442,7 @@ test('modly.recipe.execute resolves workflow/* ids from the derived catalog and 
     readFileSync(path.join(WORKFLOW_RECIPE_FIXTURES_DIR, 'eligible-hunyuan.json'), 'utf8'),
   );
 
-  const calls = installFetchStub(async ({ path, method, init }) => {
+  const calls = installFetchStub(async ({ path, init }) => {
     if (path === '/health') {
       return jsonResponse({ status: 'ok' });
     }
