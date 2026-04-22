@@ -7,6 +7,11 @@ Use this guide when you want OpenCode to invoke `modly-mcp` directly from `PATH`
 - `modly` and `modly-mcp` installed as package binaries from `modly-cli-mcp`
 - an `opencode.json` that invokes `modly-mcp` directly
 
+What this global flow does **not** set up automatically:
+
+- it does **not** provide the supported repo-local `skills.paths` wiring to `node_modules/modly-cli-mcp/skills`
+- it does **not** give the consumer repository an installed package-relative skills directory to reference the same way the repo-local flow does
+
 ## Not supported
 
 - pointing OpenCode at the source checkout of `modly_CLI_MCP`
@@ -81,6 +86,7 @@ Template shipped in this package:
 - Without `MODLY_EXPERIMENTAL_RECIPE_EXECUTE`, the recipe tool is not advertised in the MCP catalog.
 - If you need additional system configuration, resolve it in the environment where the global binary lives.
 - Consumer repositories must **not** point to the source checkout of `modly_CLI_MCP`; they should use an installed package available in `PATH`.
+- If you want OpenCode to discover packaged skills automatically through `skills.paths`, use the repo-local flow so the consumer repository owns `node_modules/modly-cli-mcp/skills`.
 - If you want each repository to control its own installation, use the repo-local guide in [`docs/install/repo-local.md`](./repo-local.md).
 - If you want the Codex variant of this same global flow, use [`docs/install/codex-global.md`](./codex-global.md).
 

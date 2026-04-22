@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "modly": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 30000,
+      "command": [
+        "node",
+        "tools/modly_mcp/run_server.mjs"
+      ]
+    }
+  },
+  "skills": {
+    "paths": [
+      "node_modules/modly-cli-mcp/skills"
+    ]
+  }
+}

@@ -25,6 +25,7 @@ const mvpSpec = readText('docs/specs/modly-cli-mvp.md');
 const operatorSkill = readText('skills/modly-operator/SKILL.md');
 const plannerSkill = readText('skills/modly-extension-planner/SKILL.md');
 const template = readJson('templates/opencode/opencode.json');
+const repoLocalTemplate = readJson('templates/opencode/repo-local.opencode.json');
 const codexGlobalTemplate = readText('templates/codex/global.config.toml');
 const codexRepoLocalTemplate = readText('templates/codex/repo-local.config.toml');
 
@@ -52,6 +53,7 @@ test('package bins and published assets stay aligned with the packaging contract
 
   assert.deepEqual(packageJson.files, [
     'src/**',
+    'skills/**',
     'README.md',
     'LICENSE',
     'docs/install/**',
@@ -69,6 +71,12 @@ test('OpenCode template uses the verified schema and consumable modly-mcp comman
   assert.equal(template.mcp.modly.enabled, true);
   assert.equal(template.mcp.modly.timeout, 30000);
   assert.deepEqual(template.mcp.modly.command, ['modly-mcp']);
+});
+
+test('OpenCode repo-local template uses the supported wrapper command and skills.paths contract', () => {
+  assert.equal(repoLocalTemplate.$schema, 'https://opencode.ai/config.json');
+  assert.deepEqual(repoLocalTemplate.mcp.modly.command, ['node', 'tools/modly_mcp/run_server.mjs']);
+  assert.deepEqual(repoLocalTemplate.skills.paths, ['node_modules/modly-cli-mcp/skills']);
 });
 
 test('Codex templates use the verified config root and consumable modly-mcp/wrapper commands', () => {
@@ -100,12 +108,15 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assert.match(readme, /"timeout": 30000/u);
   assert.match(readme, /"command": \["modly-mcp"\]/u);
   assert.match(readme, /"node",\s+"tools\/modly_mcp\/run_server\.mjs"/u);
+  assert.match(readme, /skills\.paths/u);
+  assert.match(readme, /node_modules\/modly-cli-mcp\/skills/u);
   assert.match(readme, /OpenCode/u);
   assert.match(readme, /Codex/u);
   assert.match(readme, /~\/\.codex\/config\.toml/u);
   assert.match(readme, /`\.codex\/config\.toml`/u);
   assert.match(readme, /trusted project/iu);
   assert.match(readme, /templates\/opencode\/run_server\.mjs/u);
+  assert.match(readme, /templates\/opencode\/repo-local\.opencode\.json/u);
   assert.match(readme, /templates\/codex\/global\.config\.toml/u);
   assert.match(readme, /templates\/codex\/repo-local\.config\.toml/u);
   assert.match(readme, /`workflow-run wait`/u);
@@ -120,12 +131,16 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assert.match(globalDoc, /modly-mcp --help/u);
   assert.match(globalDoc, /https:\/\/opencode\.ai\/config\.json/u);
   assert.match(globalDoc, /"command": \["modly-mcp"\]/u);
+  assert.match(globalDoc, /does \*\*not\*\* provide the supported repo-local `skills\.paths` wiring|does not provide the supported repo-local `skills\.paths` wiring/u);
   assert.match(globalDoc, /\*\*not\*\* `mcpServers`|not `mcpServers`/iu);
   assertExperimentalRecipeContract('docs/install/global.md', globalDoc);
   assertExecutionSurfaceTaxonomy('docs/install/global.md', globalDoc);
 
   assert.match(repoLocalDoc, /tools\/modly_mcp\/run_server\.mjs/u);
   assert.match(repoLocalDoc, /node_modules\/.bin\/modly-mcp/u);
+  assert.match(repoLocalDoc, /skills\.paths/u);
+  assert.match(repoLocalDoc, /node_modules\/modly-cli-mcp\/skills/u);
+  assert.match(repoLocalDoc, /does \*\*not\*\* need to copy the skills manually|does not need to copy the skills manually/u);
   assert.match(repoLocalDoc, /tools\/_tmp\/modly_mcp\/local\.env/u);
   assert.match(repoLocalDoc, /node tools\/modly_mcp\/run_server\.mjs --check/u);
   assert.match(repoLocalDoc, /https:\/\/opencode\.ai\/config\.json/u);

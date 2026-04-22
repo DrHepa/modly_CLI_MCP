@@ -47,7 +47,10 @@ test('packed artifact can be installed and exposes working modly + modly-mcp bin
     'docs/install/repo-local.md',
     'docs/install/codex-global.md',
     'docs/install/codex-repo-local.md',
+    'skills/modly-operator/SKILL.md',
+    'skills/modly-extension-planner/SKILL.md',
     'templates/opencode/opencode.json',
+    'templates/opencode/repo-local.opencode.json',
     'templates/opencode/run_server.mjs',
     'templates/codex/global.config.toml',
     'templates/codex/repo-local.config.toml',
@@ -104,7 +107,12 @@ test('packed artifact can be installed and exposes working modly + modly-mcp bin
   assert.match(`${modlyMcpHelp.stdout}\n${modlyMcpHelp.stderr}`, /stdio/u);
 
   const installedTemplate = JSON.parse(readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'opencode', 'opencode.json'), 'utf8'));
+  const installedRepoLocalTemplate = JSON.parse(readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'opencode', 'repo-local.opencode.json'), 'utf8'));
   assert.equal(installedTemplate.$schema, 'https://opencode.ai/config.json');
+  assert.deepEqual(installedRepoLocalTemplate.skills.paths, ['node_modules/modly-cli-mcp/skills']);
+
+  const installedOperatorSkill = readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'skills', 'modly-operator', 'SKILL.md'), 'utf8');
+  assert.match(installedOperatorSkill, /^---\nname: modly-operator/um);
 
   const installedCodexGlobalTemplate = readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'codex', 'global.config.toml'), 'utf8');
   const installedCodexRepoLocalTemplate = readFileSync(path.join(consumerDir, 'node_modules', 'modly-cli-mcp', 'templates', 'codex', 'repo-local.config.toml'), 'utf8');

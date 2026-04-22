@@ -8,9 +8,12 @@ The consumer repository should have:
 
 - an `opencode.json`
 - a local wrapper in `tools/modly_mcp/run_server.mjs`
+- an OpenCode `skills.paths` entry pointing to `node_modules/modly-cli-mcp/skills`
 - optionally `tools/_tmp/modly_mcp/local.env`
 
 The wrapper resolves `node_modules/.bin/modly-mcp` in the consumer repository first and falls back to a global `modly-mcp` in `PATH` only if the local one is missing. In other words, the supported resolution order is local-first with global-fallback.
+
+In this supported repo-local flow, OpenCode can also discover the packaged skills automatically from the installed package. The supported path is exactly `node_modules/modly-cli-mcp/skills` configured through `skills.paths`.
 
 ## Not supported
 
@@ -39,7 +42,7 @@ The script computes the repository root from `import.meta.url`, **not** from `cw
 
 ## 3) Create `opencode.json`
 
-Configure OpenCode to invoke the local wrapper:
+Configure OpenCode to invoke the local wrapper and discover packaged skills automatically:
 
 ```json
 {
@@ -54,11 +57,26 @@ Configure OpenCode to invoke the local wrapper:
         "tools/modly_mcp/run_server.mjs"
       ]
     }
+  },
+  "skills": {
+    "paths": [
+      "node_modules/modly-cli-mcp/skills"
+    ]
   }
 }
 ```
 
+Canonical repo-local template shipped in this package:
+
+- [`templates/opencode/repo-local.opencode.json`](../../templates/opencode/repo-local.opencode.json)
+
 That `opencode.json` lives in the consumer repository. It must **not** reference files inside the source checkout of `modly_CLI_MCP`.
+
+What is ready automatically in this supported repo-local flow:
+
+- `tools/modly_mcp/run_server.mjs` resolves the installed `modly-mcp` binary local-first.
+- OpenCode discovers `modly-cli-mcp` skills from `node_modules/modly-cli-mcp/skills` through `skills.paths`.
+- The consumer repository does **not** need to copy the skills manually.
 
 ## 4) Optional local configuration
 
@@ -110,7 +128,7 @@ MODLY_EXPERIMENTAL_RECIPE_EXECUTE=1
 
 ## When to choose global vs repo-local
 
-- **Global**: simpler if one environment uses a single installed version in `PATH`.
+- **Global**: simpler if one environment uses a single installed version in `PATH`, but this flow does **not** give you the same repo-local `skills.paths` contract automatically because there is no supported package-relative `node_modules/modly-cli-mcp/skills` location to point at from the consumer repo.
 - **Repo-local**: better when each repository needs to pin its own package version.
 
 If you want the global flow, use [`docs/install/global.md`](./global.md).

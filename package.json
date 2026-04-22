@@ -9,6 +9,7 @@
   },
   "files": [
     "src/**",
+    "skills/**",
     "README.md",
     "LICENSE",
     "docs/install/**",

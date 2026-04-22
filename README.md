@@ -294,9 +294,16 @@ Canonical shape:
         "tools/modly_mcp/run_server.mjs"
       ]
     }
+  },
+  "skills": {
+    "paths": ["node_modules/modly-cli-mcp/skills"]
   }
 }
 ```
+
+In the supported OpenCode repo-local flow, the installed package now makes the packaged skills available automatically through `skills.paths` pointing at `node_modules/modly-cli-mcp/skills`.
+
+The global OpenCode flow keeps the supported `modly-mcp` binary contract, but it does **not** provide that same automatic repo-local skills discovery contract.
 
 ## Codex integration
 
@@ -335,6 +342,7 @@ See:
 
 - [`docs/install/repo-local.md`](docs/install/repo-local.md)
 - [`templates/opencode/opencode.json`](templates/opencode/opencode.json)
+- [`templates/opencode/repo-local.opencode.json`](templates/opencode/repo-local.opencode.json)
 - [`templates/opencode/run_server.mjs`](templates/opencode/run_server.mjs)
 
 ### Codex installation
