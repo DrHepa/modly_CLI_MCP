@@ -4,6 +4,10 @@ External headless tooling for **Modly**.
 
 This repository keeps the operational automation layer **outside** the upstream Modly desktop app so CLI, MCP, OpenCode/Codex integration, and packaging concerns do not pollute the product repository.
 
+## Quick Start
+
+![Modly CLI MCP Quick Start](docs/assets/modly-cli-mcp-quick-start.png)
+
 ## What this package provides
 
 - **`modly`** — installable headless CLI
