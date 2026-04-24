@@ -27,6 +27,7 @@ The root npm package is **bin-only**. Package-root imports are not supported, an
 - `process-run`
 - `workflow-run`
 - `mesh`
+- `scene`
 - `ext`
 - `ext-dev`
 - `config`
@@ -91,6 +92,7 @@ Real-world testing against external extensions made these boundaries explicit:
 - `modly.capability.guide`
 - `modly.diagnostic.guidance`
 - `modly.capability.execute`
+- `modly.scene.importMesh`
 - `modly.health`
 - `modly.model.list`
 - `modly.model.current`
@@ -127,6 +129,7 @@ Real-world testing against external extensions made these boundaries explicit:
 - `process-run status`
 - `process-run cancel`
 - `process-run wait`
+- `scene import-mesh`
 - MCP tools:
   - `modly.workflowRun.createFromImage`
   - `modly.workflowRun.status`
@@ -137,6 +140,7 @@ Real-world testing against external extensions made these boundaries explicit:
   - `modly.processRun.cancel`
   - `modly.processRun.wait`
   - `modly.capability.execute`
+  - `modly.scene.importMesh`
 
 ### Execution surface taxonomy
 
@@ -144,6 +148,10 @@ Real-world testing against external extensions made these boundaries explicit:
 - `modly.capability.execute` is an **orchestration wrapper** over those canonical run primitives; recovery and polling stay anchored on `workflow-run` / `process-run` status surfaces.
 - `modly.recipe.execute` is an experimental **orchestration wrapper** over the same run primitives; it remains opt-in and never replaces canonical recovery.
 - `generate` / `job` and `modly.job.status` remain **legacy compatibility** surfaces.
+
+`modly scene import-mesh <mesh-path>` and `modly.scene.importMesh` are Desktop/Electron bridge-backed scene mutations, not canonical run primitives. They require `GET /health`, Desktop bridge `scene.import_mesh` discovery, and workspace-relative mesh validation (`.glb`, `.obj`, `.stl`, `.ply`) before calling `POST /scene/import-mesh`; when the bridge is unavailable they fail closed with an unsupported envelope.
+
+Scene import is intentionally narrow: it is not **Add to Scene** automation, not file picker/menu/click automation, not generic scene graph management, and not workflow management. It reports only the Desktop bridge response fields that actually exist.
 
 ## Explicitly out of scope
 

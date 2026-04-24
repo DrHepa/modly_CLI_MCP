@@ -27,6 +27,7 @@ This spec covers the visible contract exposed by the shipped package binaries, t
 - `process-run`
 - `workflow-run`
 - `mesh`
+- `scene`
 - `ext`
 - `ext-dev`
 - `config`
@@ -101,6 +102,7 @@ Every `ext-dev` plan returns:
 - `modly.capability.guide`
 - `modly.diagnostic.guidance`
 - `modly.capability.execute`
+- `modly.scene.importMesh`
 - `modly.health`
 - `modly.model.list`
 - `modly.model.current`
@@ -117,7 +119,7 @@ Every `ext-dev` plan returns:
 - `modly.processRun.wait`
 - `modly.processRun.cancel`
 
-The default public MCP catalog is intentionally smaller than the full CLI surface. In particular, the default catalog does **not** advertise hidden tools, workflow CRUD, scene mutation, or automatic multi-step chaining.
+The default public MCP catalog is intentionally smaller than the full CLI surface. It advertises only the explicit `modly.scene.importMesh` Desktop bridge mutation for scene import; it does **not** advertise hidden tools, workflow CRUD, generic scene graph control, or automatic multi-step chaining.
 
 ## Execution boundaries
 
@@ -153,7 +155,9 @@ The default public MCP catalog is intentionally smaller than the full CLI surfac
 - `modly process-run status`
 - `modly process-run cancel`
 - `modly process-run wait`
+- `modly scene import-mesh`
 - `modly.capability.execute`
+- `modly.scene.importMesh`
 - `modly.workflowRun.createFromImage`
 - `modly.workflowRun.status`
 - `modly.workflowRun.cancel`
@@ -172,6 +176,10 @@ The default public MCP catalog is intentionally smaller than the full CLI surfac
 - `modly.recipe.execute` is an experimental **orchestration wrapper** over the same run primitives and stays opt-in/hidden by default.
 - `generate` / `job` and `modly.job.status` remain visible **legacy compatibility** surfaces.
 
+`modly scene import-mesh <mesh-path>` and `modly.scene.importMesh` are Desktop/Electron bridge-backed scene mutations, not canonical run primitives. They must check `GET /health`, require Desktop bridge `scene.import_mesh` discovery, validate workspace-relative mesh paths (`.glb`, `.obj`, `.stl`, `.ply`), and fail closed when the bridge capability is absent.
+
+Scene import is intentionally narrow: it is not **Add to Scene** automation, not file picker/menu/click automation, not generic scene graph management, and not workflow management. It reports only the Desktop bridge response fields that actually exist.
+
 `generate` / `job` remain observable compatibility surfaces.
 
 `wait` remains a bounded convenience wrapper over status polling. Polling-first agents should prefer create/status loops over long blocking waits.
@@ -183,7 +191,9 @@ This MVP does **not** add or imply:
 - workflow management (`workflow_id`, list/save/import/export/delete)
 - generic DAG orchestration
 - automatic multi-step chaining beyond the existing bounded capability wrappers
-- real scene mutation or **Add to Scene** execution
+- **Add to Scene** execution beyond the explicit Desktop bridge `scene.import_mesh` import contract
+- file picker, menu, click, or OS-dialog automation
+- generic scene graph management
 - hidden support for Electron-only actions
 - unsupported install modes such as a source checkout integration
 

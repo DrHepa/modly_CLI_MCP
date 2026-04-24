@@ -15,6 +15,7 @@ Grupos disponibles:
   generate <subcomando>     from-image
   job <subcomando>          status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
+  scene <subcomando>        import-mesh
   ext <subcomando>          reload | errors | stage github | apply | setup | setup-status | repair
   ext-dev <subcomando>      bucket-detect | preflight | scaffold | audit | release-plan
   config <subcomando>       paths get | paths set | launcher locate | launcher open
@@ -28,7 +29,7 @@ Flags globales:
   -h, --help                Muestra esta ayuda
 
 Estado del bootstrap:
-  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, ext, ext-dev y config ya son funcionales
+  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, scene, ext, ext-dev y config ya son funcionales
   - workflow-run y process-run son las superficies run principales y canónicas para recovery/polling
   - modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.
   - generate/job se mantienen como compatibilidad observable actual
@@ -166,6 +167,24 @@ Subcomandos disponibles:
   optimize                   Decima una malla a un número objetivo de caras
   smooth                     Aplica smoothing Laplaciano
   export                     Descarga una malla exportada a un archivo local
+`;
+}
+
+export function renderSceneHelp() {
+  return `modly scene — operaciones explícitas sobre la escena de Modly Desktop
+
+Uso:
+  modly scene import-mesh <mesh-path> [--api-url <url>] [--json]
+
+Subcomandos disponibles:
+  import-mesh <mesh-path>    Importa una malla workspace-relative mediante Desktop bridge explícito
+
+Notas:
+  - Hace preflight GET /health antes de operaciones de negocio
+  - Requiere que Desktop bridge anuncie scene.import_mesh; si no, falla cerrado
+  - Acepta .glb, .obj, .stl y .ply, o el subconjunto anunciado por Desktop bridge
+  - No automatiza file pickers, menús, clicks ni diálogos del sistema
+  - --json emite el envelope JSON existente con ok/data|error/meta
 `;
 }
 

@@ -435,6 +435,62 @@ test('guidance returns known process capability with processRun surface', () => 
   assert.deepEqual(result.discovered_extras, []);
 });
 
+test('guidance exposes scene mesh import as discovery-only Desktop bridge capability', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'scene-mesh-import',
+  }, {
+    scene: {
+      import_mesh: {
+        supported: true,
+        endpoint: '/scene/import-mesh',
+        method: 'POST',
+        extensions: ['.glb', '.obj'],
+      },
+    },
+  });
+
+  assert.equal(result.status, 'supported_now');
+  assert.equal(result.capability_key, 'scene-mesh-import');
+  assert.equal(result.surface, 'desktopBridge');
+  assert.deepEqual(result.target, {
+    kind: 'scene',
+    id: 'scene.import_mesh',
+    name: 'Scene Mesh Import',
+  });
+  assert.deepEqual(result.available_safe_params, {
+    allowed: { canonical_ids: [], aliases: {} },
+    available_now: { canonical_ids: [], aliases: {} },
+  });
+  assert.ok(result.reasons.some((reason) => reason.includes('Desktop bridge advertises scene.import_mesh support')));
+});
+
+test('planner keeps scene mesh import outside capability.execute dispatch even when bridge advertises it', () => {
+  const result = planSmartCapability({
+    capability: 'import mesh to scene',
+  }, {
+    scene: {
+      import_mesh: {
+        supported: true,
+        endpoint: '/scene/import-mesh',
+        method: 'POST',
+      },
+    },
+  });
+
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.surface, 'desktopBridge.importSceneMesh');
+  assert.equal(result.target, null);
+  assert.deepEqual(result.cap, {
+    key: 'scene-mesh-import',
+    requested: 'import mesh to scene',
+    matchedId: 'scene.import_mesh',
+    matchedName: 'Scene Mesh Import',
+  });
+  assert.deepEqual(result.params, {});
+  assert.ok(result.reasons.some((reason) => reason.includes('read-only guidance')));
+  assert.ok(result.reasons.some((reason) => reason.includes('does not dispatch Desktop scene mutations')));
+});
+
 test('guidance classification stays explicit across supported_now, known_but_unavailable, and discovered_only', () => {
   const supportedNow = evaluateCapabilityGuidance({
     capability: 'TripoSG',

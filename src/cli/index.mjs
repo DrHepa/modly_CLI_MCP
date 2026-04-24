@@ -17,6 +17,7 @@ import { runJobCommand } from './commands/job.mjs';
 import { runMeshCommand } from './commands/mesh.mjs';
 import { runModelCommand } from './commands/model.mjs';
 import { runProcessRunCommand } from './commands/process-run.mjs';
+import { runSceneCommand } from './commands/scene.mjs';
 import { runWorkflowRunCommand } from './commands/workflow-run.mjs';
 import {
   renderCapabilitiesHelp,
@@ -29,6 +30,7 @@ import {
   renderMeshHelp,
   renderModelHelp,
   renderProcessRunHelp,
+  renderSceneHelp,
   renderWorkflowRunHelp,
 } from './help.mjs';
 
@@ -41,6 +43,7 @@ const commandHandlers = {
   'process-run': runProcessRunCommand,
   'workflow-run': runWorkflowRunCommand,
   mesh: runMeshCommand,
+  scene: runSceneCommand,
   ext: runExtCommand,
   'ext-dev': runExtDevCommand,
   config: runConfigCommand,
@@ -54,6 +57,7 @@ const commandHelpRenderers = {
   'process-run': renderProcessRunHelp,
   'workflow-run': renderWorkflowRunHelp,
   mesh: renderMeshHelp,
+  scene: renderSceneHelp,
   ext: renderExtHelp,
   'ext-dev': renderExtDevHelp,
   config: renderConfigHelp,

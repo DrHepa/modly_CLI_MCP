@@ -35,7 +35,7 @@ function toSafeDetails(error) {
 }
 
 function toErrorCode(error) {
-  if (error instanceof UnsupportedOperationError) {
+  if (error instanceof UnsupportedOperationError && error.code === 'UNSUPPORTED_HEADLESS_OPERATION') {
     return 'UNSUPPORTED_OPERATION';
   }
 

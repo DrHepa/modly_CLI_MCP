@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import os from 'node:os';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { ValidationError } from '../../src/core/errors.mjs';
 import { OPEN_INPUT_PATH_ALLOWLIST, createToolRegistry, matchesOpenInputPath } from '../../src/mcp/tools/index.mjs';
@@ -178,6 +178,17 @@ async function createTempImage(t) {
     await rm(directory, { recursive: true, force: true });
   });
   return imagePath;
+}
+
+async function createTempMeshWorkspace(t, relativePath = 'meshes/final.glb') {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'modly-mcp-scene-import-'));
+  const meshPath = path.join(directory, ...relativePath.split('/'));
+  await mkdir(path.dirname(meshPath), { recursive: true });
+  await writeFile(meshPath, 'mesh');
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  return { directory, relativePath };
 }
 
 function getRecipeResume(result) {
@@ -369,6 +380,139 @@ test('registry catalog exposes modly.capability.execute with honest first-cut MV
       additionalProperties: false,
     },
   });
+});
+
+test('registry catalog exposes modly.scene.importMesh with strict meshPath schema only', () => {
+  const registry = createToolRegistry({ apiUrl: 'http://127.0.0.1:8765' });
+  const tool = registry.catalog.find((entry) => entry.name === 'modly.scene.importMesh');
+
+  assert.deepEqual(tool, {
+    name: 'modly.scene.importMesh',
+    title: 'Import Scene Mesh',
+    description: 'Desktop/Electron bridge-backed scene mutation for importing one existing workspace-relative mesh (.glb, .obj, .stl, .ply); fails closed when unsupported.',
+    inputSchema: {
+      type: 'object',
+      required: ['meshPath'],
+      properties: {
+        meshPath: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+  });
+});
+
+test('modly.scene.importMesh checks health then bridge capabilities then validates before Desktop import', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const workspace = await createTempMeshWorkspace(t, 'meshes/final.glb');
+
+  const calls = installFetchStub(async ({ path, method, init }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({ scene: { import_mesh: { supported: true, extensions: ['.glb'] } } });
+    }
+
+    if (path === '/scene/import-mesh') {
+      assert.equal(method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), { mesh_path: 'meshes/final.glb' });
+      return jsonResponse({
+        status: 'imported',
+        mesh_path: 'meshes/final.glb',
+        scene_id: 'scene-1',
+        object_id: 'object-9',
+      });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({
+    apiUrl: 'http://127.0.0.1:8765',
+    workspaceRoot: workspace.directory,
+  });
+  const result = await registry.invoke('modly.scene.importMesh', { meshPath: workspace.relativePath });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.content[0].text, 'Scene import imported for meshes/final.glb; sceneId=scene-1; objectId=object-9.');
+  assert.deepEqual(result.structuredContent, {
+    ok: true,
+    data: {
+      status: 'imported',
+      meshPath: 'meshes/final.glb',
+      sceneId: 'scene-1',
+      objectId: 'object-9',
+    },
+  });
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities', 'POST /scene/import-mesh'],
+  );
+  assert.equal(calls[2].url, 'http://127.0.0.1:8766/scene/import-mesh');
+});
+
+test('modly.scene.importMesh fails closed when bridge capability is unavailable and never imports', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const workspace = await createTempMeshWorkspace(t, 'meshes/final.glb');
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({ scene: { import_mesh: { supported: false } } });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({
+    apiUrl: 'http://127.0.0.1:8765',
+    workspaceRoot: workspace.directory,
+  });
+  const result = await registry.invoke('modly.scene.importMesh', { meshPath: workspace.relativePath });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'SCENE_IMPORT_UNSUPPORTED');
+  assert.equal(result.structuredContent.error.details.capability, 'scene-mesh-import');
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
+});
+
+test('modly.scene.importMesh rejects invalid mesh paths before Desktop import', { concurrency: false }, async (t) => {
+  t.after(resetFetch);
+  const workspace = await createTempMeshWorkspace(t, 'meshes/final.glb');
+
+  const calls = installFetchStub(async ({ path }) => {
+    if (path === '/health') {
+      return jsonResponse({ status: 'ok' });
+    }
+
+    if (path === '/automation/capabilities') {
+      return jsonResponse({ scene: { import_mesh: { supported: true, extensions: ['.glb'] } } });
+    }
+
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const registry = createToolRegistry({
+    apiUrl: 'http://127.0.0.1:8765',
+    workspaceRoot: workspace.directory,
+  });
+  const result = await registry.invoke('modly.scene.importMesh', { meshPath: '../outside.glb' });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'VALIDATION_ERROR');
+  assert.equal(result.structuredContent.error.details.field, 'meshPath');
+  assert.equal(result.structuredContent.error.details.reason, 'path_traversal');
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}${call.search}`),
+    ['GET /health', 'GET /automation/capabilities'],
+  );
 });
 
 test('registry catalog hides modly.recipe.execute by default when experimental execution is disabled', () => {

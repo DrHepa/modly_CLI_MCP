@@ -92,6 +92,56 @@ test('getAutomationCapabilities routes only capabilities to bridge and preserves
   });
 });
 
+test('importSceneMesh posts JSON payload to the Desktop bridge scene import route', async () => {
+  const requests = [];
+  const client = createModlyApiClient({
+    apiUrl: 'http://127.0.0.1:8765',
+    fetchImpl: async (url, init) => {
+      requests.push({
+        url: String(url),
+        method: init.method,
+        headers: init.headers,
+        body: init.body,
+      });
+      return jsonResponse({ status: 'imported', mesh_path: 'models/final.glb', scene_id: 'scene-1' });
+    },
+  });
+
+  const result = await client.importSceneMesh({ mesh_path: 'models/final.glb' });
+
+  assert.deepEqual(requests, [{
+    url: 'http://127.0.0.1:8766/scene/import-mesh',
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify({ mesh_path: 'models/final.glb' }),
+  }]);
+  assert.deepEqual(result, { status: 'imported', mesh_path: 'models/final.glb', scene_id: 'scene-1' });
+});
+
+test('importSceneMesh preserves bridge failures as safe Modly errors', async () => {
+  const client = createModlyApiClient({
+    apiUrl: 'http://127.0.0.1:8765',
+    fetchImpl: async () => response(JSON.stringify({ code: 'DESKTOP_SCENE_BUSY', message: 'Scene is busy' }), {
+      status: 409,
+      statusText: 'Conflict',
+    }),
+  });
+
+  await assert.rejects(
+    () => client.importSceneMesh({ mesh_path: 'models/final.glb' }),
+    (error) => {
+      assert.ok(error instanceof ModlyError);
+      assert.equal(error.code, 'SCENE_IMPORT_FAILED');
+      assert.equal(error.message, 'Desktop scene mesh import failed.');
+      assert.deepEqual(error.details, {
+        status: 409,
+        bridgeError: { code: 'DESKTOP_SCENE_BUSY', message: 'Scene is busy' },
+      });
+      return true;
+    },
+  );
+});
+
 test('process-runs route to bridge while workflow, health and models remain on FastAPI', async () => {
   const requests = [];
 

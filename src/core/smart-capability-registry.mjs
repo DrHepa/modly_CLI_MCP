@@ -114,6 +114,22 @@ export const KNOWN_CAPABILITIES = deepFreeze([
     },
   },
   {
+    key: 'scene-mesh-import',
+    labels: ['scene-mesh-import', 'modly.scene.importMesh', 'import mesh to scene', 'scene import mesh'],
+    target: {
+      kind: 'scene',
+      surface: 'desktopBridge.importSceneMesh',
+      ids: ['scene.import_mesh'],
+      names: ['Scene Mesh Import'],
+    },
+    availability: 'discovery_based',
+    capabilityExecuteSupported: false,
+    safeParams: {
+      canonicalIds: [],
+      aliases: {},
+    },
+  },
+  {
     key: 'unirig',
     labels: ['unirig', 'uni rig', 'UniRig', 'Rig Mesh', 'rig mesh'],
     target: {
@@ -136,6 +152,7 @@ export const KNOWN_CAPABILITIES = deepFreeze([
 export const OBSERVABLE_MVP_SURFACES = deepFreeze({
   'workflowRun.createFromImage': 'workflowRun',
   'processRun.create': 'processRun',
+  'desktopBridge.importSceneMesh': 'desktopBridge',
 });
 
 function normalizeText(value) {

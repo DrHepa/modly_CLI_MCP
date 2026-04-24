@@ -21,7 +21,9 @@
     "skills/**",
     "README.md",
     "LICENSE",
+    "docs/assets/**",
     "docs/install/**",
+    "docs/specs/**",
     "templates/opencode/**",
     "templates/codex/**"
   ],

@@ -9,6 +9,7 @@ const EXPECTED_TOOLS = [
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.scene.importMesh',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -27,10 +28,10 @@ const EXPECTED_TOOLS = [
 ];
 
 const EXPECTED_TOOLS_WITH_EXPERIMENTAL_RECIPE = [
-  ...EXPECTED_TOOLS.slice(0, 5),
+  ...EXPECTED_TOOLS.slice(0, 6),
   'modly.recipe.catalog',
   'modly.recipe.execute',
-  ...EXPECTED_TOOLS.slice(5),
+  ...EXPECTED_TOOLS.slice(6),
 ];
 
 test('stdio server hides modly.recipe.execute by default from the advertised tool catalog', async () => {

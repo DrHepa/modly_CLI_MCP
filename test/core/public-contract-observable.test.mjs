@@ -34,6 +34,7 @@ const EXPECTED_CLI_GROUPS = [
   'process-run',
   'workflow-run',
   'mesh',
+  'scene',
   'ext',
   'ext-dev',
   'config',
@@ -45,6 +46,7 @@ const EXPECTED_DEFAULT_PUBLIC_TOOLS = [
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.scene.importMesh',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -68,6 +70,7 @@ const EXPECTED_EXPERIMENTAL_PUBLIC_TOOLS = [
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.scene.importMesh',
   'modly.recipe.catalog',
   'modly.recipe.execute',
   'modly.health',
@@ -199,6 +202,7 @@ Grupos disponibles:
   process-run
   workflow-run
   mesh
+  scene
   ext
   ext-dev
   config
@@ -250,6 +254,7 @@ Grupos disponibles:
   process-run
   workflow-run
   mesh
+  scene
   ext
   ext-dev
   config
@@ -313,6 +318,7 @@ test('detectVisibleContractDrift enumerates the Batch 1 drift when stale inputs 
     'generate',
     'job',
     'process-run',
+    'scene',
     'mesh',
     'ext',
     'config',
@@ -367,6 +373,7 @@ Grupos disponibles:
   process-run <subcomando>  create | status | wait | cancel
   workflow-run <subcomando> from-image | status | wait | cancel
   mesh <subcomando>         optimize | smooth | export
+  scene <subcomando>        import-mesh
   ext <subcomando>          reload | errors
   ext-dev <subcomando>      bucket-detect | preflight | scaffold | audit | release-plan
   config <subcomando>       paths get | paths set
@@ -455,6 +462,7 @@ Grupos disponibles:
   process-run
   workflow-run
   mesh
+  scene
   ext
   ext-dev
   config
@@ -522,6 +530,7 @@ test('MCP tool catalog uses taxonomy wording for canonical runs, wrappers, and l
   const processStatusTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.processRun.status');
   const capabilityExecuteTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.capability.execute');
   const recipeExecuteTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.recipe.execute');
+  const sceneImportTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.scene.importMesh');
   const jobStatusTool = MCP_TOOL_CATALOG.find((tool) => tool.name === 'modly.job.status');
 
   assert.match(workflowStatusTool.description, /canonical run primitive/u);
@@ -531,6 +540,10 @@ test('MCP tool catalog uses taxonomy wording for canonical runs, wrappers, and l
   assert.match(recipeExecuteTool.description, /experimental orchestration wrapper/iu);
   assert.match(recipeExecuteTool.description, /validated workflow\/\* derived snapshot/iu);
   assert.doesNotMatch(recipeExecuteTool.description, /arbitrary DAG execution/iu);
+  assert.match(sceneImportTool.description, /Desktop\/Electron bridge|Electron\/Desktop bridge/iu);
+  assert.match(sceneImportTool.description, /\.glb.*\.obj.*\.stl.*\.ply|\.glb.*\.stl.*\.obj.*\.ply/u);
+  assert.match(sceneImportTool.description, /fail[s]? closed|fail-closed/iu);
+  assert.doesNotMatch(sceneImportTool.description, /Add to Scene|file picker|generic scene graph|workflow management/iu);
   assert.match(jobStatusTool.description, /legacy compatibility surface/iu);
 });
 
@@ -573,7 +586,7 @@ Use any local script.
       {
         code: 'readme.cli-groups.missing',
         source: 'README.md',
-        missing: ['capabilities', 'model', 'generate', 'job', 'process-run', 'mesh', 'ext', 'config'],
+        missing: ['capabilities', 'model', 'generate', 'job', 'process-run', 'mesh', 'scene', 'ext', 'config'],
       },
       {
         code: 'readme.mcp-tool-ids.missing',
@@ -692,7 +705,7 @@ Use any checkout-based setup you want.
       {
         code: 'mvp-spec.cli-groups.missing',
         source: 'docs/specs/modly-cli-mvp.md',
-        missing: ['capabilities', 'generate', 'job', 'process-run', 'workflow-run', 'mesh', 'ext', 'config'],
+        missing: ['capabilities', 'generate', 'job', 'process-run', 'workflow-run', 'mesh', 'scene', 'ext', 'config'],
       },
       {
         code: 'mvp-spec.bins.missing',

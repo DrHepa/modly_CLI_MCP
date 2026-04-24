@@ -11,6 +11,7 @@ import {
   toWorkflowRun,
 } from '../../core/modly-normalizers.mjs';
 import { evaluateCapabilityGuidance, planSmartCapability } from '../../core/smart-capability-planner.mjs';
+import { importSceneMeshWithBridge } from '../../core/scene-import.mjs';
 import { waitForProcessRun } from '../../core/process-run-wait.mjs';
 import { waitForWorkflowRun } from '../../core/workflow-run-wait.mjs';
 import { loadAutomationCapabilities, prepareAutomationContext } from './internal/automation-context.mjs';
@@ -98,10 +99,22 @@ function summarizeRecipeCatalog(recipes) {
   return recipes.length === 0 ? 'Derived recipe catalog is empty.' : `Derived recipe catalog entries: ${recipes.length}.`;
 }
 
+function summarizeSceneMeshImport(result) {
+  const parts = [`Scene import ${result.status} for ${result.meshPath}`];
+
+  if (result.sceneId) parts.push(`sceneId=${result.sceneId}`);
+  if (result.objectId) parts.push(`objectId=${result.objectId}`);
+  if (result.runId) parts.push(`runId=${result.runId}`);
+  if (result.statusUrl) parts.push(`statusUrl=${result.statusUrl}`);
+
+  return `${parts.join('; ')}.`;
+}
+
 
 export function createToolHandlers({
   client,
   apiUrl,
+  workspaceRoot = process.cwd(),
   recipeWorkflowCatalogDir = null,
   resolveDerivedRecipeSnapshotForExecution,
 } = {}) {
@@ -139,6 +152,18 @@ export function createToolHandlers({
     },
 
     'modly.capability.execute': capabilityExecuteHandler,
+
+    async 'modly.scene.importMesh'({ meshPath }) {
+      const capabilities = await modlyClient.getAutomationCapabilities();
+      const result = await importSceneMeshWithBridge({
+        workspaceRoot,
+        meshPath,
+        capabilities,
+        importSceneMesh: (payload) => modlyClient.importSceneMesh(payload),
+      });
+
+      return { data: result, text: summarizeSceneMeshImport(result) };
+    },
 
     async 'modly.recipe.catalog'() {
       const recipes = await listDerivedRecipeCatalogEntries(recipeWorkflowCatalogDir);

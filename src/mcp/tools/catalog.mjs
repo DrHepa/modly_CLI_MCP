@@ -143,6 +143,19 @@ export const MCP_TOOL_CATALOG = [
     },
   },
   {
+    name: MCP_TOOL_IDS[32],
+    title: 'Import Scene Mesh',
+    description: 'Desktop/Electron bridge-backed scene mutation for importing one existing workspace-relative mesh (.glb, .obj, .stl, .ply); fails closed when unsupported.',
+    inputSchema: {
+      type: 'object',
+      required: ['meshPath'],
+      properties: {
+        meshPath: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'modly.recipe.catalog',
     title: 'List Derived Recipe Catalog',
     description: 'Experimental read-only catalog of validated workflow-backed recipe snapshots from MODLY_RECIPE_WORKFLOW_CATALOG_DIR; returns derived workflow/* entries only, with source metadata, and does not advertise built-ins or arbitrary DAG execution.',

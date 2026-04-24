@@ -281,6 +281,30 @@ export function createModlyApiClient({
       });
     },
 
+    async importSceneMesh(payload) {
+      try {
+        return await requestJson({
+          ...processRunsContext,
+          ...MODLY_API_CONTRACT.importSceneMesh,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        if (error instanceof ModlyError && /^HTTP_\d+$/.test(error.code)) {
+          throw new ModlyError('Desktop scene mesh import failed.', {
+            code: 'SCENE_IMPORT_FAILED',
+            details: {
+              status: Number(error.code.slice('HTTP_'.length)),
+              bridgeError: error.details,
+            },
+            cause: error,
+          });
+        }
+
+        throw error;
+      }
+    },
+
     async getJobStatus(jobId) {
       return requestJson({
         ...context,

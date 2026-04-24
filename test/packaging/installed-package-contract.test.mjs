@@ -43,10 +43,12 @@ test('packed artifact can be installed and exposes working modly + modly-mcp bin
 
   for (const requiredFile of [
     'README.md',
+    'docs/assets/modly-cli-mcp-quick-start.png',
     'docs/install/global.md',
     'docs/install/repo-local.md',
     'docs/install/codex-global.md',
     'docs/install/codex-repo-local.md',
+    'docs/specs/modly-cli-mvp.md',
     'skills/modly-operator/SKILL.md',
     'skills/modly-extension-planner/SKILL.md',
     'templates/opencode/opencode.json',

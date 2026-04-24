@@ -46,6 +46,24 @@ function assertExecutionSurfaceTaxonomy(name, content) {
   assert.match(content, /process-run/u, `${name} must mention process-run`);
 }
 
+function assertSceneImportContract(name, content) {
+  assert.match(content, /`scene`/u, `${name} must list the scene CLI group`);
+  assert.match(content, /`modly scene import-mesh(?: [^`]*)?`/u, `${name} must document the scene import CLI command`);
+  assert.match(content, /`modly\.scene\.importMesh`/u, `${name} must document the MCP scene import tool`);
+  assert.match(content, /Desktop\/Electron bridge|Electron\/Desktop bridge/u, `${name} must identify scene import as bridge-backed`);
+  assert.match(content, /Desktop bridge `scene\.import_mesh`|`scene\.import_mesh` discovery/u, `${name} must require bridge discovery`);
+  assert.match(content, /fail closed|fail-closed/iu, `${name} must document unsupported fail-closed behavior`);
+  assert.match(content, /`\.glb`/u, `${name} must document .glb support`);
+  assert.match(content, /`\.obj`/u, `${name} must document .obj support`);
+  assert.match(content, /`\.stl`/u, `${name} must document .stl support`);
+  assert.match(content, /`\.ply`/u, `${name} must document .ply support`);
+  assert.match(content, /workspace-relative/iu, `${name} must require workspace-relative mesh paths`);
+  assert.match(content, /not .*Add to Scene|does \*\*not\*\*.*Add to Scene|no implica.*Add to Scene/iu, `${name} must not imply Add to Scene automation`);
+  assert.match(content, /not .*file picker|file picker.*not|does \*\*not\*\*.*file picker/iu, `${name} must reject file picker automation`);
+  assert.match(content, /not .*generic scene graph|generic scene graph.*not|does \*\*not\*\*.*generic scene graph/iu, `${name} must reject generic scene graph management`);
+  assert.match(content, /not .*workflow management|workflow management.*not|does \*\*not\*\*.*workflow management/iu, `${name} must reject workflow management claims`);
+}
+
 test('package bins and published assets stay aligned with the packaging contract', () => {
   assert.deepEqual(Object.keys(packageJson.bin).sort(), ['modly', 'modly-mcp']);
   assert.equal(packageJson.bin.modly, 'src/cli/index.mjs');
@@ -56,7 +74,9 @@ test('package bins and published assets stay aligned with the packaging contract
     'skills/**',
     'README.md',
     'LICENSE',
+    'docs/assets/**',
     'docs/install/**',
+    'docs/specs/**',
     'templates/opencode/**',
     'templates/codex/**',
   ]);
@@ -122,6 +142,7 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assert.match(readme, /`workflow-run wait`/u);
   assert.match(readme, /`modly\.workflowRun\.wait`/u);
   assert.match(readme, /do \*\*not\*\* imply workflow management, \*\*Add to Scene\*\*, or blocking `from-image` behavior/u);
+  assertSceneImportContract('README.md', readme);
   assertExperimentalRecipeContract('README.md', readme);
   assertExecutionSurfaceTaxonomy('README.md', readme);
 
@@ -167,6 +188,7 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assert.match(codexRepoLocalDoc, /args = \["tools\/modly_mcp\/run_server\.mjs"\]/u);
   assertExperimentalRecipeContract('docs/install/codex-repo-local.md', codexRepoLocalDoc);
   assertExecutionSurfaceTaxonomy('docs/install/codex-repo-local.md', codexRepoLocalDoc);
+  assertSceneImportContract('docs/specs/modly-cli-mvp.md', mvpSpec);
   assertExecutionSurfaceTaxonomy('docs/specs/modly-cli-mvp.md', mvpSpec);
 });
 

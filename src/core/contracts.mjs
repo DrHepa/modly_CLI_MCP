@@ -20,10 +20,20 @@ export const COMMAND_GROUPS = Object.freeze([
   'process-run',
   'workflow-run',
   'mesh',
+  'scene',
   'ext',
   'ext-dev',
   'config',
 ]);
+
+export const SCENE_MESH_IMPORT_CONTRACT = Object.freeze({
+  capability: 'scene-mesh-import',
+  cliGroup: 'scene',
+  cliCommand: 'import-mesh',
+  mcpToolId: 'modly.scene.importMesh',
+  bridge: Object.freeze({ method: 'POST', path: '/scene/import-mesh' }),
+  extensions: Object.freeze(['.glb', '.obj', '.stl', '.ply']),
+});
 
 export const PRIVATE_EXTENSION_CLI_SEAMS = Object.freeze(['setup']);
 
@@ -75,6 +85,7 @@ export const MODLY_API_CONTRACT = Object.freeze({
   optimizeMesh: { method: 'POST', path: '/optimize/mesh' },
   smoothMesh: { method: 'POST', path: '/optimize/smooth' },
   exportMesh: { method: 'GET', path: '/export/:format' },
+  importSceneMesh: { method: 'POST', path: '/scene/import-mesh' },
   reloadExtensions: { method: 'POST', path: '/extensions/reload' },
   getExtensionErrors: { method: 'GET', path: '/extensions/errors' },
   getRuntimePaths: { method: 'GET', path: '/settings/paths' },
@@ -87,6 +98,7 @@ const DEFAULT_PUBLIC_MCP_TOOL_IDS = Object.freeze([
   'modly.capability.guide',
   'modly.diagnostic.guidance',
   'modly.capability.execute',
+  'modly.scene.importMesh',
   'modly.health',
   'modly.model.list',
   'modly.model.current',
@@ -126,6 +138,7 @@ const LEGACY_MCP_TOOL_INDEX = Object.freeze({
   29: 'modly.capability.execute',
   30: 'modly.diagnostic.guidance',
   31: 'modly.recipe.execute',
+  32: 'modly.scene.importMesh',
 });
 
 export const MCP_TOOL_IDS = Object.freeze({

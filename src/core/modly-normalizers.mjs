@@ -110,6 +110,7 @@ export function toAutomationCapabilities(payload) {
     'excluded',
     'models',
     'processes',
+    'scene',
   ].some((key) => hasOwn(payload, key));
 
   if (!hasCanonicalShape) {
@@ -128,6 +129,7 @@ export function toAutomationCapabilities(payload) {
     },
     models: Array.isArray(payload.models) ? payload.models : [],
     processes: Array.isArray(payload.processes) ? payload.processes : [],
+    ...(isObject(payload.scene) ? { scene: payload.scene } : {}),
   };
 }
 

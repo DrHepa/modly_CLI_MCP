@@ -24,6 +24,14 @@ function getDiscoveryCandidates(discovery, kind) {
     return Array.isArray(discovery?.models) ? discovery.models : [];
   }
 
+  if (kind === 'scene') {
+    const sceneImport = discovery?.scene?.import_mesh ?? discovery?.scene?.importMesh;
+
+    return sceneImport?.supported === true
+      ? [{ id: 'scene.import_mesh', name: 'Scene Mesh Import', params_schema: [] }]
+      : [];
+  }
+
   return Array.isArray(discovery?.processes) ? discovery.processes : [];
 }
 
@@ -501,6 +509,11 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
     reasons.push('This capability is known but intentionally unavailable for the current MVP surface.');
   }
 
+  if (knownCapability.key === 'scene-mesh-import' && selectedCandidate !== null) {
+    reasons.push('Desktop bridge advertises scene.import_mesh support for read-only guidance.');
+    reasons.push('capability.execute does not dispatch Desktop scene mutations; use modly.scene.importMesh directly.');
+  }
+
   if ((selectedCandidate !== null || capabilitySelection.tieDetected) && !isCapabilityExecuteSupported(knownCapability)) {
     reasons.push('Discovery matched a candidate, but the closed capability-execute allowlist does not permit supported execution for this capability.');
   }
@@ -511,7 +524,11 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
     && knownCapability.availability === 'discovery_based'
     && isCapabilityExecuteSupported(knownCapability)
     && executionScope.inScope;
-  const status = isExecutableNow ? 'supported_now' : 'known_but_unavailable';
+  const isGuidanceOnlySupportedNow = selectedCandidate !== null
+    && knownCapability.key === 'scene-mesh-import'
+    && knownCapability.availability === 'discovery_based'
+    && executionScope.inScope;
+  const status = isExecutableNow || isGuidanceOnlySupportedNow ? 'supported_now' : 'known_but_unavailable';
 
   return {
     requested,
@@ -522,8 +539,8 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
     mappedParams,
     discoveredExtras,
     status,
-    surface: isExecutableNow ? observableSurface : 'none',
-    target: isExecutableNow ? buildPlanTarget(knownCapability, selectedCandidate) : null,
+    surface: isExecutableNow || isGuidanceOnlySupportedNow ? observableSurface : 'none',
+    target: isExecutableNow || isGuidanceOnlySupportedNow ? buildPlanTarget(knownCapability, selectedCandidate) : null,
     availableSafeParams: buildAvailableSafeParams(knownCapability, capabilitySelection.availableParamIds),
     warnings,
     reasons,
@@ -576,7 +593,7 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
   }
 
   return {
-    status: evaluation.status === 'supported_now' ? 'supported' : 'known_but_unavailable',
+    status: evaluation.status === 'supported_now' && knownCapability.capabilityExecuteSupported === true ? 'supported' : 'known_but_unavailable',
     cap: {
       key: knownCapability.key,
       requested,
@@ -584,7 +601,7 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
       matchedName: evaluation.selectedCandidate?.matchedName ?? null,
     },
     surface: knownCapability.target.surface,
-    target: evaluation.status === 'supported_now' ? evaluation.target : null,
+    target: evaluation.status === 'supported_now' && knownCapability.capabilityExecuteSupported === true ? evaluation.target : null,
     score: evaluation.selectedScore,
     params: evaluation.mappedParams.params,
     warnings: [...evaluation.warnings, ...evaluation.mappedParams.warnings],

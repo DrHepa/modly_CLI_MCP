@@ -13,6 +13,7 @@ export { OPEN_INPUT_PATH_ALLOWLIST, matchesOpenInputPath } from './internal/regi
 
 export function createToolRegistry({
   apiUrl,
+  workspaceRoot = process.cwd(),
   experimentalRecipeExecution = false,
   recipeWorkflowCatalogDir = null,
   resolveDerivedRecipeSnapshotForExecution,
@@ -21,6 +22,7 @@ export function createToolRegistry({
   const handlers = createToolHandlers({
     client,
     apiUrl,
+    workspaceRoot,
     recipeWorkflowCatalogDir,
     resolveDerivedRecipeSnapshotForExecution,
   });
