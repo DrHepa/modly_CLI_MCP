@@ -2,6 +2,15 @@
   "name": "modly-cli-mcp",
   "version": "0.1.0",
   "description": "Installable Modly CLI and MCP server package for stdio-based consumers.",
+  "author": "DrHepa",
+  "homepage": "https://github.com/DrHepa/modly_CLI_MCP#readme",
+  "bugs": {
+    "url": "https://github.com/DrHepa/modly_CLI_MCP/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DrHepa/modly_CLI_MCP.git"
+  },
   "type": "module",
   "bin": {
     "modly": "src/cli/index.mjs",
@@ -41,6 +50,9 @@
     "codex"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.25.76"
@@ -54,6 +66,5 @@
     "c8": "^10.1.3",
     "eslint": "^8.57.1",
     "typescript": "^5.9.3"
-  },
-  "author": ""
+  }
 }
