@@ -407,6 +407,52 @@ test('applyStagedExtension applies cleanly when no previous destination exists',
   });
 });
 
+test('applyStagedExtension rejects invalid manifest ids before mutating paths outside extensionsDir', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  const outsidePath = path.join(tempRoot, 'outside.txt');
+  writeStageFixture(stagePath, { id: '../escape', name: 'Escape', version: '1.0.0' });
+  writeFileSync(outsidePath, 'keep me');
+
+  const { applyStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => applyStagedExtension({ stagePath, extensionsDir }),
+    (error) => {
+      assert.equal(error.code, 'APPLY_STAGE_INVALID');
+      assert.equal(error.details.apply.stageInspection.code, 'MANIFEST_ID_INVALID');
+      return true;
+    },
+  );
+
+  assert.equal(readFileSync(outsidePath, 'utf8'), 'keep me');
+  assert.throws(() => readFileSync(path.join(tempRoot, 'escape', 'manifest.json'), 'utf8'), { code: 'ENOENT' });
+});
+
+test('repairStagedExtension rejects invalid manifest ids before removing paths outside extensionsDir', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  const extensionsDir = path.join(tempRoot, 'extensions');
+  const outsideDir = path.join(tempRoot, 'outside-live');
+  writeStageFixture(stagePath, { id: '../outside-live', name: 'Escape', version: '1.0.0' });
+  mkdirSync(outsideDir, { recursive: true });
+  writeFileSync(path.join(outsideDir, 'legacy.txt'), 'keep me');
+
+  const { repairStagedExtension } = await import('../../src/core/extension-apply.mjs');
+
+  await assert.rejects(
+    () => repairStagedExtension({ stagePath, extensionsDir }),
+    (error) => {
+      assert.equal(error.code, 'APPLY_STAGE_INVALID');
+      assert.equal(error.details.apply.stageInspection.code, 'MANIFEST_ID_INVALID');
+      return true;
+    },
+  );
+
+  assert.equal(readFileSync(path.join(outsideDir, 'legacy.txt'), 'utf8'), 'keep me');
+});
+
 test('applyStagedExtension invokes setup against the live destination path and returns setup evidence', async (t) => {
   const tempRoot = createTempRoot(t);
   const stagePath = path.join(tempRoot, 'stage');

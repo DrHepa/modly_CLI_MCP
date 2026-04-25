@@ -410,6 +410,47 @@ test('runExtCommand renders live-target setup-status from --extensions-dir and -
   assert.match(result.humanMessage, /No reattach, cancel, ni job control general is available from this command/u);
 });
 
+test('runExtCommand rejects invalid manifest ids for setup-status before resolving target paths', async () => {
+  await assert.rejects(
+    () => runExtCommand({
+      args: ['setup-status', '--extensions-dir', '/opt/modly/extensions', '--manifest-id', '../escape'],
+      config: {},
+      client: {},
+      reconcileLatestSetupRun() {
+        throw new Error('should not resolve journal path for invalid manifest ids');
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'MANIFEST_ID_INVALID');
+      assert.match(error.message, /manifest-id/u);
+      return true;
+    },
+  );
+});
+
+test('runExtCommand rejects setup-status --stage-path when the staged manifest id is invalid before resolving the live target journal', async (t) => {
+  const stagePath = createTempStage(t);
+  writeManifest(stagePath, { id: 'BadId', name: 'Bad Id', version: '1.0.0' });
+
+  await assert.rejects(
+    () => runExtCommand({
+      args: ['setup-status', '--stage-path', stagePath, '--extensions-dir', '/opt/modly/extensions'],
+      config: {},
+      client: {},
+      reconcileLatestSetupRun() {
+        throw new Error('should not resolve journal path for invalid staged manifest ids');
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'MANIFEST_ID_INVALID');
+      assert.equal(error.details.setupStatus.phase, 'resolve_target');
+      assert.equal(error.details.setupStatus.stagePath, stagePath);
+      assert.equal(error.details.setupStatus.stageInspection.code, 'MANIFEST_ID_INVALID');
+      return true;
+    },
+  );
+});
+
 test('runExtCommand resolves --stage-path only to manifest id and still reads the installed target journal', async (t) => {
   const stagePath = createTempStage(t);
   const extensionsDir = path.join(path.dirname(stagePath), 'extensions');

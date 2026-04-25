@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 
 import { UsageError } from './errors.mjs';
+import { describeInvalidManifestId } from './extension-manifest-id.mjs';
 
 const DEFAULT_STAGE_PREFIX = 'modly-ext-stage-';
 const GITHUB_REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
@@ -221,7 +222,7 @@ export async function inspectStagedExtension(stagePath) {
       };
     }
 
-    manifestSummary.id = typeof manifest?.id === 'string' && manifest.id.trim() !== '' ? manifest.id.trim() : null;
+    manifestSummary.id = typeof manifest?.id === 'string' && manifest.id !== '' ? manifest.id : null;
     manifestSummary.name = typeof manifest?.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : null;
     manifestSummary.version = typeof manifest?.version === 'string' && manifest.version.trim() !== '' ? manifest.version.trim() : null;
     manifestSummary.extensionType = classifyExtensionType(entries);
@@ -239,6 +240,23 @@ export async function inspectStagedExtension(stagePath) {
           phase: 'inspect',
           code: 'MANIFEST_ID_MISSING',
           detail: 'manifest.json must include a non-empty manifest.id value.',
+        },
+      };
+    }
+
+    const manifestIdReason = describeInvalidManifestId(manifestSummary.id);
+
+    if (manifestIdReason) {
+      return {
+        status: 'failed',
+        manifestSummary,
+        setupContract,
+        ...artifacts,
+        diagnostics: {
+          phase: 'inspect',
+          code: 'MANIFEST_ID_INVALID',
+          detail: 'manifest.json contains an invalid manifest.id: must match ^[a-z0-9][a-z0-9._-]{0,127}$ and must not be traversal, scoped, absolute, or spaced.',
+          reason: manifestIdReason,
         },
       };
     }

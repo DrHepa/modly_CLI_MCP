@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { TimeoutError, UnsupportedOperationError, UsageError, ValidationError } from '../../core/errors.mjs';
 import { applyStagedExtension, repairStagedExtension } from '../../core/extension-apply.mjs';
+import { normalizeExtensionManifestId, resolveContainedExtensionPath } from '../../core/extension-manifest-id.mjs';
 import {
   isFollowableSetupRun,
   isObservableSetupTerminal,
@@ -83,7 +84,10 @@ function resolveManifestIdOption(manifestId, usage) {
     throw new UsageError(usage);
   }
 
-  return manifestId.trim();
+  return normalizeExtensionManifestId(manifestId, {
+    label: '--manifest-id',
+    message: 'Expected --manifest-id to be a safe extension manifest identifier.',
+  });
 }
 
 async function resolveSetupStatusTarget(options, context) {
@@ -97,7 +101,7 @@ async function resolveSetupStatusTarget(options, context) {
     const manifestId = resolveManifestIdOption(options['--manifest-id'], SETUP_STATUS_USAGE);
     return {
       manifestId,
-      targetPath: path.join(extensionsDir, manifestId),
+      targetPath: resolveContainedExtensionPath(extensionsDir, manifestId),
     };
   }
 
@@ -110,6 +114,19 @@ async function resolveSetupStatusTarget(options, context) {
   const inspection = await inspectStage(stagePath);
 
   if (inspection.status !== 'prepared' || !inspection.manifestSummary?.id) {
+    if (inspection.diagnostics?.code === 'MANIFEST_ID_INVALID') {
+      throw new ValidationError(inspection.diagnostics.detail, {
+        code: 'MANIFEST_ID_INVALID',
+        details: {
+          setupStatus: {
+            phase: 'resolve_target',
+            stagePath,
+            stageInspection: inspection.diagnostics,
+          },
+        },
+      });
+    }
+
     throw new ValidationError(inspection.diagnostics?.detail ?? 'Expected --stage-path to point to a prepared extension with manifest.id.', {
       code: 'SETUP_STATUS_TARGET_UNRESOLVABLE',
       details: {
@@ -124,7 +141,7 @@ async function resolveSetupStatusTarget(options, context) {
 
   return {
     manifestId: inspection.manifestSummary.id,
-    targetPath: path.join(extensionsDir, inspection.manifestSummary.id),
+    targetPath: resolveContainedExtensionPath(extensionsDir, inspection.manifestSummary.id),
   };
 }
 

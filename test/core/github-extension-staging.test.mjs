@@ -607,3 +607,23 @@ test('stageGitHubExtension reports MANIFEST_ID_MISSING when manifest.json has no
     detail: 'manifest.json must include a non-empty manifest.id value.',
   });
 });
+
+test('inspectStagedExtension rejects invalid manifest ids with a stable diagnostic instead of prepared', async (t) => {
+  const tempRoot = createTempRoot(t);
+  const stagePath = path.join(tempRoot, 'stage');
+  writeStageFiles(stagePath, {
+    'manifest.json': JSON.stringify({ id: '../escape', name: 'Escape', version: '1.0.0' }),
+  });
+
+  const { inspectStagedExtension } = await loadModule();
+  const result = await inspectStagedExtension(stagePath);
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.manifestSummary.id, '../escape');
+  assert.deepEqual(result.diagnostics, {
+    phase: 'inspect',
+    code: 'MANIFEST_ID_INVALID',
+    detail: 'manifest.json contains an invalid manifest.id: must match ^[a-z0-9][a-z0-9._-]{0,127}$ and must not be traversal, scoped, absolute, or spaced.',
+    reason: 'manifest.id must not contain "/" or "\\" path separators.',
+  });
+});

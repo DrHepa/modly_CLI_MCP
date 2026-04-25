@@ -2,6 +2,11 @@ import path from 'node:path';
 import * as defaultFs from 'node:fs/promises';
 
 import { ValidationError } from './errors.mjs';
+import {
+  assertPathWithinDirectory,
+  normalizeExtensionManifestId,
+  resolveContainedExtensionPath,
+} from './extension-manifest-id.mjs';
 import { configureStagedExtension } from './extension-setup.mjs';
 import { inspectStagedExtension } from './github-extension-staging.mjs';
 import { normalizeErrors } from './modly-normalizers.mjs';
@@ -188,19 +193,28 @@ function planPaths({ extensionsDir, manifestId, destinationExists, backupMode = 
 
   return {
     destination: {
-      path: path.join(extensionsDir, manifestId),
+      path: resolveContainedExtensionPath(extensionsDir, manifestId),
       exists: destinationExists,
     },
     backup: {
-      path: expectsBackup ? path.join(extensionsDir, `${manifestId}.backup`) : null,
+      path: expectsBackup ? resolveContainedExtensionPath(extensionsDir, `${manifestId}.backup`) : null,
       expected: expectsBackup,
       created: false,
       restored: null,
     },
     candidate: {
-      path: path.join(extensionsDir, `${manifestId}.candidate`),
+      path: resolveContainedExtensionPath(extensionsDir, `${manifestId}.candidate`),
     },
   };
+}
+
+function assertApplyPathsContained(extensionsDir, paths) {
+  assertPathWithinDirectory(extensionsDir, paths.destination.path);
+  assertPathWithinDirectory(extensionsDir, paths.candidate.path);
+
+  if (paths.backup.path) {
+    assertPathWithinDirectory(extensionsDir, paths.backup.path);
+  }
 }
 
 function shouldRunLiveSetup(input, stageInspection, deps) {
@@ -300,12 +314,14 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
   }
 
   const manifest = {
-    id: stageInspection.manifestSummary.id,
+    id: normalizeExtensionManifestId(stageInspection.manifestSummary.id, {
+      message: 'Prepared stage manifest.id is invalid for live-target apply.',
+    }),
     name: stageInspection.manifestSummary.name,
     version: stageInspection.manifestSummary.version,
     extensionType: stageInspection.manifestSummary.extensionType,
   };
-  const destinationPath = path.join(resolution.extensionsDir, manifest.id);
+  const destinationPath = resolveContainedExtensionPath(resolution.extensionsDir, manifest.id);
   const destinationExists = await pathExists(destinationPath);
   const paths = planPaths({
     extensionsDir: resolution.extensionsDir,
@@ -313,6 +329,7 @@ async function promoteStagedExtension(input = {}, deps = {}, statusMap) {
     destinationExists,
     backupMode: statusMap.backupMode,
   });
+  assertApplyPathsContained(resolution.extensionsDir, paths);
 
   try {
     await fs.mkdir(resolution.extensionsDir, { recursive: true });
