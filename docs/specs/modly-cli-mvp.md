@@ -145,6 +145,12 @@ The default public MCP catalog is intentionally smaller than the full CLI surfac
 - `modly.config.paths.get`
 - `modly.job.status`
 
+### Capability schema enrichment
+
+Capability discovery may include schema enrichment as read-only contract metadata. The public JSON contract keeps backend-declared `declared_inputs`, verified `supplemental_inputs`, and derived `enriched_inputs` separate so agents can distinguish `params_schema` fields from verified supplemental runtime behavior. Supplemental inputs must include `provenance`; clients must do not guess hidden params, do not infer hidden params from labels, and do not execution-probe vague hints.
+
+Verified runtime fact: `trellis2/refine` is a backend-runtime model (`id: trellis2/refine`, `name: Texture Mesh`, `version: 1.0.4`) that can accept supplemental `params.mesh_path` and `params.image_path` with `verified_runtime_behavior` provenance, while its `params_schema` may not include those fields. This is not a process-run contract and not processRun.create support; `capability.execute` is not supported for `trellis2/refine` unless an explicit wrapper is implemented later.
+
 ### Executable run surfaces
 
 - `modly workflow-run from-image`

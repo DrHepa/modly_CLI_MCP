@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  renderCapabilitiesHelp,
   renderGenerateHelp,
   renderHelp,
   renderJobHelp,
   renderMeshHelp,
+  renderProcessRunHelp,
   renderSceneHelp,
 } from '../../src/cli/help.mjs';
 import { main } from '../../src/cli/index.mjs';
@@ -51,6 +53,29 @@ test('legacy and mesh help sections keep their command matrices factual', () => 
   assert.match(meshHelp, /modly mesh optimize --path <workspace-relative-path> --target-faces <n>/u);
   assert.match(meshHelp, /modly mesh export --path <workspace-relative-path> --format glb\|obj\|stl\|ply/u);
   assert.match(meshHelp, /Subcomandos disponibles:\n\s+optimize\s+Decima/u);
+});
+
+test('capabilities and process-run help document enriched supplemental inputs conservatively', () => {
+  const capabilitiesHelp = renderCapabilitiesHelp();
+  const processRunHelp = renderProcessRunHelp();
+
+  assert.match(capabilitiesHelp, /declared_inputs/u);
+  assert.match(capabilitiesHelp, /supplemental_inputs/u);
+  assert.match(capabilitiesHelp, /enriched_inputs/u);
+  assert.match(capabilitiesHelp, /provenance/u);
+  assert.match(capabilitiesHelp, /do not guess hidden params|no adivinar params ocultos/iu);
+  assert.match(capabilitiesHelp, /trellis2\/refine/u);
+  assert.match(capabilitiesHelp, /params\.mesh_path/u);
+  assert.match(capabilitiesHelp, /params\.image_path/u);
+  assert.match(capabilitiesHelp, /verified_runtime_behavior/u);
+  assert.match(capabilitiesHelp, /params_schema.*may not include|params_schema.*puede no incluir/iu);
+  assert.match(capabilitiesHelp, /backend-runtime model|modelo backend-runtime/iu);
+  assert.match(capabilitiesHelp, /capability\.execute.*not supported|capability\.execute.*no soport/iu);
+  assert.doesNotMatch(capabilitiesHelp, /trellis2\/refine[\s\S]{0,160}processRun\.create/u);
+
+  assert.match(processRunHelp, /No usar Trellis2\/refine|Do not use Trellis2\/refine/iu);
+  assert.match(processRunHelp, /backend-runtime model|modelo backend-runtime/iu);
+  assert.match(processRunHelp, /process-run no promete|process-run does not promise/iu);
 });
 
 test('real CLI help routing renders scene and mesh specific help without backend calls', async () => {

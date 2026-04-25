@@ -53,6 +53,12 @@ Descripción:
   Consulta GET /automation/capabilities sin preflight /health separado.
   En JSON preserva el payload canónico dentro de data.
   En modo humano resume readiness, conteos y parcialidad si aplica.
+
+Schema enrichment:
+  - Cuando backend/runtime aporta contrato verificado, el JSON separa declared_inputs, supplemental_inputs y enriched_inputs.
+  - supplemental_inputs llevan provenance; no adivinar params ocultos desde labels, nombres o hints vagos.
+  - trellis2/refine es un modelo backend-runtime verificado: puede aceptar params.mesh_path y params.image_path con provenance verified_runtime_behavior aunque params_schema puede no incluirlos.
+  - capability.execute no soporta trellis2/refine salvo implementación explícita futura.
 `;
 }
 
@@ -117,6 +123,7 @@ Notas:
   - Solo soporta procesos mesh-only ya publicados por capabilities.processes
   - --workspace-path y --output-path deben ser workspace-relative
   - Para mesh-optimizer/optimize y mesh-exporter/export, --workspace-path se normaliza al archivo mesh; si llega el directorio padre y params.mesh_path identifica el basename local, se autocorrige
+  - No usar Trellis2/refine como contrato process-run: es modelo backend-runtime; process-run no promete ejecutar sus supplemental inputs
 `;
 }
 

@@ -1,3 +1,5 @@
+import { enrichCapabilitySchema } from './capability-schema-enrichment.mjs';
+
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -98,6 +100,14 @@ function normalizeObservedSceneCandidateValue(value) {
   return isObject(value) ? value : undefined;
 }
 
+function enrichCapabilityList(entries) {
+  return entries.map((entry) => (
+    isObject(entry) && (hasOwn(entry, 'params_schema') || hasOwn(entry, 'paramsSchema') || hasOwn(entry, 'enriched_schema'))
+      ? enrichCapabilitySchema(entry)
+      : entry
+  ));
+}
+
 export function toAutomationCapabilities(payload) {
   if (!isObject(payload)) {
     throw new TypeError('Capabilities payload must be an object.');
@@ -127,8 +137,8 @@ export function toAutomationCapabilities(payload) {
       ...excluded,
       ui_only_nodes: Array.isArray(excluded.ui_only_nodes) ? excluded.ui_only_nodes : [],
     },
-    models: Array.isArray(payload.models) ? payload.models : [],
-    processes: Array.isArray(payload.processes) ? payload.processes : [],
+    models: Array.isArray(payload.models) ? enrichCapabilityList(payload.models) : [],
+    processes: Array.isArray(payload.processes) ? enrichCapabilityList(payload.processes) : [],
     ...(isObject(payload.scene) ? { scene: payload.scene } : {}),
   };
 }

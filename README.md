@@ -119,6 +119,12 @@ Real-world testing against external extensions made these boundaries explicit:
 - capabilities discovery (`modly capabilities`, `modly.capabilities.get`)
 - read-only capability planning (`modly.capability.plan`)
 
+### Capability schema enrichment
+
+Capability discovery may expose schema enrichment as contract metadata only. JSON output keeps backend-declared `declared_inputs`, verified `supplemental_inputs`, and their derived union `enriched_inputs` separate so clients can see what came from `params_schema` versus runtime-verified supplemental knowledge. Each supplemental field carries `provenance`; do not guess hidden params, do not infer hidden params from labels, process names, or vague mesh hints, and do not probe by execution.
+
+Verified runtime fact: `trellis2/refine` is a backend-runtime model (`id: trellis2/refine`, `name: Texture Mesh`, `version: 1.0.4`) that can accept supplemental `params.mesh_path` and `params.image_path` with `verified_runtime_behavior` provenance, while its `params_schema` may not include those fields. This is not a process-run contract and not processRun.create support; `capability.execute` is not supported for `trellis2/refine` unless a future explicit wrapper implements it.
+
 ### Executable surfaces
 
 - `workflow-run from-image`

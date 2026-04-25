@@ -21,7 +21,7 @@ const WORKFLOW_STATUS_DESCRIPTION =
 const WORKFLOW_WAIT_DESCRIPTION =
   'Bounded convenience wrapper around canonical workflow-run status polling; prefer modly.workflowRun.status for recovery and use short timeout windows when you cannot poll yourself.';
 const PROCESS_CREATE_DESCRIPTION =
-  'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path. For mesh-optimizer/optimize and mesh-exporter/export, workspace_path is normalized to the mesh file and parent-directory input is autocorrected only when params.mesh_path identifies the local file unambiguously.';
+  'Creates a process run as a canonical run primitive and returns recovery metadata so clients can continue polling the same runId via modly.processRun.status. outputPath is optional sugar for params.output_path. For mesh-optimizer/optimize and mesh-exporter/export, workspace_path is normalized to the mesh file and parent-directory input is autocorrected only when params.mesh_path identifies the local file unambiguously. Do not use this as a Trellis2/refine promise: trellis2/refine is a backend-runtime model with verified supplemental params.mesh_path/params.image_path metadata, not a process-run contract.';
 const PROCESS_STATUS_DESCRIPTION =
   'Gets the latest process run state for this canonical run primitive. This is the preferred polling-first recovery tool for long-running agents using the same runId.';
 const PROCESS_WAIT_DESCRIPTION =
@@ -212,7 +212,7 @@ test('registry catalog exposes modly.capabilities.get with empty input schema', 
   assert.deepEqual(tool, {
     name: 'modly.capabilities.get',
     title: 'Get Automation Capabilities',
-    description: 'Returns canonical automation capabilities from GET /automation/capabilities.',
+    description: 'Returns canonical automation capabilities from GET /automation/capabilities, including declared_inputs/supplemental_inputs/enriched_inputs when verified enrichment metadata exists. Supplemental inputs are labeled with provenance; do not guess hidden params from labels.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   });
 });
@@ -224,7 +224,7 @@ test('registry catalog exposes modly.capability.plan as strict read-only input',
   assert.deepEqual(tool, {
     name: 'modly.capability.plan',
     title: 'Plan Smart Capability',
-    description: 'Plans a known capability against live discovery without executing workflows or process runs.',
+    description: 'Plans a known capability against live discovery without executing workflows or process runs. Verified supplemental inputs may be reported with provenance; this does not imply modly.capability.execute support.',
     inputSchema: {
       type: 'object',
       required: ['capability'],
@@ -244,7 +244,7 @@ test('registry catalog exposes modly.capability.guide as strict read-only input'
   assert.deepEqual(tool, {
     name: 'modly.capability.guide',
     title: 'Guide Capability Usage',
-    description: 'Read-only guidance for a capability against live discovery; checks health and automation capabilities without executing workflows or process runs.',
+    description: 'Read-only guidance for a capability against live discovery; checks health and automation capabilities without executing workflows or process runs. For trellis2/refine, guidance may show verified backend-runtime model supplemental params.mesh_path and params.image_path even when params_schema omits them; capability.execute remains unsupported unless explicitly implemented.',
     inputSchema: {
       type: 'object',
       required: ['capability'],

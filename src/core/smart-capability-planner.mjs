@@ -1,3 +1,4 @@
+import { enrichCapabilitySchema } from './capability-schema-enrichment.mjs';
 import { extractCanonicalParamIds } from './modly-normalizers.mjs';
 import { findKnownCapability, getCapabilityGuideMetadata, getObservableMvpSurface, KNOWN_CAPABILITIES } from './smart-capability-registry.mjs';
 
@@ -169,13 +170,84 @@ function buildAvailableSafeParams(capability, availableParamIds) {
 }
 
 function buildDiscoveredOnlyTarget(candidate, kind) {
+  const enrichedCandidate = isObject(candidate) ? enrichCapabilitySchema(candidate) : candidate;
+  const supplementalInputs = Array.isArray(enrichedCandidate?.supplemental_inputs)
+    ? enrichedCandidate.supplemental_inputs.filter((input) => input.available === true)
+    : [];
+  const hasProcessRunGuidance = kind === 'process'
+    && supplementalInputs.some((input) => Array.isArray(input.execution_surfaces) && input.execution_surfaces.includes('processRun.create'));
+
   return {
     kind,
     id: getCandidateId(candidate, kind),
     name: getCandidateName(candidate),
     status: 'discovered_only',
-    surface: 'none',
+    surface: hasProcessRunGuidance ? 'processRun' : 'none',
+    ...(supplementalInputs.length > 0 ? { supplemental_inputs: supplementalInputs } : {}),
   };
+}
+
+function buildSupplementalGuidance(candidate, kind) {
+  const target = buildDiscoveredOnlyTarget(candidate, kind);
+  const supplementalInputs = Array.isArray(target.supplemental_inputs) ? target.supplemental_inputs : [];
+  const processRunInput = supplementalInputs.find((input) => (
+    Array.isArray(input.execution_surfaces) && input.execution_surfaces.includes('processRun.create')
+  ));
+  const backendRuntimeInput = supplementalInputs.find((input) => (
+    Array.isArray(input.execution_surfaces) && input.execution_surfaces.includes('backend-runtime.model')
+  ));
+
+  if (processRunInput === undefined && backendRuntimeInput === undefined) {
+    return {
+      target: null,
+      surface: 'none',
+      supplementalInputs,
+      params: {},
+      reasons: [],
+      warnings: [],
+    };
+  }
+
+  if (backendRuntimeInput !== undefined && kind === 'model') {
+    return {
+      target: { kind, id: target.id, name: target.name },
+      surface: 'none',
+      supplementalInputs,
+      params: {},
+      reasons: [
+        `Discovery exposes verified backend-runtime model supplemental inputs for canonical model id "${target.id}"; use direct backend-runtime model guidance only until an executable wrapper is explicitly implemented.`,
+      ],
+      warnings: [
+        `capability.execute is not supported for supplemental input ${backendRuntimeInput.location}; no processRun guidance is claimed for this model capability.`,
+      ],
+    };
+  }
+
+  return {
+    target: { kind, id: target.id, name: target.name },
+    surface: kind === 'process' ? 'processRun' : 'none',
+    supplementalInputs,
+    params: {},
+    reasons: [
+      `Discovery exposes verified supplemental input ${processRunInput.location}; use processRun.create or cli.process-run with canonical process id "${target.id}".`,
+    ],
+    warnings: [
+      `capability.execute is not supported for supplemental input ${processRunInput.location}; use processRun.create/direct process-run guidance only.`,
+    ],
+  };
+}
+
+function pickSupplementalParams(rawParams, supplementalInputs) {
+  const params = {};
+  const allowedNames = new Set(supplementalInputs.map((input) => input.name).filter((name) => typeof name === 'string'));
+
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (allowedNames.has(key)) {
+      params[key] = value;
+    }
+  }
+
+  return params;
 }
 
 function collectDiscoveredExtras(discovery) {
@@ -440,6 +512,14 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
     const discoveredOnlySelection = selectDiscoveredOnlyCandidate(requested, discovery);
     const warnings = [];
     const reasons = [];
+    let supplementalGuidance = {
+      target: null,
+      surface: 'none',
+      supplementalInputs: [],
+      params: {},
+      reasons: [],
+      warnings: [],
+    };
 
     if (discoveredOnlySelection.tieDetected) {
       warnings.push('Discovery exposes multiple equivalent items outside the closed registry, so no recommendation can be selected safely.');
@@ -448,6 +528,11 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
     } else if (discoveredOnlySelection.selectedCandidate !== null) {
       reasons.push('Requested capability did not match the closed smart-capability registry.');
       reasons.push(discoveredOnlySelection.selectedCandidate.reason);
+      supplementalGuidance = buildSupplementalGuidance(
+        discoveredOnlySelection.selectedCandidate.candidate,
+        discoveredOnlySelection.selectedCandidate.kind,
+      );
+      supplementalGuidance.params = pickSupplementalParams(normalizedParams, supplementalGuidance.supplementalInputs);
     } else {
       reasons.push('Requested capability did not match the closed smart-capability registry.');
     }
@@ -461,14 +546,16 @@ function evaluateCapabilityMatch({ capability, params } = {}, discovery) {
       mappedParams: { params: {}, warnings: [], reasons: [] },
       discoveredExtras,
       status: 'discovered_only',
-      surface: 'none',
-      target: null,
+      surface: supplementalGuidance.surface,
+      target: supplementalGuidance.target,
       availableSafeParams: {
         allowed: { canonical_ids: [], aliases: {} },
         available_now: { canonical_ids: [], aliases: {} },
       },
-      warnings,
-      reasons,
+      warnings: [...warnings, ...supplementalGuidance.warnings],
+      reasons: [...reasons, ...supplementalGuidance.reasons],
+      supplementalInputs: supplementalGuidance.supplementalInputs,
+      supplementalParams: supplementalGuidance.params,
     };
   }
 
@@ -563,6 +650,7 @@ export function evaluateCapabilityGuidance(request, discovery) {
     reasons: [...evaluation.reasons, ...evaluation.mappedParams.reasons],
     warnings: [...evaluation.warnings, ...evaluation.mappedParams.warnings],
     discovered_extras: evaluation.discoveredExtras,
+    ...(evaluation.supplementalInputs?.length > 0 ? { supplemental_inputs: evaluation.supplementalInputs } : {}),
   };
 }
 
@@ -574,21 +662,28 @@ export function planSmartCapability({ capability, params } = {}, discovery) {
 
   if (knownCapability === null) {
     return {
-      status: 'unknown',
+      status: evaluation.supplementalInputs?.length > 0 ? 'known_but_unavailable' : 'unknown',
       cap: {
         key: null,
         requested,
-        matchedId: null,
-        matchedName: null,
+        matchedId: evaluation.target?.id ?? null,
+        matchedName: evaluation.target?.name ?? null,
       },
-      surface: null,
-      target: null,
+      surface: evaluation.supplementalInputs?.length > 0
+        ? evaluation.surface === 'processRun' ? 'processRun.create' : evaluation.surface
+        : null,
+      target: evaluation.supplementalInputs?.length > 0 ? evaluation.target : null,
       score: null,
-      params: {},
-      warnings: Object.keys(normalizedParams).length > 0
+      params: evaluation.supplementalParams ?? {},
+      warnings: evaluation.supplementalInputs?.length > 0
+        ? evaluation.warnings
+        : Object.keys(normalizedParams).length > 0
         ? ['Ignored params because the requested capability is outside the closed MVP registry.']
         : [],
-      reasons: ['Requested capability did not match the closed smart-capability registry.'],
+      reasons: evaluation.supplementalInputs?.length > 0
+        ? evaluation.reasons
+        : ['Requested capability did not match the closed smart-capability registry.'],
+      ...(evaluation.supplementalInputs?.length > 0 ? { supplemental_inputs: evaluation.supplementalInputs } : {}),
     };
   }
 

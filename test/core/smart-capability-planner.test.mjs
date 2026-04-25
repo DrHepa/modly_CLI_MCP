@@ -658,3 +658,193 @@ test('guidance does not auto-select tied candidates and keeps surface none', () 
   assert.ok(result.warnings.some((warning) => warning.includes('multiple equivalent candidates')));
   assert.ok(result.reasons.some((reason) => reason.includes('remain tied')));
 });
+
+test('guidance exposes discovered supplemental mesh inputs as process-run-only guidance', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'fixture-trellis/refine',
+    params: { mesh_path: 'meshes/source.glb' },
+  }, {
+    models: [],
+    processes: [
+      {
+        id: 'fixture-trellis/refine',
+        name: 'Fixture Trellis Refine',
+        params_schema: { type: 'object', properties: {} },
+        enriched_schema: {
+          supplemental_inputs: [
+            {
+              name: 'mesh_path',
+              location: 'params.mesh_path',
+              type: 'string',
+              format: 'workspace-relative-path',
+              required: true,
+              provenance: 'backend_enriched_schema',
+              verified: true,
+              source: 'fixture-backend',
+              safety: { rejectAbsolute: true, rejectTraversal: true, workspaceRelative: true },
+              execution_surfaces: ['processRun.create', 'cli.process-run'],
+              unsupported_surfaces: ['capability.execute'],
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.status, 'discovered_only');
+  assert.equal(result.surface, 'processRun');
+  assert.deepEqual(result.target, {
+    kind: 'process',
+    id: 'fixture-trellis/refine',
+    name: 'Fixture Trellis Refine',
+  });
+  assert.deepEqual(result.supplemental_inputs.map((input) => ({
+    location: input.location,
+    provenance: input.provenance,
+    execution_surfaces: input.execution_surfaces,
+    unsupported_surfaces: input.unsupported_surfaces,
+    safety: input.safety,
+  })), [
+    {
+      location: 'params.mesh_path',
+      provenance: 'backend_enriched_schema',
+      execution_surfaces: ['processRun.create', 'cli.process-run'],
+      unsupported_surfaces: ['capability.execute'],
+      safety: { rejectAbsolute: true, rejectTraversal: true, workspaceRelative: true },
+    },
+  ]);
+  assert.ok(result.warnings.some((warning) => warning.includes('capability.execute is not supported')));
+  assert.ok(result.reasons.some((reason) => reason.includes('processRun.create')));
+});
+
+test('planner reports discovered supplemental mesh inputs without marking capability.execute supported', () => {
+  const result = planSmartCapability({
+    capability: 'fixture-trellis/refine',
+    params: { mesh_path: 'meshes/source.glb' },
+  }, {
+    models: [],
+    processes: [
+      {
+        extension_id: 'fixture-trellis',
+        node_id: 'refine',
+        name: 'Fixture Trellis Refine',
+        params_schema: { type: 'object', properties: {} },
+        enriched_schema: {
+          supplemental_inputs: [
+            {
+              name: 'mesh_path',
+              location: 'params.mesh_path',
+              type: 'string',
+              format: 'workspace-relative-path',
+              required: true,
+              provenance: 'backend_enriched_schema',
+              verified: true,
+              source: 'fixture-backend',
+              safety: { rejectAbsolute: true, rejectTraversal: true, workspaceRelative: true },
+              execution_surfaces: ['processRun.create'],
+              unsupported_surfaces: ['capability.execute'],
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.surface, 'processRun.create');
+  assert.deepEqual(result.target, {
+    kind: 'process',
+    id: 'fixture-trellis/refine',
+    name: 'Fixture Trellis Refine',
+  });
+  assert.deepEqual(result.params, { mesh_path: 'meshes/source.glb' });
+  assert.deepEqual(result.supplemental_inputs.map((input) => input.location), ['params.mesh_path']);
+  assert.ok(result.warnings.some((warning) => warning.includes('capability.execute is not supported')));
+  assert.equal(result.reasons.some((reason) => reason.includes('supported')), false);
+});
+
+test('guidance exposes Trellis2 refine as a backend-runtime model with curated supplemental mesh and image inputs', () => {
+  const result = evaluateCapabilityGuidance({
+    capability: 'trellis2/refine',
+    params: { mesh_path: 'meshes/source.glb', image_path: 'images/albedo.png' },
+  }, {
+    models: [
+      {
+        id: 'trellis2/refine',
+        name: 'Texture Mesh',
+        kind: 'model',
+        source: 'backend-runtime',
+        version: '1.0.4',
+        params_schema: { type: 'object', properties: {} },
+      },
+    ],
+    processes: [],
+  });
+
+  assert.equal(result.status, 'discovered_only');
+  assert.equal(result.surface, 'none');
+  assert.deepEqual(result.target, {
+    kind: 'model',
+    id: 'trellis2/refine',
+    name: 'Texture Mesh',
+  });
+  assert.deepEqual(result.supplemental_inputs.map((input) => ({
+    location: input.location,
+    provenance: input.provenance,
+    source: input.source,
+    execution_surfaces: input.execution_surfaces,
+    unsupported_surfaces: input.unsupported_surfaces,
+  })), [
+    {
+      location: 'params.mesh_path',
+      provenance: 'verified_runtime_behavior',
+      source: 'curated_verified_runtime',
+      execution_surfaces: ['backend-runtime.model'],
+      unsupported_surfaces: ['capability.execute', 'processRun.create'],
+    },
+    {
+      location: 'params.image_path',
+      provenance: 'verified_runtime_behavior',
+      source: 'curated_verified_runtime',
+      execution_surfaces: ['backend-runtime.model'],
+      unsupported_surfaces: ['capability.execute', 'processRun.create'],
+    },
+  ]);
+  assert.ok(result.reasons.some((reason) => reason.includes('backend-runtime model')));
+  assert.equal(result.reasons.some((reason) => reason.includes('processRun.create')), false);
+  assert.ok(result.warnings.some((warning) => warning.includes('capability.execute is not supported')));
+});
+
+test('planner keeps Trellis2 refine conservative and unavailable for capability.execute', () => {
+  const result = planSmartCapability({
+    capability: 'trellis2/refine',
+    params: { mesh_path: 'meshes/source.glb', image_path: 'images/albedo.png' },
+  }, {
+    models: [
+      {
+        id: 'trellis2/refine',
+        name: 'Texture Mesh',
+        kind: 'model',
+        source: 'backend-runtime',
+        version: '1.0.4',
+        params_schema: { type: 'object', properties: {} },
+      },
+    ],
+    processes: [],
+  });
+
+  assert.equal(result.status, 'known_but_unavailable');
+  assert.equal(result.surface, 'none');
+  assert.deepEqual(result.target, {
+    kind: 'model',
+    id: 'trellis2/refine',
+    name: 'Texture Mesh',
+  });
+  assert.deepEqual(result.params, {
+    mesh_path: 'meshes/source.glb',
+    image_path: 'images/albedo.png',
+  });
+  assert.deepEqual(result.supplemental_inputs.map((input) => input.location), ['params.mesh_path', 'params.image_path']);
+  assert.equal(result.reasons.some((reason) => reason.includes('processRun')), false);
+  assert.ok(result.warnings.some((warning) => warning.includes('capability.execute is not supported')));
+});

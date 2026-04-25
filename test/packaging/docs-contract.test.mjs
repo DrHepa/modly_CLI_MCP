@@ -64,6 +64,22 @@ function assertSceneImportContract(name, content) {
   assert.match(content, /not .*workflow management|workflow management.*not|does \*\*not\*\*.*workflow management/iu, `${name} must reject workflow management claims`);
 }
 
+function assertCapabilitySchemaEnrichmentContract(name, content) {
+  assert.match(content, /declared_inputs/u, `${name} must document declared inputs separately`);
+  assert.match(content, /supplemental_inputs/u, `${name} must document supplemental inputs separately`);
+  assert.match(content, /enriched_inputs/u, `${name} must document enriched inputs separately`);
+  assert.match(content, /provenance/u, `${name} must document enrichment provenance`);
+  assert.match(content, /do not guess hidden params|do not infer hidden params|no adivinar params ocultos/iu, `${name} must warn against hidden-param guessing`);
+  assert.match(content, /trellis2\/refine/u, `${name} must document the verified Trellis2/refine model id`);
+  assert.match(content, /params\.mesh_path/u, `${name} must document Trellis2/refine params.mesh_path`);
+  assert.match(content, /params\.image_path/u, `${name} must document Trellis2/refine params.image_path`);
+  assert.match(content, /verified_runtime_behavior/u, `${name} must document verified runtime provenance`);
+  assert.match(content, /params_schema[^\n]*(may not include|omits|puede no incluir|omite)/iu, `${name} must say params_schema may omit supplemental fields`);
+  assert.match(content, /backend-runtime model|modelo backend-runtime/iu, `${name} must classify Trellis2/refine as a backend-runtime model`);
+  assert.match(content, /capability\.execute[^\n]*(not supported|unsupported|no soport)/iu, `${name} must avoid capability.execute promises for Trellis2/refine`);
+  assert.match(content, /not a process-run contract|no es contrato process-run|not processRun\.create/iu, `${name} must avoid process-run overclaiming for Trellis2/refine`);
+}
+
 test('package bins and published assets stay aligned with the packaging contract', () => {
   assert.deepEqual(Object.keys(packageJson.bin).sort(), ['modly', 'modly-mcp']);
   assert.equal(packageJson.bin.modly, 'src/cli/index.mjs');
@@ -143,6 +159,7 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assert.match(readme, /`modly\.workflowRun\.wait`/u);
   assert.match(readme, /do \*\*not\*\* imply workflow management, \*\*Add to Scene\*\*, or blocking `from-image` behavior/u);
   assertSceneImportContract('README.md', readme);
+  assertCapabilitySchemaEnrichmentContract('README.md', readme);
   assertExperimentalRecipeContract('README.md', readme);
   assertExecutionSurfaceTaxonomy('README.md', readme);
 
@@ -190,6 +207,7 @@ test('docs and README stay aligned with supported OpenCode and Codex install flo
   assertExecutionSurfaceTaxonomy('docs/install/codex-repo-local.md', codexRepoLocalDoc);
   assertSceneImportContract('docs/specs/modly-cli-mvp.md', mvpSpec);
   assertExecutionSurfaceTaxonomy('docs/specs/modly-cli-mvp.md', mvpSpec);
+  assertCapabilitySchemaEnrichmentContract('docs/specs/modly-cli-mvp.md', mvpSpec);
 });
 
 test('README documents the root package as bin-only without root or deep import support', () => {
