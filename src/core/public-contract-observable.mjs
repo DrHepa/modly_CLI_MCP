@@ -113,7 +113,8 @@ function filterDocumentationCliGroups(groups) {
 }
 
 function extractInlineCodeTokens(markdown) {
-  return Array.from(markdown.matchAll(/`([^`]+)`/gu), (match) => match[1]);
+  const textWithoutFencedCodeBlocks = markdown.replace(/```[\s\S]*?```/gu, '');
+  return Array.from(textWithoutFencedCodeBlocks.matchAll(/`([^`\n]+)`/gu), (match) => match[1]);
 }
 
 function extractCommandArray(markdown) {
