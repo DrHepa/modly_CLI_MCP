@@ -6,7 +6,55 @@ This repository keeps the operational automation layer **outside** the upstream 
 
 ## Quick Start
 
-![Modly CLI MCP Quick Start](docs/assets/modly-cli-mcp-quick-start.png)
+Install the package globally:
+
+```bash
+npm install -g modly-cli-mcp
+```
+
+Verify the installed binaries:
+
+```bash
+modly --help
+modly-mcp --help
+```
+
+Add the MCP server to OpenCode:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "modly": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 30000,
+      "command": ["modly-mcp"]
+    }
+  }
+}
+```
+
+Add the MCP server to Codex:
+
+```toml
+[mcp_servers.modly]
+command = "modly-mcp"
+```
+
+Or register it with the Codex CLI:
+
+```bash
+codex mcp add modly -- modly-mcp
+```
+
+Import a generated workspace mesh into the Modly Desktop UI:
+
+```bash
+modly scene import-mesh "Default/example.glb" --json
+```
+
+`scene import-mesh` requires Modly Desktop to advertise the `scene.import_mesh` bridge capability. The mesh path must be workspace-relative.
 
 ## What this package provides
 
