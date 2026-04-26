@@ -76,6 +76,7 @@ export async function validateSceneMeshImportPath({
   workspaceRoot = process.cwd(),
   meshPath,
   allowedExtensions = SCENE_MESH_IMPORT_CONTRACT.extensions,
+  requireExistingFile = true,
 } = {}) {
   if (typeof meshPath !== 'string' || meshPath.trim() === '') {
     throw validationError('Mesh path must be a non-empty workspace-relative path.', { reason: 'empty_path' });
@@ -117,6 +118,14 @@ export async function validateSceneMeshImportPath({
     });
   }
 
+  if (!requireExistingFile) {
+    return {
+      meshPath: normalizedMeshPath,
+      absolutePath: candidatePath,
+      extension,
+    };
+  }
+
   let candidateStat;
 
   try {
@@ -156,7 +165,9 @@ export async function validateSceneMeshImportPath({
 }
 
 export function toSceneMeshImportResult(payload, meshPath) {
-  const status = firstString(payload?.status, payload?.state) ?? 'unknown';
+  const url = firstString(payload?.url, payload?.mesh_url, payload?.meshUrl);
+  const displayName = firstString(payload?.display_name, payload?.displayName);
+  const status = firstString(payload?.status, payload?.state) ?? (url !== undefined ? 'imported' : 'unknown');
   const result = {
     status,
     meshPath: firstString(payload?.mesh_path, payload?.meshPath) ?? meshPath,
@@ -171,6 +182,8 @@ export function toSceneMeshImportResult(payload, meshPath) {
   if (objectId !== undefined) result.objectId = objectId;
   if (runId !== undefined) result.runId = runId;
   if (statusUrl !== undefined) result.statusUrl = statusUrl;
+  if (url !== undefined) result.url = url;
+  if (displayName !== undefined) result.displayName = displayName;
 
   return result;
 }
@@ -180,6 +193,7 @@ export async function importSceneMeshWithBridge({
   meshPath,
   capabilities,
   importSceneMesh,
+  requireExistingFile = true,
 } = {}) {
   if (!isSceneMeshImportSupported(capabilities)) {
     throw unsupportedSceneImportError();
@@ -193,6 +207,7 @@ export async function importSceneMeshWithBridge({
     workspaceRoot,
     meshPath,
     allowedExtensions: getSceneMeshImportExtensions(capabilities),
+    requireExistingFile,
   });
   const payload = { mesh_path: validated.meshPath };
   const bridgeResponse = await importSceneMesh(payload);

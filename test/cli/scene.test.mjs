@@ -91,6 +91,42 @@ test('scene import-mesh checks health then capabilities then imports valid mesh'
   assert.match(result.humanMessage, /objectId=object-9/u);
 });
 
+test('scene import-mesh delegates runtime workspace existence validation to Desktop bridge', async (t) => {
+  const workspace = createTempWorkspace(t);
+  const calls = [];
+
+  const result = await runSceneCommand({
+    args: ['import-mesh', 'Default/runtime-only.glb'],
+    cwd: workspace,
+    client: {
+      async health() {
+        calls.push('health');
+        return { status: 'ok' };
+      },
+      async getAutomationCapabilities() {
+        calls.push('getAutomationCapabilities');
+        return { scene: { import_mesh: { supported: true, extensions: ['.glb'] } } };
+      },
+      async importSceneMesh(payload) {
+        calls.push(['importSceneMesh', payload]);
+        return { meshPath: payload.mesh_path, url: '/optimize/serve-file?path=/workspace/Default/runtime-only.glb', displayName: 'runtime-only.glb' };
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    'health',
+    'getAutomationCapabilities',
+    ['importSceneMesh', { mesh_path: 'Default/runtime-only.glb' }],
+  ]);
+  assert.deepEqual(result.data, {
+    status: 'imported',
+    meshPath: 'Default/runtime-only.glb',
+    url: '/optimize/serve-file?path=/workspace/Default/runtime-only.glb',
+    displayName: 'runtime-only.glb',
+  });
+});
+
 test('scene import-mesh returns concise unsupported error and never imports when bridge lacks support', async (t) => {
   const workspace = createTempWorkspace(t);
   writeMesh(workspace, 'final.glb');
@@ -184,7 +220,7 @@ test('scene import-mesh emits existing JSON success and error envelopes through 
   });
 
   const errorStdout = createWritableStreamCapture();
-  const errorCode = await main(['--json', 'scene', 'import-mesh', 'missing.glb'], {
+  const errorCode = await main(['--json', 'scene', 'import-mesh', 'missing.txt'], {
     cwd: workspace,
     stdout: errorStdout.stream,
     captureErrors: true,
@@ -208,5 +244,5 @@ test('scene import-mesh emits existing JSON success and error envelopes through 
   assert.equal(errorPayload.ok, false);
   assert.equal(errorPayload.error.code, 'VALIDATION_ERROR');
   assert.equal(errorPayload.error.details.field, 'meshPath');
-  assert.equal(errorPayload.error.details.reason, 'missing_file');
+  assert.equal(errorPayload.error.details.reason, 'unsupported_extension');
 });

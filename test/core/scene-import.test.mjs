@@ -102,6 +102,20 @@ test('validateSceneMeshImportPath rejects missing paths and directories as valid
   );
 });
 
+test('validateSceneMeshImportPath can leave runtime workspace existence to Desktop bridge', async (t) => {
+  const workspaceRoot = await withWorkspace(t);
+
+  assert.deepEqual(await validateSceneMeshImportPath({
+    workspaceRoot,
+    meshPath: 'Default/runtime-only.glb',
+    requireExistingFile: false,
+  }), {
+    meshPath: 'Default/runtime-only.glb',
+    absolutePath: path.join(await realpath(workspaceRoot), 'Default/runtime-only.glb'),
+    extension: '.glb',
+  });
+});
+
 test('importSceneMeshWithBridge fails closed when Desktop capability is unavailable', async () => {
   let calls = 0;
 
@@ -165,6 +179,30 @@ test('importSceneMeshWithBridge validates before invoking bridge and normalizes 
   });
 });
 
+test('importSceneMeshWithBridge can delegate runtime workspace existence validation to Desktop bridge', async (t) => {
+  const workspaceRoot = await withWorkspace(t);
+  const calls = [];
+
+  const result = await importSceneMeshWithBridge({
+    workspaceRoot,
+    meshPath: 'Default/runtime-only.glb',
+    capabilities: { scene: { import_mesh: { supported: true, extensions: ['.glb'] } } },
+    requireExistingFile: false,
+    importSceneMesh: async (payload) => {
+      calls.push(payload);
+      return { meshPath: payload.mesh_path, url: '/optimize/serve-file?path=/workspace/Default/runtime-only.glb', displayName: 'runtime-only.glb' };
+    },
+  });
+
+  assert.deepEqual(calls, [{ mesh_path: 'Default/runtime-only.glb' }]);
+  assert.deepEqual(result, {
+    status: 'imported',
+    meshPath: 'Default/runtime-only.glb',
+    url: '/optimize/serve-file?path=/workspace/Default/runtime-only.glb',
+    displayName: 'runtime-only.glb',
+  });
+});
+
 test('toSceneMeshImportResult preserves async recovery metadata only when Desktop returns it', () => {
   assert.deepEqual(
     toSceneMeshImportResult({ status: 'accepted', mesh_path: 'models/a.stl', run_id: 'run-1', status_url: '/scene/import-mesh/run-1' }, 'models/a.stl'),
@@ -179,4 +217,13 @@ test('toSceneMeshImportResult preserves async recovery metadata only when Deskto
     status: 'imported',
     meshPath: 'models/a.stl',
   });
+  assert.deepEqual(
+    toSceneMeshImportResult({ meshPath: 'models/a.glb', url: '/optimize/serve-file?path=/workspace/models/a.glb', displayName: 'a.glb' }, 'models/a.glb'),
+    {
+      status: 'imported',
+      meshPath: 'models/a.glb',
+      url: '/optimize/serve-file?path=/workspace/models/a.glb',
+      displayName: 'a.glb',
+    },
+  );
 });

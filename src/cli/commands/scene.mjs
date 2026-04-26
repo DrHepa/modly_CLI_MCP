@@ -40,6 +40,7 @@ async function runImportMesh(context, args) {
       meshPath,
       capabilities,
       importSceneMesh: (payload) => context.client.importSceneMesh(payload),
+      requireExistingFile: false,
     });
 
     return {
