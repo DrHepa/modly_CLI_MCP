@@ -35,11 +35,11 @@ test('global and config help advertise launcher locate/open commands', () => {
   const globalHelp = renderHelp();
   const configHelp = renderConfigHelp();
 
-  assert.match(globalHelp, /config <subcomando>\s+paths get \| paths set \| launcher locate \| launcher open/u);
-  assert.match(globalHelp, /launcher open corre en background por defecto; use --foreground para primer plano/u);
+  assert.match(globalHelp, /config <subcommand>\s+paths get \| paths set \| launcher locate \| launcher open/u);
+  assert.match(globalHelp, /launcher open runs in the background by default; use --foreground for foreground mode/u);
   assert.match(configHelp, /launcher locate/u);
   assert.match(configHelp, /launcher open/u);
-  assert.match(configHelp, /background por defecto; --foreground/u);
+  assert.match(configHelp, /background by default; --foreground/u);
 });
 
 test('runConfigCommand locate returns structured launcher data and human output', async (t) => {

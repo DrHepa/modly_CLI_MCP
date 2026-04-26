@@ -41,16 +41,16 @@ test('modly ext-dev --help muestra la surface visible en ayuda global y específ
   const exitCode = await main(['ext-dev', '--help'], deps);
 
   assert.equal(exitCode, 0);
-  assert.match(stdout.join(''), /modly ext-dev — surface CLI de planificación observable/u);
+  assert.match(stdout.join(''), /modly ext-dev — observable planning CLI surface/u);
   assert.match(stdout.join(''), /bucket-detect \| preflight \| scaffold \| audit \| release-plan/u);
-  assert.match(stdout.join(''), /preflight\s+Plan-only; validación local con chequeo opcional de \/health/u);
-  assert.match(stdout.join(''), /scaffold\s+Plan-only; plan de implementación no ejecutable por bucket/u);
-  assert.match(stdout.join(''), /audit\s+Plan-only; gaps\/riesgos con confirmación bridge opcional/u);
-  assert.match(stdout.join(''), /release-plan\s+Plan-only; checklist ordenado de release y documentación/u);
+  assert.match(stdout.join(''), /preflight\s+Plan-only; local validation with optional \/health check/u);
+  assert.match(stdout.join(''), /scaffold\s+Plan-only; non-executable implementation plan by bucket/u);
+  assert.match(stdout.join(''), /audit\s+Plan-only; gaps\/risks with optional bridge confirmation/u);
+  assert.match(stdout.join(''), /release-plan\s+Plan-only; ordered release and documentation checklist/u);
 
   const globalHelp = renderHelp();
-  assert.match(globalHelp, /ext-dev <subcomando>\s+bucket-detect \| preflight \| scaffold \| audit \| release-plan/u);
-  assert.match(globalHelp, /ext-dev\s+Planner local plan-only visible en V1; \/health opcional solo con evidencia backend y bridge opcional solo para confirmación\/colisión\./u);
+  assert.match(globalHelp, /ext-dev <subcommand>\s+bucket-detect \| preflight \| scaffold \| audit \| release-plan/u);
+  assert.match(globalHelp, /ext-dev\s+Local plan-only planner visible in V1; optional \/health only with backend evidence and optional bridge only for confirmation\/collision\./u);
 });
 
 test('modly ext-dev devuelve envelope JSON de error para subcomandos desconocidos', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "modly-cli-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Installable Modly CLI and MCP server package for stdio-based consumers.",
   "author": "DrHepa",
   "homepage": "https://github.com/DrHepa/modly_CLI_MCP#readme",

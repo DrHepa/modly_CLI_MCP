@@ -1,71 +1,71 @@
 export function renderHelp() {
-  return `modly — CLI headless para Modly
+  return `modly — headless CLI for Modly
 
-Uso:
-  modly [--api-url <url>] [--json] <grupo> [subcomando]
+Usage:
+  modly [--api-url <url>] [--json] <group> [subcommand]
   modly health [--api-url <url>] [--json]
   modly capabilities [--api-url <url>] [--json]
 
-Grupos disponibles:
-  capabilities              Descubre capabilities de automatización
-  health                    Verifica GET /health
-  model <subcomando>        list | current | params | switch | unload-all | download
-  process-run <subcomando>  create | status | wait | cancel
-  workflow-run <subcomando> from-image | status | wait | cancel
-  generate <subcomando>     from-image
-  job <subcomando>          status | wait | cancel
-  mesh <subcomando>         optimize | smooth | export
-  scene <subcomando>        import-mesh
-  ext <subcomando>          reload | errors | stage github | apply | setup | setup-status | repair
-  ext-dev <subcomando>      bucket-detect | preflight | scaffold | audit | release-plan
-  config <subcomando>       paths get | paths set | launcher locate | launcher open
+Available groups:
+  capabilities              Discovers automation capabilities
+  health                    Checks GET /health
+  model <subcommand>        list | current | params | switch | unload-all | download
+  process-run <subcommand>  create | status | wait | cancel
+  workflow-run <subcommand> from-image | status | wait | cancel
+  generate <subcommand>     from-image
+  job <subcommand>          status | wait | cancel
+  mesh <subcommand>         optimize | smooth | export
+  scene <subcommand>        import-mesh
+  ext <subcommand>          reload | errors | stage github | apply | setup | setup-status | repair
+  ext-dev <subcommand>      bucket-detect | preflight | scaffold | audit | release-plan
+  config <subcommand>       paths get | paths set | launcher locate | launcher open
 
-Nota launcher:
-  launcher open corre en background por defecto; use --foreground para primer plano
+Launcher note:
+  launcher open runs in the background by default; use --foreground for foreground mode
 
-Flags globales:
-  --api-url <url>           Sobrescribe MODLY_API_URL
-  --json                    Emite envelope JSON
-  -h, --help                Muestra esta ayuda
+Global flags:
+  --api-url <url>           Overrides MODLY_API_URL
+  --json                    Emits a JSON envelope
+  -h, --help                Shows this help
 
-Estado del bootstrap:
-  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, scene, ext, ext-dev y config ya son funcionales
-  - workflow-run y process-run son las superficies run principales y canónicas para recovery/polling
-  - modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.
-  - generate/job se mantienen como compatibilidad observable actual
-  - modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
-  - ext stage github             Stage/preflight only desde GitHub; prepara e inspecciona, NO instala ni aplica en vivo.
-  - ext apply                    Instala un stage YA preparado sobre el target vivo; requiere --extensions-dir explícito, puede disparar setup live-target si el stage lo exige y puede terminar en applied_degraded cuando falla ese setup.
-  - ext setup                    Ejecuta SOLO un contrato explícito sobre un stage YA preparado; soporte catalogado/limitado, no universal; algunas extensiones exigen inputs explícitos como gpu_sm y la resiliencia por PIP_* puede ser parcial o nula si setup.py ignora esas variables o hace descargas propias.
-  - ext setup-status             Lee SOLO el journal del target instalado del último setup observable; --wait/--follow observan localmente, --timeout-ms no mata el proceso y no hay reattach/cancel/job control general.
-  - ext repair                   Reaplica un stage YA preparado; puede disparar setup live-target si el stage lo exige, acepta los mismos flags relevantes de setup que apply y por defecto ya no hace backup si la extensión existe. NO hace fetch GitHub, install, build ni health-fix general.
-  - ext-dev                      Planner local plan-only visible en V1; /health opcional solo con evidencia backend y bridge opcional solo para confirmación/colisión.
+Bootstrap status:
+  - capabilities, health, model, generate, job, workflow-run, process-run, mesh, scene, ext, ext-dev, and config are already functional
+  - workflow-run and process-run are the primary canonical run surfaces for recovery/polling
+  - modly.capability.execute and modly.recipe.execute are presented as convenience/orchestration wrappers over workflow-run/process-run.
+  - generate/job remain current observable compatibility
+  - modly.recipe.execute is experimental, opt-in, and hidden by default via MODLY_EXPERIMENTAL_RECIPE_EXECUTE.
+  - ext stage github             Stage/preflight only from GitHub; prepares and inspects, does NOT install or apply live.
+  - ext apply                    Installs an already prepared stage onto the live target; requires explicit --extensions-dir, may trigger live-target setup if the stage requires it, and may finish as applied_degraded when that setup fails.
+  - ext setup                    Runs ONLY an explicit contract on an already prepared stage; cataloged/limited support, not universal; some extensions require explicit inputs such as gpu_sm and PIP_* resilience may provide partial benefit or none if setup.py ignores those variables or performs its own downloads.
+  - ext setup-status             Reads ONLY the installed target journal from the last observable setup; --wait/--follow observe locally, --timeout-ms does not kill the process, and there is no general reattach/cancel/job control.
+  - ext repair                   Reapplies an already prepared stage; may trigger live-target setup if the stage requires it, accepts the same relevant setup flags as apply, and by default no longer creates a backup when the extension exists. Does NOT perform GitHub fetch, install, build, or general health-fix.
+  - ext-dev                      Local plan-only planner visible in V1; optional /health only with backend evidence and optional bridge only for confirmation/collision.
 `;
 }
 
 export function renderCapabilitiesHelp() {
-  return `modly capabilities — discovery canónico para automatización
+  return `modly capabilities — canonical discovery for automation
 
-Uso:
+Usage:
   modly capabilities [--api-url <url>] [--json]
 
-Descripción:
-  Consulta GET /automation/capabilities sin preflight /health separado.
-  En JSON preserva el payload canónico dentro de data.
-  En modo humano resume readiness, conteos y parcialidad si aplica.
+Description:
+  Queries GET /automation/capabilities without a separate /health preflight.
+  In JSON, preserves the canonical payload inside data.
+  In human mode, summarizes readiness, counts, and partiality when applicable.
 
 Schema enrichment:
-  - Cuando backend/runtime aporta contrato verificado, el JSON separa declared_inputs, supplemental_inputs y enriched_inputs.
-  - supplemental_inputs llevan provenance; no adivinar params ocultos desde labels, nombres o hints vagos.
-  - trellis2/refine es un modelo backend-runtime verificado: puede aceptar params.mesh_path y params.image_path con provenance verified_runtime_behavior aunque params_schema puede no incluirlos.
-  - capability.execute no soporta trellis2/refine salvo implementación explícita futura.
+  - When backend/runtime provides a verified contract, JSON separates declared_inputs, supplemental_inputs, and enriched_inputs.
+  - supplemental_inputs carry provenance; do not guess hidden params from labels, names, or vague hints.
+  - trellis2/refine is a verified backend-runtime model: it may accept params.mesh_path and params.image_path with provenance verified_runtime_behavior even when params_schema may not include them.
+  - capability.execute is not supported for trellis2/refine unless a future explicit implementation adds it.
 `;
 }
 
 export function renderModelHelp() {
-  return `modly model — operaciones de modelos
+  return `modly model — model operations
 
-Uso:
+Usage:
   modly model list [--api-url <url>] [--json]
   modly model current [--api-url <url>] [--json]
   modly model params <model-id> [--api-url <url>] [--json]
@@ -73,132 +73,132 @@ Uso:
   modly model unload-all [--api-url <url>] [--json]
   modly model download --repo-id <hf-repo> --model-id <model-id> [--skip-prefix <prefix> ...] [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  list                      Lista modelos conocidos
-  current                   Muestra el modelo activo
-  params <model-id>         Devuelve parámetros del modelo
-  switch <model-id>         Cambia el modelo activo
-  unload-all                Descarga todos los modelos cargados
-  download                  Descarga archivos de un modelo vía backend/SSE
+Available subcommands:
+  list                      Lists known models
+  current                   Shows the active model
+  params <model-id>         Returns model parameters
+  switch <model-id>         Switches the active model
+  unload-all                Unloads all loaded models
+  download                  Downloads model files via backend/SSE
 `;
 }
 
 export function renderJobHelp() {
-  return `modly job — operaciones sobre jobs de generación
+  return `modly job — generation job operations
 
-Uso:
+Usage:
   modly job status <job-id> [--api-url <url>] [--json]
   modly job wait <job-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
   modly job cancel <job-id> [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  status <job-id>            Muestra el estado actual de un job
-  wait <job-id>              Hace polling hasta done, error o cancelled
-  cancel <job-id>            Solicita la cancelación del job
+Available subcommands:
+  status <job-id>            Shows the current job status
+  wait <job-id>              Polls until done, error, or cancelled
+  cancel <job-id>            Requests job cancellation
 
-Notas:
-  - Superficie legacy de compatibilidad visible; no sustituye a workflow-run/process-run como ruta canónica
+Notes:
+  - Visible legacy compatibility surface; does not replace workflow-run/process-run as the canonical path
 `;
 }
 
 export function renderProcessRunHelp() {
-  return `modly process-run — process runs canónicos mesh-only
+  return `modly process-run — canonical mesh-only process runs
 
-Uso:
+Usage:
   modly process-run create --process-id <id> --params-json '{...}' [--workspace-path <path>] [--output-path <path>] [--api-url <url>] [--json]
   modly process-run status <run-id> [--api-url <url>] [--json]
   modly process-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
   modly process-run cancel <run-id> [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  create                    Crea un process run con process_id canónico y params objeto
-  status <run-id>           Muestra el estado actual del process run
-  wait <run-id>             Hace polling hasta succeeded, failed o canceled
-  cancel <run-id>           Solicita la cancelación del process run
+Available subcommands:
+  create                    Creates a process run with canonical process_id and params object
+  status <run-id>           Shows the current process run status
+  wait <run-id>             Polls until succeeded, failed, or canceled
+  cancel <run-id>           Requests process run cancellation
 
-Notas:
-  - Primitive canónica de ejecución para procesos publicados
-  - status/wait preservan la ruta de recovery/polling sobre el mismo runId
-  - Hace preflight GET /health antes de operaciones de negocio
-  - Solo soporta procesos mesh-only ya publicados por capabilities.processes
-  - --workspace-path y --output-path deben ser workspace-relative
-  - Para mesh-optimizer/optimize y mesh-exporter/export, --workspace-path se normaliza al archivo mesh; si llega el directorio padre y params.mesh_path identifica el basename local, se autocorrige
-  - No usar Trellis2/refine como contrato process-run: es modelo backend-runtime; process-run no promete ejecutar sus supplemental inputs
+Notes:
+  - Canonical execution primitive for published processes
+  - status/wait preserve the recovery/polling path on the same runId
+  - Performs a GET /health preflight before business operations
+  - Supports only mesh-only processes already published by capabilities.processes
+  - --workspace-path and --output-path must be workspace-relative
+  - For mesh-optimizer/optimize and mesh-exporter/export, --workspace-path is normalized to the mesh file; if the parent directory is provided and params.mesh_path identifies the local basename, it is autocorrected
+  - Do not use Trellis2/refine as a process-run contract: it is a backend-runtime model; process-run does not promise to execute its supplemental inputs
 `;
 }
 
 export function renderGenerateHelp() {
-  return `modly generate — generación headless
+  return `modly generate — headless generation
 
-Uso:
+Usage:
   modly generate from-image --image <path> --model <id> [--collection <name>] [--remesh quad|triangle|none] [--texture] [--texture-resolution <n>] [--params-json '<json>'] [--wait] [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  from-image                 Crea un job de generación desde una imagen
+Available subcommands:
+  from-image                 Creates a generation job from an image
 
-Notas:
-  - Superficie legacy de compatibilidad observable; workflow-run es la ruta run canónica para nueva recuperación/polling
+Notes:
+  - Observable legacy compatibility surface; workflow-run is the canonical run path for new recovery/polling
 `;
 }
 
 export function renderWorkflowRunHelp() {
-  return `modly workflow-run — runs canónicos headless desde imagen
+  return `modly workflow-run — canonical headless image runs
 
-Uso:
+Usage:
   modly workflow-run from-image --image <path> --model <id> [--params-json '{...}'] [--api-url <url>] [--json]
   modly workflow-run status <run-id> [--api-url <url>] [--json]
   modly workflow-run wait <run-id> [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
   modly workflow-run cancel <run-id> [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  from-image                Crea un workflow run desde una imagen
-  status <run-id>           Muestra el estado actual del run
-  wait <run-id>             Hace polling hasta done, error o cancelled
-  cancel <run-id>           Solicita la cancelación del run
+Available subcommands:
+  from-image                Creates a workflow run from an image
+  status <run-id>           Shows the current run status
+  wait <run-id>             Polls until done, error, or cancelled
+  cancel <run-id>           Requests run cancellation
 
-Notas:
-  - Primitive canónica de ejecución para runs desde imagen
-  - status/wait preservan la ruta de recovery/polling sobre el mismo runId
+Notes:
+  - Canonical execution primitive for image-based runs
+  - status/wait preserve the recovery/polling path on the same runId
 `;
 }
 
 export function renderMeshHelp() {
-  return `modly mesh — operaciones de malla en workspace
+  return `modly mesh — workspace mesh operations
 
-Uso:
+Usage:
   modly mesh optimize --path <workspace-relative-path> --target-faces <n> [--api-url <url>] [--json]
   modly mesh smooth --path <workspace-relative-path> --iterations <n> [--api-url <url>] [--json]
   modly mesh export --path <workspace-relative-path> --format glb|obj|stl|ply [--out <file>] [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  optimize                   Decima una malla a un número objetivo de caras
-  smooth                     Aplica smoothing Laplaciano
-  export                     Descarga una malla exportada a un archivo local
+Available subcommands:
+  optimize                   Decimates a mesh to a target face count
+  smooth                     Applies Laplacian smoothing
+  export                     Downloads an exported mesh to a local file
 `;
 }
 
 export function renderSceneHelp() {
-  return `modly scene — operaciones explícitas sobre la escena de Modly Desktop
+  return `modly scene — explicit Modly Desktop scene operations
 
-Uso:
+Usage:
   modly scene import-mesh <mesh-path> [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  import-mesh <mesh-path>    Importa una malla workspace-relative mediante Desktop bridge explícito
+Available subcommands:
+  import-mesh <mesh-path>    Imports a workspace-relative mesh through the explicit Desktop bridge
 
-Notas:
-  - Hace preflight GET /health antes de operaciones de negocio
-  - Requiere que Desktop bridge anuncie scene.import_mesh; si no, falla cerrado
-  - Acepta .glb, .obj, .stl y .ply, o el subconjunto anunciado por Desktop bridge
-  - No automatiza file pickers, menús, clicks ni diálogos del sistema
-  - --json emite el envelope JSON existente con ok/data|error/meta
+Notes:
+  - Performs a GET /health preflight before business operations
+  - Requires the Desktop bridge to advertise scene.import_mesh; otherwise, it fails closed
+  - Accepts .glb, .obj, .stl, and .ply, or the subset advertised by the Desktop bridge
+  - Does not automate file pickers, menus, clicks, or system dialogs
+  - --json emits the existing JSON envelope with ok/data|error/meta
 `;
 }
 
 export function renderExtHelp() {
-  return `modly ext — operaciones de extensiones
+  return `modly ext — extension operations
 
-Uso:
+Usage:
   modly ext reload [--api-url <url>] [--json]
   modly ext errors [--api-url <url>] [--json]
   modly ext stage github --repo <owner/name> [--ref <ref>] [--staging-dir <workspace-relative-path>] [--api-url <url>] [--json]
@@ -207,76 +207,76 @@ Uso:
   modly ext setup-status --extensions-dir <abs-path> (--manifest-id <id> | --stage-path <path>) [--wait] [--follow] [--interval-ms <n>] [--timeout-ms <n>] [--api-url <url>] [--json]
   modly ext repair --stage-path <path> --extensions-dir <abs-path> [--source-repo <owner/name> --source-ref <ref> --source-commit <sha>] [--python-exe <exe>] [--allow-third-party] [--setup-payload-json '{...}'] [--api-url <url>] [--json]
 
-Subcomandos disponibles:
-  reload                    Recarga el registro de extensiones
-  errors                    Muestra errores capturados al cargar extensiones
-  stage github              staging/preflight only desde GitHub; NO instala ni aplica en vivo
-  apply                     instala un stage ya preparado sobre el target vivo; requiere --stage-path y --extensions-dir explícitos, y reenvía flags de setup live-target cuando hagan falta
-  setup                     setup CLI-only sobre un stage ya preparado; requiere --stage-path, --python-exe y --allow-third-party
-  setup-status              lee SOLO el journal live-target del target instalado; requiere --extensions-dir explícito y (--manifest-id o --stage-path solo para resolver manifest.id)
-  repair                    repair como reapply CLI-only sobre un stage ya preparado; requiere --stage-path y --extensions-dir explícitos
+Available subcommands:
+  reload                    Reloads the extension registry
+  errors                    Shows captured extension loading errors
+  stage github              staging/preflight only from GitHub; Does NOT install or apply live
+  apply                     installs an already prepared stage onto the live target; requires explicit --stage-path and --extensions-dir, and forwards live-target setup flags when needed
+  setup                     CLI-only setup on an already prepared stage; requires --stage-path, --python-exe, and --allow-third-party
+  setup-status              reads ONLY the installed target's live-target journal; requires explicit --extensions-dir and (--manifest-id or --stage-path only to resolve manifest.id)
+  repair                    repair as CLI-only reapply over an already prepared stage; requires explicit --stage-path and --extensions-dir
 
-Notas:
-  - Esta surface CLI prepara un stage aislado e inspeccionable o instala sobre target vivo un stage YA preparado.
-  - ext stage github hace fetch+inspect como preflight only; nunca reporta la extensión como instalada.
-  - ext apply instala solo un stage ya preparado en el directorio real de extensiones, exige --extensions-dir explícito y puede disparar setup live-target si el contrato del stage lo requiere.
-  - ext apply acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target ya soportado por core.
-  - si ese setup live-target falla después del copy/apply, el resultado puede quedar observable como applied_degraded.
-  - ext setup ejecuta SOLO un contrato explícito soportado; soporte catalogado y limitado; no promete compatibilidad universal; requiere consentimiento explícito porque ejecuta código de terceros.
-  - algunas extensiones requieren inputs explícitos del payload, por ejemplo gpu_sm, y el CLI los valida cuando el catálogo conocido lo declara.
-  - la resiliencia de red basada en PIP_* puede dar beneficio parcial o nulo si setup.py ignora esas variables o hace sus propias descargas.
-  - ext setup: python_exe y ext_dir se auto-inyectan desde la CLI y el stage; el payload JSON no debe intentar sobrescribirlos.
-  - ext setup-status lee SOLO el journal live-target reconciliado desde el target instalado; --stage-path solo ayuda a resolver manifest.id.
-  - ext setup-status --wait espera localmente hasta un estado terminal observable del journal.
-  - ext setup-status --follow sigue localmente el logPath del run observable más reciente.
-  - ext setup-status --timeout-ms solo corta la espera/follow de la CLI; NO mata ni cancela el setup subyacente.
-  - ext setup-status NO reatacha, NO cancela y NO es un job manager general; sin background manager, reattach ni resume generalista.
-  - ext repair reaplica solo un stage ya preparado al directorio real de extensiones.
-  - ext repair acepta --python-exe, --allow-third-party y --setup-payload-json para reenviarlos al setup live-target cuando el stage lo requiera.
-  - ext repair puede disparar setup live-target si el stage lo exige.
-  - ext repair usa modo reapply sobre stage ya preparado y por defecto ya no crea backup cuando el target existe.
-  - NO hace fetch GitHub, install, build ni health-fix general.
-  - el CLI/MCP ayuda a distinguir fallo del seam vs fallo propio de la extensión, pero extensiones de terceros pueden seguir fallando por setup.py, wheels, ABI o límites Linux ARM64.
-  - en Linux ARM64 algunas extensiones pesadas pueden requerir fallback CPU o parches en la propia extensión; el CLI no puede inventar una wheel inexistente.
-  - No expone capability MCP estable ni hace install/apply headless desde GitHub.
+Notes:
+  - This CLI surface prepares an isolated, inspectable stage or installs an already prepared stage onto a live target.
+  - ext stage github performs fetch+inspect as preflight only; it never reports the extension as installed.
+  - ext apply installs only an already prepared stage into the real extensions directory, requires explicit --extensions-dir, and may trigger live-target setup if the stage contract requires it.
+  - ext apply accepts --python-exe, --allow-third-party, and --setup-payload-json to forward them to the live-target setup already supported by core.
+  - if that live-target setup fails after copy/apply, the result may remain observable as applied_degraded.
+  - ext setup runs ONLY a supported explicit contract; cataloged and limited support; does not promise universal compatibility; it requires explicit consent because it executes third-party code.
+  - some extensions require explicit payload inputs, for example gpu_sm, and the CLI validates them when the known catalog declares them.
+  - PIP_*-based network resilience may provide partial benefit or none if setup.py ignores those variables or performs its own downloads.
+  - ext setup: python_exe and ext_dir are auto-injected by the CLI and the stage; the JSON payload must not try to override them.
+  - ext setup-status reads ONLY the live-target journal reconciled from the installed target; --stage-path only helps resolve manifest.id.
+  - ext setup-status --wait waits locally until an observable terminal journal state.
+  - ext setup-status --follow follows the logPath of the most recent observable run locally.
+  - ext setup-status --timeout-ms only cuts off CLI wait/follow; it does NOT kill or cancel the underlying setup.
+  - ext setup-status does NOT reattach, does NOT cancel, and is NOT a general job manager; no background manager, reattach, or general-purpose resume.
+  - ext repair reapplies only an already prepared stage to the real extensions directory.
+  - ext repair accepts --python-exe, --allow-third-party, and --setup-payload-json to forward them to live-target setup when the stage requires it.
+  - ext repair may trigger live-target setup if the stage requires it.
+  - ext repair uses reapply mode over an already prepared stage and by default no longer creates a backup when the target exists.
+  - Does NOT perform GitHub fetch, install, build, or general health-fix.
+  - The CLI/MCP helps distinguish seam failure vs the extension's own failure, but third-party extensions may still fail because of setup.py, wheels, ABI, or Linux ARM64 limits.
+  - On Linux ARM64, some heavy extensions may require CPU fallback or patches in the extension itself; the CLI cannot invent a nonexistent wheel.
+  - Does not expose a stable MCP capability or perform headless install/apply from GitHub.
 `;
 }
 
 export function renderExtDevHelp() {
-  return `modly ext-dev — surface CLI de planificación observable
+  return `modly ext-dev — observable planning CLI surface
 
-Uso:
+Usage:
   modly ext-dev bucket-detect [--api-url <url>] [--json]
   modly ext-dev preflight [--api-url <url>] [--json]
   modly ext-dev scaffold [--api-url <url>] [--json]
   modly ext-dev audit [--api-url <url>] [--json]
   modly ext-dev release-plan [--api-url <url>] [--json]
 
-Resumen:
+Summary:
   bucket-detect | preflight | scaffold | audit | release-plan
 
-Subcomandos disponibles:
-  bucket-detect              Plan-only; surface contractual visible
-  preflight                  Plan-only; validación local con chequeo opcional de /health
-  scaffold                   Plan-only; plan de implementación no ejecutable por bucket
-  audit                      Plan-only; gaps/riesgos con confirmación bridge opcional
-  release-plan               Plan-only; checklist ordenado de release y documentación
+Available subcommands:
+  bucket-detect              Plan-only; visible contractual surface
+  preflight                  Plan-only; local validation with optional /health check
+  scaffold                   Plan-only; non-executable implementation plan by bucket
+  audit                      Plan-only; gaps/risks with optional bridge confirmation
+  release-plan               Plan-only; ordered release and documentation checklist
 `;
 }
 
 export function renderConfigHelp() {
-  return `modly config — configuración runtime del backend
+  return `modly config — backend runtime configuration
 
-Uso:
+Usage:
   modly config paths get [--api-url <url>] [--json]
   modly config paths set [--models-dir <dir>] [--workspace-dir <dir>] [--api-url <url>] [--json]
   modly config launcher locate [--json]
   modly config launcher open [--foreground] [--json]
 
-Subcomandos disponibles:
-  paths get                 Lee rutas runtime actuales
-  paths set                 Actualiza rutas runtime (NO persistente)
-  launcher locate           Localiza launch.sh/launch.bat válidos de Modly
-  launcher open             Abre el launcher resuelto (background por defecto; --foreground lo mantiene en primer plano)
+Available subcommands:
+  paths get                 Reads current runtime paths
+  paths set                 Updates runtime paths (NOT persistent)
+  launcher locate           Locates valid Modly launch.sh/launch.bat files
+  launcher open             Opens the resolved launcher (background by default; --foreground keeps it in the foreground)
 `;
 }

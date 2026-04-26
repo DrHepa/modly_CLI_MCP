@@ -79,7 +79,7 @@ function hasWrapperFeature(wrapperSource, fragments) {
 
 function extractHelpGroups(helpText) {
   const lines = helpText.split('\n');
-  const groupHeaderIndex = lines.findIndex((line) => line.trim() === 'Grupos disponibles:');
+  const groupHeaderIndex = lines.findIndex((line) => /^(Grupos disponibles|Available groups):$/u.test(line.trim()));
 
   if (groupHeaderIndex === -1) {
     return [];
@@ -192,7 +192,7 @@ function includesWrapperPromotion(helpText, wrapperSurfaces) {
 
 function collectMissingCanonicalRecoveryTokens(helpText, canonicalRecovery) {
   const cliGroups = canonicalRecovery?.cliGroups ?? [];
-  const hasCanonicalRecoveryNarrative = /workflow-run y process-run son las superficies run principales/iu.test(helpText);
+  const hasCanonicalRecoveryNarrative = /workflow-run y process-run son las superficies run principales|workflow-run and process-run are the primary canonical run surfaces/iu.test(helpText);
 
   if (hasCanonicalRecoveryNarrative) {
     return [];

@@ -8,9 +8,9 @@ import { runCapabilitiesCommand } from '../../src/cli/commands/capabilities.mjs'
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..');
 
 test('help advertises capabilities in global and command-specific output', () => {
-  assert.match(renderHelp(), /capabilities\s+Descubre capabilities de automatización/u);
+  assert.match(renderHelp(), /capabilities\s+Discovers automation capabilities/u);
   assert.match(renderCapabilitiesHelp(), /modly capabilities/u);
-  assert.match(renderCapabilitiesHelp(), /sin preflight \/health separado/u);
+  assert.match(renderCapabilitiesHelp(), /without a separate \/health preflight/u);
 
   const result = spawnSync(process.execPath, ['src/cli/index.mjs', 'capabilities', '--help'], {
     cwd: repoRoot,
@@ -20,7 +20,7 @@ test('help advertises capabilities in global and command-specific output', () =>
   assert.equal(result.status, 0);
   assert.equal(result.stderr, '');
   assert.match(result.stdout, /modly capabilities/u);
-  assert.match(result.stdout, /payload canónico dentro de data/u);
+  assert.match(result.stdout, /canonical payload inside data/u);
 });
 
 test('capabilities command returns canonical payload for JSON passthrough without preflight health', async () => {

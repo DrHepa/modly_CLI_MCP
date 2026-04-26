@@ -45,7 +45,7 @@ test('global and workflow-run help advertise wait within workflow-run MVP comman
   const globalHelp = renderHelp();
   const groupHelp = renderWorkflowRunHelp();
 
-  assert.match(globalHelp, /workflow-run <subcomando> from-image \| status \| wait \| cancel/u);
+  assert.match(globalHelp, /workflow-run <subcommand> from-image \| status \| wait \| cancel/u);
   assert.match(groupHelp, /modly workflow-run/u);
   assert.match(groupHelp, /from-image/u);
   assert.match(groupHelp, /status <run-id>/u);

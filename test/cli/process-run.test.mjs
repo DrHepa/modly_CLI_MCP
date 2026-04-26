@@ -90,7 +90,7 @@ test('global and process-run help advertise process-run MVP commands', () => {
   const globalHelp = renderHelp();
   const groupHelp = renderProcessRunHelp();
 
-  assert.match(globalHelp, /process-run <subcomando>\s+create \| status \| wait \| cancel/u);
+  assert.match(globalHelp, /process-run <subcommand>\s+create \| status \| wait \| cancel/u);
   assert.match(groupHelp, /modly process-run/u);
   assert.match(groupHelp, /create/u);
   assert.match(groupHelp, /status <run-id>/u);

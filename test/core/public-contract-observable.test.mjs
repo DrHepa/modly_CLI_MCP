@@ -508,20 +508,20 @@ test('renderHelp describes workflow/process runs as primary and recipe execution
   const helpText = renderHelp();
 
   assert.equal(helpText.includes('MCP real sigue diferido'), false);
-  assert.equal(helpText.includes('workflow-run y process-run son las superficies run principales'), true);
-  assert.equal(helpText.includes('generate/job se mantienen como compatibilidad observable actual'), true);
+  assert.equal(helpText.includes('workflow-run and process-run are the primary canonical run surfaces'), true);
+  assert.equal(helpText.includes('generate/job remain current observable compatibility'), true);
   assert.equal(
-    helpText.includes('modly.capability.execute y modly.recipe.execute se presentan como wrappers de conveniencia/orquestación sobre workflow-run/process-run.'),
+    helpText.includes('modly.capability.execute and modly.recipe.execute are presented as convenience/orchestration wrappers over workflow-run/process-run.'),
     true,
   );
   assert.equal(
-    helpText.includes('modly.recipe.execute es experimental, opt-in y hidden by default mediante MODLY_EXPERIMENTAL_RECIPE_EXECUTE.'),
+    helpText.includes('modly.recipe.execute is experimental, opt-in, and hidden by default via MODLY_EXPERIMENTAL_RECIPE_EXECUTE.'),
     true,
   );
-  assert.equal(helpText.indexOf('process-run <subcomando>') < helpText.indexOf('generate <subcomando>'), true);
-  assert.equal(helpText.indexOf('workflow-run <subcomando>') < helpText.indexOf('job <subcomando>'), true);
-  assert.match(helpText, /ext-dev <subcomando>\s+bucket-detect \| preflight \| scaffold \| audit \| release-plan/u);
-  assert.match(helpText, /ext-dev\s+Planner local plan-only visible en V1; \/health opcional solo con evidencia backend y bridge opcional solo para confirmación\/colisión\./u);
+  assert.equal(helpText.indexOf('process-run <subcommand>') < helpText.indexOf('generate <subcommand>'), true);
+  assert.equal(helpText.indexOf('workflow-run <subcommand>') < helpText.indexOf('job <subcommand>'), true);
+  assert.match(helpText, /ext-dev <subcommand>\s+bucket-detect \| preflight \| scaffold \| audit \| release-plan/u);
+  assert.match(helpText, /ext-dev\s+Local plan-only planner visible in V1; optional \/health only with backend evidence and optional bridge only for confirmation\/collision\./u);
   assert.equal(helpText.includes('modly.ext-dev'), false);
 });
 

@@ -32,12 +32,12 @@ test('main help advertises scene import without unsupported UI automation claims
   const help = renderHelp();
   const sceneHelp = renderSceneHelp();
 
-  assert.match(help, /scene <subcomando>\s+import-mesh/u);
-  assert.match(help, /scene, ext, ext-dev y config ya son funcionales/u);
+  assert.match(help, /scene <subcommand>\s+import-mesh/u);
+  assert.match(help, /scene, ext, ext-dev, and config are already functional/u);
   assert.match(sceneHelp, /GET \/health/u);
   assert.match(sceneHelp, /scene\.import_mesh/u);
-  assert.match(sceneHelp, /falla cerrado/u);
-  assert.match(sceneHelp, /No automatiza file pickers, menús, clicks ni diálogos del sistema/u);
+  assert.match(sceneHelp, /fails closed/u);
+  assert.match(sceneHelp, /Does not automate file pickers, menus, clicks, or system dialogs/u);
   assert.doesNotMatch(sceneHelp, /Add to Scene/u);
 });
 
@@ -47,12 +47,12 @@ test('legacy and mesh help sections keep their command matrices factual', () => 
   const meshHelp = renderMeshHelp();
 
   assert.match(jobHelp, /modly job status <job-id>/u);
-  assert.match(jobHelp, /Superficie legacy de compatibilidad visible/u);
+  assert.match(jobHelp, /Visible legacy compatibility surface/u);
   assert.match(generateHelp, /modly generate from-image --image <path> --model <id>/u);
-  assert.match(generateHelp, /workflow-run es la ruta run canónica/u);
+  assert.match(generateHelp, /workflow-run is the canonical run path/u);
   assert.match(meshHelp, /modly mesh optimize --path <workspace-relative-path> --target-faces <n>/u);
   assert.match(meshHelp, /modly mesh export --path <workspace-relative-path> --format glb\|obj\|stl\|ply/u);
-  assert.match(meshHelp, /Subcomandos disponibles:\n\s+optimize\s+Decima/u);
+  assert.match(meshHelp, /Available subcommands:\n\s+optimize\s+Decimates/u);
 });
 
 test('capabilities and process-run help document enriched supplemental inputs conservatively', () => {
@@ -63,19 +63,19 @@ test('capabilities and process-run help document enriched supplemental inputs co
   assert.match(capabilitiesHelp, /supplemental_inputs/u);
   assert.match(capabilitiesHelp, /enriched_inputs/u);
   assert.match(capabilitiesHelp, /provenance/u);
-  assert.match(capabilitiesHelp, /do not guess hidden params|no adivinar params ocultos/iu);
+  assert.match(capabilitiesHelp, /do not guess hidden params/iu);
   assert.match(capabilitiesHelp, /trellis2\/refine/u);
   assert.match(capabilitiesHelp, /params\.mesh_path/u);
   assert.match(capabilitiesHelp, /params\.image_path/u);
   assert.match(capabilitiesHelp, /verified_runtime_behavior/u);
-  assert.match(capabilitiesHelp, /params_schema.*may not include|params_schema.*puede no incluir/iu);
-  assert.match(capabilitiesHelp, /backend-runtime model|modelo backend-runtime/iu);
+  assert.match(capabilitiesHelp, /params_schema.*may not include/iu);
+  assert.match(capabilitiesHelp, /backend-runtime model/iu);
   assert.match(capabilitiesHelp, /capability\.execute.*not supported|capability\.execute.*no soport/iu);
   assert.doesNotMatch(capabilitiesHelp, /trellis2\/refine[\s\S]{0,160}processRun\.create/u);
 
-  assert.match(processRunHelp, /No usar Trellis2\/refine|Do not use Trellis2\/refine/iu);
-  assert.match(processRunHelp, /backend-runtime model|modelo backend-runtime/iu);
-  assert.match(processRunHelp, /process-run no promete|process-run does not promise/iu);
+  assert.match(processRunHelp, /Do not use Trellis2\/refine/iu);
+  assert.match(processRunHelp, /backend-runtime model/iu);
+  assert.match(processRunHelp, /process-run does not promise/iu);
 });
 
 test('real CLI help routing renders scene and mesh specific help without backend calls', async () => {
@@ -101,5 +101,5 @@ test('real CLI help routing renders scene and mesh specific help without backend
 
   assert.equal(meshExitCode, 0);
   assert.match(meshStdout.read(), /modly mesh smooth --path <workspace-relative-path>/u);
-  assert.match(meshStdout.read(), /export\s+Descarga una malla exportada/u);
+  assert.match(meshStdout.read(), /export\s+Downloads an exported mesh/u);
 });

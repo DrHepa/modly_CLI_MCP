@@ -39,7 +39,7 @@ test('scene help advertises import-mesh command and JSON automation contract', (
   const globalHelp = renderHelp();
   const sceneHelp = renderSceneHelp();
 
-  assert.match(globalHelp, /scene <subcomando>\s+import-mesh/u);
+  assert.match(globalHelp, /scene <subcommand>\s+import-mesh/u);
   assert.match(sceneHelp, /modly scene/u);
   assert.match(sceneHelp, /import-mesh <mesh-path>/u);
   assert.match(sceneHelp, /--json/u);
