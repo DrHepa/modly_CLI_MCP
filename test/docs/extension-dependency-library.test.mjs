@@ -20,6 +20,7 @@ const expectedReposByEntryId = Object.freeze({
   'drhepa-triposg': 'DrHepa/modly-triposg-extension',
   'drhepa-trellis-text': 'DrHepa/modly-trellis-text-extension',
   'drhepa-trellis2-gguf': 'DrHepa/modly-trellis2-gguf-extension',
+  'drhepa-pixal3d': 'DrHepa/modly-pixal3d-extension',
   'drhepa-hunyuan3d-part': 'DrHepa/Hunyuan3D-Part-modly-extension',
   'drhepa-hunyuan3d-mv': 'DrHepa/hunyuan3d_mv_extension_modly',
   'iammojogo-hunyuan3d-part': 'iammojogo-sudo/hunyuan3D-Part_modly',
@@ -728,15 +729,39 @@ test('library uses canonical GitHub repository identities', () => {
   }
 });
 
-test('library does not register Pixal3D before the extension contract is fully functional', () => {
+test('Pixal3D is registered with honest Linux support and Windows natten blocker semantics', () => {
   const library = readJson('docs/extension-dependency-library/library.json');
+  const entriesById = new Map(library.entries.map((entry) => [entry.id, entry]));
+  const pixal3d = entriesById.get('drhepa-pixal3d');
 
-  const pixal3dEntries = library.entries.filter((entry) => entry.id === 'pixal3d');
-  assert.deepEqual(
-    pixal3dEntries.map((entry) => entry.id),
-    [],
-    'pixal3d must stay out of the dependency library until its extension contract is fully functional',
-  );
+  assert.ok(pixal3d, 'drhepa-pixal3d must exist');
+  assert.equal(pixal3d.identity.repo, 'DrHepa/modly-pixal3d-extension');
+  assert.ok(pixal3d.upstream_requirements, 'drhepa-pixal3d must define upstream_requirements');
+
+  const packageSet = packageNames(pixal3d);
+  for (const requiredPkg of ['natten', 'cumesh', 'flex-gemm', 'o-voxel', 'nvdiffrast', 'nvdiffrec-render']) {
+    assert.ok(packageSet.has(requiredPkg), `drhepa-pixal3d must include ${requiredPkg} in dependency inventory`);
+  }
+
+  const linuxLane = pixal3d.upstream_requirements.stack_lanes.find((lane) => lane.lane_id === 'linux-arm64-py312-cu124');
+  const windowsLane = pixal3d.upstream_requirements.stack_lanes.find((lane) => lane.lane_id === 'windows-x64-py311-cu124');
+
+  assert.ok(linuxLane, 'drhepa-pixal3d must expose linux-arm64-py312-cu124 lane');
+  assert.ok(windowsLane, 'drhepa-pixal3d must expose windows-x64-py311-cu124 lane');
+  assert.equal(linuxLane.status, 'supported', 'linux arm64 Pixal3D lane must be recorded as supported');
+  assert.equal(linuxLane.accelerator.cuda_version, '13.0', 'linux arm64 Pixal3D lane must record observed torch CUDA runtime 13.0 while preserving the published wheelhouse selector in notes');
+  assert.match(JSON.stringify(linuxLane), /HAS_LIBNATTEN|libnatten|native import validated|functional validation/iu, 'linux arm64 lane must record natten/libnatten availability or functional validation');
+  assert.match(JSON.stringify(linuxLane), /Published wheelhouse selector: cuda124/iu, 'linux arm64 Pixal3D lane must preserve the published wheelhouse selector label separately from observed torch CUDA runtime');
+  assert.match(JSON.stringify(linuxLane), /cumesh|nvdiffrast|nvdiffrec-render|natten/iu, 'linux arm64 lane must preserve native package validation context');
+
+  assert.equal(windowsLane.status, 'blocked', 'windows cp311/cu124 Pixal3D lane must stay blocked');
+  assert.match(JSON.stringify(windowsLane), /native natten|libnatten is missing|no verified exact-stack libnatten wheel|blocked/iu, 'windows lane must record missing native natten blocker');
+  assert.match(JSON.stringify(windowsLane), /fallback.*VRAM|OOM|8GB/i, 'windows lane must record fallback OOM or VRAM pressure');
+  assert.match(JSON.stringify(windowsLane), /cumesh|flex-gemm|o-voxel|nvdiffrast|nvdiffrec-render/iu, 'windows lane must preserve critical native packages and aliases');
+
+  const windowsSupport = pixal3d.platform_support.find((support) => support.platform === 'windows-x64');
+  assert.equal(windowsSupport?.status, 'blocked', 'Pixal3D must not claim Windows runtime supported');
+  assert.doesNotMatch(JSON.stringify(pixal3d), /candidate workflow|validated candidate|completed natten windows workflow/iu, 'Pixal3D entry must not claim the unvalidated natten Windows candidate workflow as completed');
 });
 
 test('entries declare real dependency inventories or valid evidence-backed no-dependency reasons', () => {

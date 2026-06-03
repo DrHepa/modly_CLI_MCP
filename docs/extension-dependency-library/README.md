@@ -21,7 +21,7 @@ Local aliases are evidence-gated:
 - never add host-local absolute paths, `file://` URLs, traversal, drive-letter paths, or slash-bearing segment aliases;
 - remember that local presence remains **presence-only** and must not be presented as runtime compatibility, auth success, model completeness, installation success, or generation success.
 
-V1 intentionally includes only evidenced logical aliases for `hunyuan3d-mini`, `trellis-2`/`trellis2`, `triposg`, and `trellis-text`. UltraShape remains excluded and must not be reintroduced through local alias metadata.
+V1 intentionally includes only evidenced logical aliases for `hunyuan3d-mini`, `pixal3d`, `trellis-2`/`trellis2`, `triposg`, and `trellis-text`. UltraShape remains excluded and must not be reintroduced through local alias metadata.
 
 ## Real dependency fields
 

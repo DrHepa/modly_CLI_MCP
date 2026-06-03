@@ -1,6 +1,6 @@
 {
   "schema_version": "1.2.0",
-  "curated_at": "2026-06-02",
+  "curated_at": "2026-06-03",
   "confidence_scale": {
     "confirmed": "Directly verified in a public project artifact or canonical registry record.",
     "strong": "Backed by public upstream documentation or source with low ambiguity.",
@@ -1478,6 +1478,171 @@
       "evidence": [{ "id": "repo", "claim": "DrHepa Trellis2 fork is tracked from a public GitHub extension repository; this library did not install it.", "confidence": "weak", "source_type": "github-repo", "source": "https://github.com/DrHepa/modly-trellis2-extension", "locator": "Repository root", "observed_at": "2026-05-23", "notes": "Static public evidence only." }, { "id": "model", "claim": "DrHepa Trellis2 fork uses upstream TRELLIS-family model weights.", "confidence": "partial", "source_type": "huggingface-model", "source": "https://huggingface.co/microsoft/TRELLIS-image-large", "locator": "Model repository", "observed_at": "2026-05-23", "notes": "Model reference only." }, { "id": "torch", "claim": "PyTorch CUDA wheels are lane-specific and must be recorded explicitly instead of inferred.", "confidence": "partial", "source_type": "package-index", "source": "https://download.pytorch.org/whl/cu121", "locator": "PyTorch wheel index", "observed_at": "2026-05-23", "notes": "CUDA lane evidence only." }, { "id": "spconv", "claim": "DrHepa Trellis2 fork may involve sparse convolution native ABI compatibility risk.", "confidence": "partial", "source_type": "package-index", "source": "https://pypi.org/project/spconv-cu120/", "locator": "Package index", "observed_at": "2026-05-23", "notes": "Native ABI risk retained." }], "unknowns": ["Exact fork package pins and model files are unresolved."]
     },
     {
+      "id": "drhepa-pixal3d",
+      "kind": "external-extension-candidate",
+      "identity": { "name": "DrHepa Pixal3D", "repo": "DrHepa/modly-pixal3d-extension", "public_url": "https://github.com/DrHepa/modly-pixal3d-extension" },
+      "relationship": "community-extension",
+      "install": { "owner": "electron-managed", "mechanisms": [{ "mechanism": "git-clone", "claim": "DrHepa Pixal3D is tracked from a public GitHub extension repository; this library did not install it.", "confidence": "weak", "evidence_ids": ["repo"] }], "download_checks": "No local clone or runtime generation probe was performed for this library; setup and wheelhouse behavior are recorded from public extension artifacts." },
+      "runtime": { "owner": "external", "claim": "Pixal3D runtime behavior is extension-owned and remains lane-sensitive because strict NAF depends on native natten/libnatten availability.", "confidence": "partial", "evidence_ids": ["readme", "setup", "wheelhouse"] },
+      "models": [{ "ref": "TencentARC/Pixal3D", "provider": "Hugging Face", "claim": "Pixal3D model assets are downloaded by the extension or Modly runtime from public upstream sources rather than being vendored in the extension repository.", "confidence": "partial", "evidence_ids": ["readme", "manifest"] }],
+      "platform_support": [
+        { "platform": "linux-arm64", "status": "supported", "claim": "linux-arm64 has a published Pixal3D wheelhouse lane and this contract records prior functional validation with native natten/libnatten available.", "confidence": "partial", "evidence_ids": ["readme", "wheelhouse", "setup"] },
+        { "platform": "windows-x64", "status": "blocked", "claim": "windows-x64 setup is prepared through the published cp311/cu124 wheelhouse lane, but runtime remains blocked because native natten/libnatten is missing and the fallback path is too VRAM-heavy.", "confidence": "partial", "evidence_ids": ["readme", "wheelhouse", "setup"] },
+        { "platform": "amd-rocm", "status": "unknown", "claim": "AMD/ROCm support for Pixal3D is not evidenced.", "confidence": "unknown", "evidence_ids": [] }
+      ],
+      "dependency_summary": { "inventory_status": "partial", "package_count": 25, "model_weight_count": 3, "confidence": "partial", "notes": "Pixal3D combines a Python runtime requirements set with a release-backed native wheelhouse and Modly-managed model assets." },
+      "dependency_groups": [{ "id": "python-runtime", "kind": "python", "scope": "extension", "purpose": ["runtime", "inference", "mesh-processing", "image-processing", "model-loading"], "accelerator_lanes": ["cuda", "cpu", "unknown"], "packages": [
+        { "name": "torch", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "custom-index", "url": "https://download.pytorch.org/whl/cu124" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "medium", "confidence": "partial", "evidence_ids": ["setup", "wheelhouse"] },
+        { "name": "torchvision", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "custom-index", "url": "https://download.pytorch.org/whl/cu124" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "medium", "confidence": "partial", "evidence_ids": ["setup", "wheelhouse"] },
+        { "name": "natten", "ecosystem": "pypi", "specifier": "==0.21.0", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": true, "fallback": true, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "partial", "evidence_ids": ["readme", "wheelhouse", "setup"] },
+        { "name": "cumesh", "ecosystem": "pypi", "specifier": "==0.0.1", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["wheelhouse"] },
+        { "name": "flex-gemm", "ecosystem": "pypi", "specifier": "==1.0.0", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["wheelhouse"] },
+        { "name": "o-voxel", "ecosystem": "pypi", "specifier": "==0.0.1", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["wheelhouse"] },
+        { "name": "nvdiffrast", "ecosystem": "pypi", "specifier": "==0.4.0", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["wheelhouse"] },
+        { "name": "nvdiffrec-render", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["wheelhouse", "setup"] },
+        { "name": "pixal3d-core", "ecosystem": "pypi", "specifier": "==0.1.0+modly", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["readme", "wheelhouse", "setup"] },
+        { "name": "moge", "ecosystem": "pypi", "specifier": "==2.0.0+modly", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["wheelhouse", "setup"] },
+        { "name": "naf", "ecosystem": "pypi", "specifier": "==0.1.0+modly", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": true, "build_mode": "wheel", "native_abi_risk": "medium", "confidence": "confirmed", "evidence_ids": ["readme", "wheelhouse", "setup"] },
+        { "name": "utils3d", "ecosystem": "pypi", "specifier": "==1.3+modly.headless", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["wheelhouse", "setup"] },
+        { "name": "pipeline", "ecosystem": "pypi", "specifier": "==1.0.0+modly", "version_relation": "exact", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["wheelhouse", "setup"] },
+        { "name": "einops", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "none", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "scipy", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "matplotlib", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "opencv-python", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "medium", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "opencv-python-headless", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "medium", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "trimesh", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "timm", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "transformers", "ecosystem": "pypi", "specifier": "==4.57.3", "version_relation": "exact", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "diffusers", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "accelerate", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "safetensors", "ecosystem": "pypi", "specifier": ">=0.8.0rc0", "version_relation": "minimum", "source": { "type": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt" }, "optional": false, "fallback": false, "build_mode": "wheel", "native_abi_risk": "low", "confidence": "confirmed", "evidence_ids": ["requirements"] },
+        { "name": "triton", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/setup.py" }, "optional": true, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["setup"] },
+        { "name": "triton-windows", "ecosystem": "pypi", "specifier": "unknown", "version_relation": "unknown", "source": { "type": "github-file", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/setup.py" }, "optional": true, "fallback": false, "build_mode": "wheel", "native_abi_risk": "high", "confidence": "confirmed", "evidence_ids": ["setup"] }
+      ], "system_dependencies": [], "node_dependencies": [], "conflicts": [], "unknowns": ["Exact non-native helper package pins beyond requirements.txt are not independently revalidated here.", "Published Windows wheelhouse lanes include alias package names such as cumesh-vb and o-voxel-vb-ap; the inventory records their upstream logical package family names separately from lane-specific wheel filenames."] }],
+      "model_weights": [
+        { "id": "pixal3d-generate", "provider": "Hugging Face", "repo_id": "TencentARC/Pixal3D", "revision": "unknown", "files": [{ "path": "pipeline.json" }, { "glob": "ckpts/*.safetensors" }], "download_owner": "extension-runtime", "auth": "unknown", "large_download_risk": true, "confidence": "partial", "evidence_ids": ["manifest"] },
+        { "id": "pixal3d-dinov3", "provider": "Hugging Face", "repo_id": "camenduru/dinov3-vitl16-pretrain-lvd1689m", "revision": "unknown", "files": [{ "path": "config.json" }, { "path": "preprocessor_config.json" }, { "glob": "*.safetensors" }], "download_owner": "extension-runtime", "auth": "unknown", "large_download_risk": true, "confidence": "partial", "evidence_ids": ["manifest"] },
+        { "id": "pixal3d-rmbg", "provider": "Hugging Face", "repo_id": "camenduru/RMBG-2.0", "revision": "unknown", "files": [{ "path": "config.json" }, { "path": "preprocessor_config.json" }, { "path": "BiRefNet_config.py" }, { "path": "birefnet.py" }, { "glob": "*.safetensors" }], "download_owner": "extension-runtime", "auth": "unknown", "large_download_risk": true, "confidence": "partial", "evidence_ids": ["manifest"] }
+      ],
+      "local_assets": { "extension_id": "pixal3d", "aliases": [], "manifest_ids": ["pixal3d"], "model_roots": ["pixal3d"], "status": "confirmed", "confidence": "confirmed", "evidence_ids": ["manifest"], "model_assets": [{ "weight_id": "pixal3d-generate", "roots": ["pixal3d"], "subpaths": ["generate"], "sentinel_files": ["pipeline.json"], "status": "confirmed", "confidence": "confirmed", "evidence_ids": ["manifest"] }, { "weight_id": "pixal3d-dinov3", "roots": ["pixal3d"], "subpaths": ["aux", "dinov3"], "sentinel_files": ["config.json", "model.safetensors"], "status": "confirmed", "confidence": "confirmed", "evidence_ids": ["manifest"] }, { "weight_id": "pixal3d-rmbg", "roots": ["pixal3d"], "subpaths": ["aux", "rmbg"], "sentinel_files": ["config.json", "model.safetensors"], "status": "confirmed", "confidence": "confirmed", "evidence_ids": ["manifest"] }], "unknowns": ["Local presence is evidence-only and does not mean Windows runtime generation is supported."] },
+      "cluster_refs": ["pytorch-lanes", "gated-weights"],
+      "dependency_risks": [
+        { "marker": "native-abi", "claim": "Pixal3D depends on CUDA-native geometry and rendering wheels such as cumesh, flex-gemm, o-voxel, natten, nvdiffrast, and nvdiffrec-render.", "confidence": "partial", "evidence_ids": ["readme", "wheelhouse", "setup"] },
+        { "marker": "large-download", "claim": "Pixal3D requires multiple upstream model asset families that are downloaded outside the extension repository.", "confidence": "partial", "evidence_ids": ["readme", "manifest"] },
+        { "marker": "nonfunctional", "claim": "Published Windows Pixal3D wheelhouse lanes do not yet provide a verified native natten/libnatten runtime, so fallback NAF remains a real generation blocker on low-VRAM systems.", "confidence": "partial", "evidence_ids": ["readme", "wheelhouse", "setup"] }
+      ],
+      "upstream_requirements": {
+        "contract_version": "1.0.0",
+        "source_of_truth": "mixed-evidence",
+        "extension_ref": {
+          "repo": "DrHepa/modly-pixal3d-extension",
+          "ref_type": "branch",
+          "ref": "main"
+        },
+        "manifest_contract": {
+          "manifest_id": "pixal3d",
+          "setup_kind": "custom",
+          "process_declared": true
+        },
+        "dependency_sources": [
+          { "kind": "readme", "url": "https://github.com/DrHepa/modly-pixal3d-extension", "notes": "Wrapper README documents release-backed wheelhouse setup, lane selection, optional natten/libnatten behavior, and public model-asset download ownership." },
+          { "kind": "manifest", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/manifest.json", "notes": "Manifest records the Modly model contract, public upstream hf_repo, required sentinel files, and logical extension/model storage ids." },
+          { "kind": "requirements", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt", "notes": "Requirements record the Python helper stack separate from the release-backed native wheelhouse." },
+          { "kind": "other", "url": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json", "notes": "Wheelhouse manifest records published exact-stack native wheel bundles and optional natten behavior per lane." },
+          { "kind": "model-card", "url": "https://huggingface.co/TencentARC/Pixal3D", "notes": "Primary upstream Pixal3D model distribution reference." }
+        ],
+        "stack_lanes": [
+          {
+            "lane_id": "linux-arm64-py312-cu124",
+            "os": "linux",
+            "arch": "arm64",
+            "python": { "specifier": "==3.12.*" },
+            "accelerator": { "type": "cuda", "cuda_version": "13.0" },
+            "torch": {
+              "index_url": "https://pypi.org/simple",
+              "packages": [
+                { "name": "torch", "specifier": "==2.12.0" },
+                { "name": "torchvision", "specifier": "==0.27.0" },
+                { "name": "torchaudio", "specifier": "unknown" }
+              ]
+            },
+            "packages": [
+              { "name": "triton", "specifier": "unknown", "source": "setup.py", "notes": "Linux metadata dependency package selected by setup.py." },
+              { "name": "natten", "specifier": "==0.21.0", "source": "wheelhouse manifest", "notes": "Published linux-aarch64 wheelhouse includes natten, and this lane records prior functional validation with natten.HAS_LIBNATTEN == True." },
+              { "name": "cumesh", "specifier": "==0.0.1", "source": "wheelhouse manifest", "notes": "Native import validated in prior Linux arm64 runtime verification." },
+              { "name": "flex-gemm", "specifier": "==1.0.0", "source": "wheelhouse manifest", "notes": "Native import validated in prior Linux arm64 runtime verification." },
+              { "name": "o-voxel", "specifier": "==0.0.1", "source": "wheelhouse manifest", "notes": "Native import validated in prior Linux arm64 runtime verification." },
+              { "name": "nvdiffrast", "specifier": "==0.4.0", "source": "wheelhouse manifest", "notes": "Native import validated in prior Linux arm64 runtime verification." },
+              { "name": "nvdiffrec-render", "specifier": "unknown", "source": "wheelhouse manifest", "notes": "Native import validated in prior Linux arm64 runtime verification." },
+              { "name": "pixal3d-core", "specifier": "==0.1.0+modly", "source": "wheelhouse manifest" },
+              { "name": "naf", "specifier": "==0.1.0+modly", "source": "wheelhouse manifest", "notes": "Strict NAF path is available when libnatten is present." }
+            ],
+            "system_dependencies": ["Linux arm64", "NVIDIA GPU", "Published wheelhouse selector: cuda124", "Recorded prior runtime validation reported torch.version.cuda 13.0 with natten.HAS_LIBNATTEN == True and native imports for cumesh, nvdiffrast, nvdiffrec_render, and natten."],
+            "wheel_policy": { "binary_only_preferred": true, "source_build_allowed": false, "native_abi_risk": "high" },
+            "status": "supported",
+            "evidence_ids": []
+          },
+          {
+            "lane_id": "windows-x64-py311-cu124",
+            "os": "windows",
+            "arch": "x64",
+            "python": { "specifier": "==3.11.*" },
+            "accelerator": { "type": "cuda", "cuda_version": "12.4", "gpu_sm": ["75", "86", "89"] },
+            "torch": {
+              "index_url": "https://download.pytorch.org/whl/cu124",
+              "packages": [
+                { "name": "torch", "specifier": "==2.6.0+cu124" },
+                { "name": "torchvision", "specifier": "==0.21.0+cu124" },
+                { "name": "torchaudio", "specifier": "unknown" }
+              ]
+            },
+            "packages": [
+              { "name": "triton-windows", "specifier": "unknown", "source": "setup.py", "notes": "Windows metadata dependency package selected by setup.py." },
+              { "name": "cumesh", "specifier": "via cumesh-vb==1.0", "source": "wheelhouse manifest", "notes": "Windows lane installs alias wheel cumesh-vb and setup.py maps it back to the upstream import name cumesh." },
+              { "name": "flex-gemm", "specifier": "via flex-gemm-ap==1.0.0", "source": "wheelhouse manifest", "notes": "Windows lane installs alias wheel flex-gemm-ap and setup.py maps it back to flex_gemm." },
+              { "name": "o-voxel", "specifier": "via o-voxel-vb-ap==0.0.1", "source": "wheelhouse manifest", "notes": "Windows lane installs alias wheel o-voxel-vb-ap and setup.py maps it back to o_voxel." },
+              { "name": "nvdiffrast", "specifier": "==0.4.0", "source": "wheelhouse manifest" },
+              { "name": "nvdiffrec-render", "specifier": "unknown", "source": "wheelhouse manifest" },
+              { "name": "drtk", "specifier": "==0.1.0", "source": "wheelhouse manifest", "notes": "Published only on the Windows native wheel lane." },
+              { "name": "flash-attn", "specifier": "==2.8.3", "source": "setup.py", "notes": "Published only on the Windows native wheel lane." },
+              { "name": "natten", "specifier": "unavailable-native-wheel", "source": "wheelhouse manifest", "notes": "Published cp311/cu124 Windows lane keeps natten optional because no verified exact-stack libnatten wheel is available." },
+              { "name": "pixal3d-core", "specifier": "==0.1.0+modly", "source": "wheelhouse manifest" },
+              { "name": "naf", "specifier": "==0.1.0+modly", "source": "wheelhouse manifest", "notes": "Fallback NAF path exists but is not accepted here as supported runtime because the fallback is too VRAM-heavy on 8GB-class GPUs." }
+            ],
+            "system_dependencies": ["Windows x64", "Python cp311 from the Modly embedded runtime", "NVIDIA GPU", "Published wheelhouse selector: cuda124", "Setup and weights are validated enough to prepare the extension, but native natten/libnatten is missing for this exact stack.", "low_vram UI selection can reach sparse structure setup, then fallback NAF causes large allocation or OOM on 8GB-class VRAM; do not treat this lane as runtime-supported."],
+            "wheel_policy": { "binary_only_preferred": true, "source_build_allowed": false, "native_abi_risk": "high" },
+            "status": "blocked",
+            "evidence_ids": []
+          }
+        ],
+        "setup_requirements": {
+          "required_payload_inputs": ["image_path"],
+          "optional_payload_inputs": ["resolution", "low_vram", "seed", "mesh_path"],
+          "injected_inputs": ["python_exe", "ext_dir"]
+        },
+        "resolution_policy": {
+          "pins_required": true,
+          "lockfile_present": false,
+          "custom_indexes": ["https://download.pytorch.org/whl/cu124"],
+          "wheelhouse_policy": "required"
+        },
+        "validation_status": {
+          "inventory": "confirmed",
+          "install_contract": "confirmed",
+          "runtime_contract": "partial"
+        }
+      },
+      "evidence": [
+        { "id": "repo", "claim": "DrHepa Pixal3D is tracked from a public GitHub extension repository; this library did not install it.", "confidence": "weak", "source_type": "github-repo", "source": "https://github.com/DrHepa/modly-pixal3d-extension", "locator": "Repository root", "observed_at": "2026-06-03", "notes": "Static public repository evidence only." },
+        { "id": "readme", "claim": "Pixal3D runtime behavior is extension-owned and remains lane-sensitive because strict NAF depends on native natten/libnatten availability.", "confidence": "partial", "source_type": "github-file", "source": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/README.md", "locator": "README: release-backed wheelhouse and natten/libnatten notes", "observed_at": "2026-06-03", "notes": "Public README documents optional natten/libnatten handling and wheelhouse targets." },
+        { "id": "manifest", "claim": "Pixal3D model assets are downloaded by the extension or Modly runtime from public upstream sources rather than being vendored in the extension repository.", "confidence": "partial", "source_type": "github-file", "source": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/manifest.json", "locator": "manifest.json: hf_repo, asset_requirements, assets", "observed_at": "2026-06-03", "notes": "Manifest records public model refs, sentinel files, and logical Modly asset roots." },
+        { "id": "requirements", "claim": "Pixal3D helper packages such as transformers, diffusers, timm, scipy, trimesh, matplotlib, and OpenCV are declared in requirements.txt.", "confidence": "confirmed", "source_type": "github-file", "source": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/requirements.txt", "locator": "requirements.txt", "observed_at": "2026-06-03", "notes": "Requirement list documents the Python helper stack separately from the native wheelhouse." },
+        { "id": "wheelhouse", "claim": "Pixal3D publishes release-backed wheelhouse lanes and native package bundles, with natten included on linux-aarch64 and optional on Windows exact-stack lanes where no verified libnatten wheel exists.", "confidence": "confirmed", "source_type": "github-file", "source": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/wheelhouse.manifest.json", "locator": "wheelhouse.manifest.json: assets[] packages and optional_packages", "observed_at": "2026-06-03", "notes": "Published wheelhouse contract is the exact-stack source for lane-native packages." },
+        { "id": "setup", "claim": "Pixal3D setup.py installs lane-specific torch packages, probes natten.HAS_LIBNATTEN, and maps Windows alias wheels back to upstream import names for runtime checks.", "confidence": "confirmed", "source_type": "github-file", "source": "https://github.com/DrHepa/modly-pixal3d-extension/blob/main/setup.py", "locator": "setup.py: PYTORCH_* packages, OPTIONAL_NATTEN_PACKAGES, _runtime_cuda_check, _natten_runtime_status", "observed_at": "2026-06-03", "notes": "Public setup contract documents native import validation and alias handling." }
+      ],
+      "unknowns": ["The upstream th26/cu124 requirement profile is the closest public Windows guidance, but the extension now uses release-backed wheelhouse lanes rather than publishing the full upstream requirement matrix as a supported Modly runtime contract.", "No supported Windows native natten/libnatten wheel is recorded for the published cp311/cu124 lane, so full runtime support must remain blocked."]
+    },
+    {
       "id": "drhepa-trellis2-gguf", "kind": "external-extension-candidate", "identity": { "name": "DrHepa Trellis2 GGUF fork", "repo": "DrHepa/modly-trellis2-gguf-extension", "public_url": "https://github.com/DrHepa/modly-trellis2-gguf-extension" }, "relationship": "public-fork",
       "install": { "owner": "electron-managed", "mechanisms": [{ "mechanism": "git-clone", "claim": "DrHepa Trellis2 GGUF fork is tracked from a public GitHub extension repository; this library did not install it.", "confidence": "weak", "evidence_ids": ["repo"] }], "download_checks": "No install or runtime check was performed." },
       "runtime": { "owner": "external", "claim": "DrHepa Trellis2 GGUF fork runtime behavior is extension-owned and not guaranteed by Modly.", "confidence": "partial", "evidence_ids": ["repo"] },
@@ -1573,9 +1738,9 @@
     { "id": "local-image-models-family", "name": "Local image models family", "entry_refs": ["flux-schnell", "sd15", "sdxl-base"], "dependency_families": ["torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub", "pillow", "numpy", "sentencepiece", "scipy", "invisible-watermark"], "accelerator_lanes": ["cpu", "cuda", "unknown"], "typical_risks": ["large-download"], "risk_summary": "Shared local-image-models entries reuse a common diffusers runtime family, but auth and GPU expectations still vary by model card.", "confidence": "partial", "evidence_ids": [], "notes": "FLUX remains gated while SD15 and SDXL Base stay non-gated unless future evidence changes that." },
     { "id": "unirig-native-family", "name": "UniRig native dependency family", "entry_refs": ["drhepa-unirig"], "dependency_families": ["torch", "torchvision", "torchaudio", "flash-attn", "bpy", "spconv-cu126", "cumm-cu126", "torch_scatter", "torch_cluster", "open3d", "numpy"], "accelerator_lanes": ["cuda", "cpu", "unknown"], "typical_risks": ["native-abi", "large-download"], "risk_summary": "UniRig depends on Blender Python, sparse-conv, PyG-native wheels, and lane-specific CUDA wheels that are highly ABI-sensitive.", "confidence": "partial", "evidence_ids": [], "notes": "Cluster records package-family risk only; it does not validate any particular wheel combination." },
     { "id": "kimodo-gated-encoders", "name": "Kimodo gated encoder family", "entry_refs": ["drhepa-kimodo"], "dependency_families": ["torch", "transformers", "peft", "trimesh", "av", "bvhio", "huggingface_hub", "llm2vec"], "accelerator_lanes": ["cuda", "cpu", "unknown"], "typical_risks": ["gated-weights", "large-download"], "risk_summary": "Kimodo is lighter on native ABI risk than 3D families, but gated encoder access, optional MotionCorrection handling, and high VRAM text-conditioning paths still affect real usability.", "confidence": "partial", "evidence_ids": [], "notes": "MotionCorrection is documented as skipped or optional rather than a required dependency lane." },
-    { "id": "pytorch-lanes", "name": "PyTorch accelerator lanes", "entry_refs": ["lightningpixel-hunyuan3d-mini", "lightningpixel-hunyuan3d-fast", "lightningpixel-hunyuan3d-turbo", "lightningpixel-trellis2", "lightningpixel-trellis2-gguf", "lightningpixel-triposg", "drhepa-triposg", "flux-schnell", "drhepa-unirig", "drhepa-kimodo", "iammojogo-hunyuandit", "sd15", "sdxl-base", "drhepa-trellis-text", "drhepa-hunyuan3d-part", "drhepa-hunyuan3d-mv", "iammojogo-hunyuan3d-part", "iammojogo-hunyuan3d-mv", "drhepa-hunyuan3d-mini", "drhepa-trellis2-fork", "drhepa-trellis2-gguf"], "dependency_families": ["torch", "torchvision", "torchaudio"], "accelerator_lanes": ["cuda", "cpu", "unknown"], "typical_risks": ["cuda-only", "linux-arm64-risk", "amd-rocm-unknown"], "risk_summary": "Torch package records must state lane evidence or unknowns instead of inferring GPU support.", "confidence": "partial", "evidence_ids": [], "notes": "ROCm is unknown for all V1 entries." },
+    { "id": "pytorch-lanes", "name": "PyTorch accelerator lanes", "entry_refs": ["lightningpixel-hunyuan3d-mini", "lightningpixel-hunyuan3d-fast", "lightningpixel-hunyuan3d-turbo", "lightningpixel-trellis2", "lightningpixel-trellis2-gguf", "lightningpixel-triposg", "drhepa-triposg", "flux-schnell", "drhepa-unirig", "drhepa-kimodo", "iammojogo-hunyuandit", "sd15", "sdxl-base", "drhepa-trellis-text", "drhepa-hunyuan3d-part", "drhepa-hunyuan3d-mv", "iammojogo-hunyuan3d-part", "iammojogo-hunyuan3d-mv", "drhepa-hunyuan3d-mini", "drhepa-trellis2-fork", "drhepa-pixal3d", "drhepa-trellis2-gguf"], "dependency_families": ["torch", "torchvision", "torchaudio"], "accelerator_lanes": ["cuda", "cpu", "unknown"], "typical_risks": ["cuda-only", "linux-arm64-risk", "amd-rocm-unknown"], "risk_summary": "Torch package records must state lane evidence or unknowns instead of inferring GPU support.", "confidence": "partial", "evidence_ids": [], "notes": "ROCm is unknown for all V1 entries." },
     { "id": "pyg-sparse-conv-family", "name": "PyG / sparse convolution family", "entry_refs": ["lightningpixel-hunyuan3d-mini", "lightningpixel-trellis2", "drhepa-unirig", "drhepa-trellis2-fork", "iammojogo-hunyuan3d-part"], "dependency_families": ["spconv-cu120", "spconv-cu126", "cumm-cu126", "torch_scatter", "torch_cluster", "flash-attn"], "accelerator_lanes": ["cuda", "unknown"], "typical_risks": ["native-abi", "cuda-only"], "risk_summary": "Sparse-conv, PyG-native, and attention acceleration packages have high ABI and wheel-lane risk.", "confidence": "partial", "evidence_ids": [], "notes": "Optional/fallback flags remain per package record." },
-    { "id": "gated-weights", "name": "Model weight access and large download risk", "entry_refs": ["lightningpixel-hunyuan3d-mini", "lightningpixel-hunyuan3d-fast", "lightningpixel-hunyuan3d-turbo", "lightningpixel-trellis2", "lightningpixel-trellis2-gguf", "lightningpixel-triposg", "drhepa-triposg", "flux-schnell", "drhepa-kimodo", "drhepa-trellis-text", "drhepa-hunyuan3d-part", "drhepa-hunyuan3d-mv", "iammojogo-hunyuan3d-part", "iammojogo-hunyuan3d-mv", "drhepa-hunyuan3d-mini", "drhepa-trellis2-fork", "drhepa-trellis2-gguf"], "dependency_families": ["huggingface_hub", "safetensors"], "accelerator_lanes": ["unknown"], "typical_risks": ["gated-weights", "large-download"], "risk_summary": "Model refs do not prove download success, auth status, checksums, or Modly ownership.", "confidence": "partial", "evidence_ids": [], "notes": "Auth is unknown unless a model record states otherwise." }
+    { "id": "gated-weights", "name": "Model weight access and large download risk", "entry_refs": ["lightningpixel-hunyuan3d-mini", "lightningpixel-hunyuan3d-fast", "lightningpixel-hunyuan3d-turbo", "lightningpixel-trellis2", "lightningpixel-trellis2-gguf", "lightningpixel-triposg", "drhepa-triposg", "flux-schnell", "drhepa-kimodo", "drhepa-trellis-text", "drhepa-hunyuan3d-part", "drhepa-hunyuan3d-mv", "iammojogo-hunyuan3d-part", "iammojogo-hunyuan3d-mv", "drhepa-hunyuan3d-mini", "drhepa-trellis2-fork", "drhepa-pixal3d", "drhepa-trellis2-gguf"], "dependency_families": ["huggingface_hub", "safetensors"], "accelerator_lanes": ["unknown"], "typical_risks": ["gated-weights", "large-download"], "risk_summary": "Model refs do not prove download success, auth status, checksums, or Modly ownership.", "confidence": "partial", "evidence_ids": [], "notes": "Auth is unknown unless a model record states otherwise." }
   ],
   "global_unknowns": [
     "No install, download, GitHub fetch, Hugging Face fetch, backend request, Electron IPC call, or runtime probe was performed while curating this V1 library.",
