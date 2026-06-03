@@ -401,7 +401,7 @@ test('script emits JSON, prefers --modly-home over MODLY_HOME, and redacts roots
 })
 
 test('script emits not_checked without a root and does not inspect the local machine', () => {
-  const { MODLY_HOME, ...envWithoutRoot } = process.env
+  const { MODLY_HOME: _MODLY_HOME, ...envWithoutRoot } = process.env
   const result = spawnSync(process.execPath, ['scripts/validate-extension-local-assets.mjs'], {
     cwd: path.resolve(import.meta.dirname, '../..'),
     env: envWithoutRoot,
