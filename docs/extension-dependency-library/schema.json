@@ -1,0 +1,158 @@
+{
+  "schema_version": "1.2.0",
+  "description": "Draft-agnostic structural and semantic schema notes for the Modly extension dependency/model/platform evidence library.",
+  "required_top_level": [
+    "schema_version",
+    "curated_at",
+    "confidence_scale",
+    "entries",
+    "shared_clusters",
+    "global_unknowns"
+  ],
+  "required_entry_fields": [
+    "id",
+    "kind",
+    "identity",
+    "relationship",
+    "install",
+    "runtime",
+    "models",
+    "platform_support",
+    "dependency_summary",
+    "dependency_groups",
+    "model_weights",
+    "cluster_refs",
+    "dependency_risks",
+    "evidence",
+    "unknowns"
+  ],
+  "enums": {
+    "confidence": ["confirmed", "strong", "partial", "weak", "unknown"],
+    "source_type": ["github-repo", "github-file", "github-release", "huggingface-model", "package-index", "docs", "registry-record", "unknown"],
+    "relationship": ["official-registry", "official-extension", "public-fork", "community-extension", "upstream-dependency", "unknown"],
+    "platform": ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "windows-x64", "amd-rocm"],
+    "support_status": ["supported", "unsupported", "unknown", "not-evidenced", "blocked", "experimental-unverified-dev-only"],
+    "install_mechanism": ["electron-managed", "fastapi-runtime", "pip", "git-clone", "huggingface-download", "manual", "none", "unknown"],
+    "runtime_ownership": ["fastapi", "electron", "backend-runtime", "external", "unknown"],
+    "risk_marker": ["native-abi", "cuda-only", "gated-weights", "large-download", "mutable-ref", "private-or-inaccessible", "nonfunctional", "linux-arm64-risk", "amd-rocm-unknown"],
+    "dependency_group_kind": ["python", "system", "node", "model-assets", "mixed"],
+    "dependency_purpose": ["runtime", "inference", "model-loading", "mesh-processing", "image-processing", "build", "fallback", "unknown"],
+    "package_source_type": ["requirements", "pyproject", "setup", "package-index", "custom-index", "github-file", "github-repo", "docs", "unknown"],
+    "version_relation": ["exact", "range", "minimum", "maximum", "compatible", "unbounded", "unknown"],
+    "build_mode": ["wheel", "source-build-likely", "source-build-required", "mixed", "unknown", "not-applicable"],
+    "accelerator_lane": ["cuda", "cpu", "rocm", "mps", "unknown"],
+    "native_abi_risk": ["none", "low", "medium", "high", "unknown"],
+    "download_owner": ["extension-runtime", "user", "modly-backend-runtime", "external-tool", "unknown"],
+    "auth_requirement": ["none", "gated", "token-optional", "unknown"],
+    "local_asset_status": ["confirmed", "partial", "deferred_no_evidence"],
+    "upstream_source_of_truth": ["extension-upstream", "model-card", "wrapper", "mixed-evidence", "unknown"],
+    "upstream_ref_type": ["branch", "tag", "commit", "release", "unknown"],
+    "upstream_setup_kind": ["none", "python-root-setup-py", "custom", "unknown"],
+    "upstream_dependency_source_kind": ["requirements", "pyproject", "setup", "readme", "model-card", "manifest", "other"],
+    "upstream_stack_os": ["windows", "linux", "macos", "unknown"],
+    "upstream_stack_arch": ["x64", "arm64", "unknown"],
+    "upstream_accelerator_type": ["cuda", "cpu", "mps", "rocm", "unknown"],
+    "upstream_lane_status": ["supported", "experimental", "blocked", "unknown"],
+    "wheelhouse_policy": ["none", "preferred", "required", "unknown"],
+    "validation_inventory": ["partial", "confirmed"],
+    "validation_contract": ["unknown", "partial", "confirmed"]
+  },
+  "local_assets_contract": {
+    "rule": "Optional entry.local_assets records path-safe logical identifiers below extensions/ and models/ only when evidence supports the mapping.",
+    "required_fields_when_present": ["status", "confidence", "evidence_ids"],
+    "entry_fields": {
+      "extension_id": "Primary logical extension folder and manifest identity candidate, e.g. extensions/trellis-2.",
+      "manifest_ids": "Ordered additional manifest id candidates, if evidenced.",
+      "aliases": "Ordered alternate logical extension folder ids; these are candidates, not compatibility claims.",
+      "model_roots": "Optional logical roots below models/ used with model_assets; never host paths.",
+      "model_assets": "Weight-specific model location candidates with weight_id, roots, subpaths, sentinel_files, status, confidence, and evidence_ids.",
+      "unknowns": "Human-readable deferred evidence gaps; must not contain candidate strings for unsupported variants."
+    },
+    "model_asset_fields": ["weight_id", "roots", "subpaths", "sentinel_files", "status", "confidence", "evidence_ids", "unknowns"],
+    "path_safety": "No host-local absolute paths, file:// URLs, http URLs, drive-letter paths, traversal, empty segments, slash-bearing segment fields, hidden backup prefixes, or unsafe characters. Subpaths and sentinel_files are relative logical paths whose every segment passes the safe-segment rules.",
+    "presence_semantics": "Local presence is evidence-only and not runtime compatibility, auth success, model completeness, installation success, or generation success.",
+    "precedence": "Local_assets extension ids, aliases, manifest ids, and model_assets are checked before manifest/repository basename fallbacks.",
+    "duplicate_alias_rule": "Shared aliases require manifest/repo correspondence before a present result; absent or conflicting correspondence remains unknown or invalid."
+  },
+  "upstream_requirements_contract": {
+    "rule": "Optional entry.upstream_requirements records evidence-backed upstream install/setup expectations and exact-stack lanes without claiming Modly runtime enforcement.",
+    "required_fields_when_present": [
+      "contract_version",
+      "source_of_truth",
+      "extension_ref",
+      "manifest_contract",
+      "dependency_sources",
+      "stack_lanes",
+      "setup_requirements",
+      "resolution_policy",
+      "validation_status"
+    ],
+    "lane_required_fields": [
+      "lane_id",
+      "os",
+      "arch",
+      "python",
+      "accelerator",
+      "torch",
+      "packages",
+      "system_dependencies",
+      "wheel_policy",
+      "status",
+      "evidence_ids"
+    ],
+    "notes": "Use dependency_sources URLs and explicit unknowns instead of inventing evidence ids or pretending the stack is runtime-enforced."
+  },
+  "dependency_record_required_fields": [
+    "name",
+    "ecosystem",
+    "source",
+    "optional",
+    "fallback",
+    "build_mode",
+    "native_abi_risk",
+    "confidence",
+    "evidence_ids"
+  ],
+  "torch_lane_contract": {
+    "required_independent_packages": ["torch", "torchvision", "torchaudio"],
+    "rule": "Do not infer CUDA, CPU, ROCm, or MPS support. Use accelerator_lanes and package index or unknown_reason explicitly."
+  },
+  "model_weight_record_required_fields": [
+    "id",
+    "provider",
+    "download_owner",
+    "auth",
+    "large_download_risk",
+    "confidence",
+    "evidence_ids"
+  ],
+  "no_dependencies_reason_contract": {
+    "rule": "Allowed only for non-ML or registry-only entries with no dependency_groups and no model_weights. It is mutually exclusive with dependency/model records and must carry evidence_ids."
+  },
+  "evidence_record_required_fields": [
+    "id",
+    "claim",
+    "confidence",
+    "source_type",
+    "source",
+    "locator",
+    "observed_at"
+  ],
+  "claim_contract": {
+    "claim": "Human-readable exact claim string. Claim-bearing install, runtime, model, platform, and risk objects reference evidence_ids.",
+    "evidence_ids": "Evidence record ids whose claim value exactly matches the claim object for non-unknown confidence claims."
+  },
+  "github_identity_contract": {
+    "rule": "For GitHub-backed entries, identity.repo must be the canonical public owner/repo and identity.public_url must equal https://github.com/${identity.repo} exactly. Do not infer repositories from labels, display names, local folders, or ComfyUI naming patterns."
+  },
+  "github_evidence_consistency_contract": {
+    "rule": "GitHub evidence source values must resolve to the same owner/repo as identity.repo unless a narrow documented entry/evidence exception is added and reviewed."
+  },
+  "sanitization_rules": [
+    "No host-local absolute paths.",
+    "No file:// host paths.",
+    "No traversal segments.",
+    "No inaccessible project identifiers that imply public availability.",
+    "UltraShape is excluded from V1."
+  ]
+}

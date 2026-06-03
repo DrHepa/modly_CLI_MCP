@@ -240,7 +240,7 @@ npm run type-check
 ## Reusable AI skills in this repo
 
 - `skills/modly-operator/SKILL.md` — headless/runtime Modly operating guidance
-- `skills/modly-extension-planner/SKILL.md` — `ext-dev` planning guidance for local `manifest.json` workspaces
+- `skills/modly-extension-planner/SKILL.md` — `ext-dev` planning guidance for local `manifest.json` workspaces plus evidence-only dependency/model/platform-risk planning
 
 ## Installable usage
 
