@@ -729,7 +729,7 @@ test('library uses canonical GitHub repository identities', () => {
   }
 });
 
-test('Pixal3D is registered with honest Linux support and Windows natten blocker semantics', () => {
+test('Pixal3D is registered with honest Linux support and Windows setup-validation semantics', () => {
   const library = readJson('docs/extension-dependency-library/library.json');
   const entriesById = new Map(library.entries.map((entry) => [entry.id, entry]));
   const pixal3d = entriesById.get('drhepa-pixal3d');
@@ -754,13 +754,13 @@ test('Pixal3D is registered with honest Linux support and Windows natten blocker
   assert.match(JSON.stringify(linuxLane), /Published wheelhouse selector: cuda124/iu, 'linux arm64 Pixal3D lane must preserve the published wheelhouse selector label separately from observed torch CUDA runtime');
   assert.match(JSON.stringify(linuxLane), /cumesh|nvdiffrast|nvdiffrec-render|natten/iu, 'linux arm64 lane must preserve native package validation context');
 
-  assert.equal(windowsLane.status, 'blocked', 'windows cp311/cu124 Pixal3D lane must stay blocked');
-  assert.match(JSON.stringify(windowsLane), /native natten|libnatten is missing|no verified exact-stack libnatten wheel|blocked/iu, 'windows lane must record missing native natten blocker');
-  assert.match(JSON.stringify(windowsLane), /fallback.*VRAM|OOM|8GB/i, 'windows lane must record fallback OOM or VRAM pressure');
+  assert.equal(windowsLane.status, 'experimental', 'windows cp311/cu124 Pixal3D lane must remain experimental until final GLB generation is confirmed');
+  assert.match(JSON.stringify(windowsLane), /native natten|libnatten included|HAS_LIBNATTEN|torch\.compile disabled/iu, 'windows lane must record native natten availability and import compatibility');
+  assert.match(JSON.stringify(windowsLane), /pending final GLB validation|generation validation/iu, 'windows lane must record pending full runtime validation');
   assert.match(JSON.stringify(windowsLane), /cumesh|flex-gemm|o-voxel|nvdiffrast|nvdiffrec-render/iu, 'windows lane must preserve critical native packages and aliases');
 
   const windowsSupport = pixal3d.platform_support.find((support) => support.platform === 'windows-x64');
-  assert.equal(windowsSupport?.status, 'blocked', 'Pixal3D must not claim Windows runtime supported');
+  assert.equal(windowsSupport?.status, 'experimental-unverified-dev-only', 'Pixal3D must not claim Windows runtime supported until generation is validated');
   assert.doesNotMatch(JSON.stringify(pixal3d), /candidate workflow|validated candidate|completed natten windows workflow/iu, 'Pixal3D entry must not claim the unvalidated natten Windows candidate workflow as completed');
 });
 

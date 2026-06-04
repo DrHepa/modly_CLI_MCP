@@ -34,7 +34,7 @@
     "support_status": ["supported", "unsupported", "unknown", "not-evidenced", "blocked", "experimental-unverified-dev-only"],
     "install_mechanism": ["electron-managed", "fastapi-runtime", "pip", "git-clone", "huggingface-download", "manual", "none", "unknown"],
     "runtime_ownership": ["fastapi", "electron", "backend-runtime", "external", "unknown"],
-    "risk_marker": ["native-abi", "cuda-only", "gated-weights", "large-download", "mutable-ref", "private-or-inaccessible", "nonfunctional", "linux-arm64-risk", "amd-rocm-unknown"],
+    "risk_marker": ["native-abi", "cuda-only", "gated-weights", "large-download", "mutable-ref", "private-or-inaccessible", "nonfunctional", "runtime-pending", "linux-arm64-risk", "amd-rocm-unknown"],
     "dependency_group_kind": ["python", "system", "node", "model-assets", "mixed"],
     "dependency_purpose": ["runtime", "inference", "model-loading", "mesh-processing", "image-processing", "build", "fallback", "unknown"],
     "package_source_type": ["requirements", "pyproject", "setup", "package-index", "custom-index", "github-file", "github-repo", "docs", "unknown"],
