@@ -10,7 +10,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: gentleman-programming
-  version: "2.0"
+  version: "2.1"
 ---
 
 ## When to Use
@@ -71,6 +71,88 @@ Use this skill when the user asks to:
    - For automation, return JSON data first.
    - Human summaries must stay short and factual.
 
+## Functional Modly Extension Contract
+
+Use this section when the user wants to create a working extension, not only audit one. Keep it plan-only, but plan against the real Modly seams.
+
+### GitHub install and setup seam
+
+- `modly ext stage github` is preflight/staging only. It inspects a candidate snapshot and must find a root `manifest.json`; it does not make the extension operational.
+- `modly ext apply` is the live install seam. It applies a prepared stage into the real extension directory and may trigger setup against the live target.
+- `modly ext repair` reapplies an already prepared stage and may trigger the same setup contract.
+- `modly ext setup` runs an explicit, limited setup contract; it is not a universal installer and cannot force a broken third-party `setup.py` to respect `PIP_*`, mirrors, CUDA lanes, or local caches.
+- `modly ext setup-status` observes local setup state only. `--wait`, `--follow`, and `--timeout-ms` are observer controls, not a job manager or cancellation layer.
+- An install can legitimately become `applied_degraded`: files were applied, but extension-owned setup failed. Plans must separate Modly seam success from extension setup/runtime failure.
+
+### Repository root contract
+
+A functional GitHub-installable extension plan should account for these root-level artifacts:
+
+- `manifest.json` — required identity and Modly contract source. `manifest.id` must be safe, non-empty, path-safe, and stable.
+- `generator.py` — required for model extensions that declare `generator_class`; heavy CUDA/HF imports should stay behind `load()`/`generate()` boundaries.
+- process entrypoints — required for process extensions that declare `manifest.process`; plan command/runtime ownership, input/output files, logs, and artifact expectations separately from model generator contracts.
+- `setup.py` — required when `manifest.setup` exists. It should accept Modly-injected JSON context such as extension directory and Python executable payloads, support JSON observations, and fail with actionable machine-readable errors.
+- optional package/runtime modules — importable from the extension venv, with native alias shims only when the exact lane requires them.
+- documentation — must distinguish extension code from model assets and stable lanes from candidates.
+
+### Manifest planning checklist
+
+When drafting or reviewing `manifest.json`, plan these fields explicitly:
+
+- identity: `id`, `name`, `version`, `author`, `description`
+- bucket signals: `setup`, `process`, `kind`/`type`, `entrypoints`, `generator_class`
+- I/O: `inputs`, `outputs`, node type, node id, formats, PBR expectations
+- process contract: when `process` exists, planned command/runtime ownership, workspace inputs, workspace outputs, progress/log behavior, and failure reporting
+- UI params: use UI-safe schemas; for booleans that Modly serializes as strings, prefer explicit `select` values and parse them explicitly in runtime
+- model refs: public `hf_repo` or model source references, sentinel `download_check`, `weight_owner_id`, and model ownership
+- `asset_requirements`: sentinel files, logical `models/<extension-id>/...` paths, public substitutions, and readiness metadata
+- `platforms`: status per OS/arch/GPU lane; do not mark a platform supported until setup and runtime have evidence
+- `assets`: logical extension/model roots only; never host paths
+
+### Setup contract checklist
+
+For `model-managed-setup` plans, require an extension-owned setup plan with:
+
+- venv location and ownership, normally below the extension directory
+- exact Python ABI assumptions, especially Modly packaged-app `cp311` on Windows
+- torch/CUDA index and native ABI lane, separated from generic helper requirements
+- release-backed wheelhouse or other reproducible binary source for native packages when source build is not acceptable
+- checksum verification before extraction/install
+- `pip install --no-index --find-links <verified-wheelhouse>` for native wheelhouse packages when wheelhouse policy is required
+- no silent PyPI fallback for native packages that must be exact-stack
+- `pip check` and import probes for critical native packages
+- setup readiness JSON with `status`, failure code, `downloads_started`, `installs_started`, `next_steps`, and path conflict diagnostics
+- safe logical path creation; reject traversal, drive letters, absolute paths, hidden backup prefixes, and Windows reserved segments such as `AUX`, `CON`, `NUL`, `PRN`, `COM1-9`, and `LPT1-9`
+
+### Runtime contract checklist
+
+For model generation plans, require:
+
+- root `generator.py` exposes the manifest `generator_class`
+- constructor accepts Modly-provided model/workspace paths without assuming host-specific paths
+- `is_downloaded()`/readiness checks use sentinel files and do not confuse empty helper folders with missing primary weights
+- `generate()` writes outputs under the provided workspace/output directory and returns the final artifact path
+- runtime errors return structured JSON where possible; fatal native crashes need diagnostic checkpoints, not speculative fixes
+- stdout/stderr behavior is considered so progress logs do not corrupt JSON protocol expectations
+- final output validation checks the actual generated artifact, e.g. GLB exists, loads, has nonzero geometry, and is fetched from workspace when applicable
+
+For process-extension plans, keep the same discipline but use the declared process contract instead of inventing a model generator: explicit inputs, outputs, logs, progress, cancellation expectations, and artifact validation.
+
+### Release and validation ladder
+
+Before recommending publication, plan a ladder:
+
+1. static contract checks: manifest, setup, dependency evidence, safe paths
+2. setup dry run or setup observation without downloads where supported
+3. full setup on target lane with checksum/pip/import probes
+4. model asset download/readiness checks using logical model roots
+5. first real generation smoke test with representative low-resource settings
+6. artifact validation and workspace fetch
+7. docs/About/topics/release notes
+8. stable release only after validation; candidate/pre-release lanes remain opt-in and outside the stable manifest
+
+If validation is community-provided, record it as validation evidence with platform/GPU/driver/VRAM/context and keep candidate lanes out of the stable manifest until confirmed.
+
 ## Input Contract
 
 Ask for or clearly mark these fields as unknown before making plan claims:
@@ -114,9 +196,10 @@ Conditional inputs:
     - If `upstream_requirements.stack_lanes[].packages[]` exists, present it only as exact-stack lane context. Keep it separate from inventory packages so lane-specific pins do not get confused with the entry dependency inventory.
 
 5. **Build the plan**
-   - Produce platform matrix rows as supported, blocked, risky, or unknown only when evidence justifies that classification.
-   - Produce dependency lanes from evidence-backed package groups or mark them unknown.
-   - Produce model weight actions as ownership/auth/evidence tasks, not implicit Modly downloads.
+    - Produce platform matrix rows as supported, blocked, risky, or unknown only when evidence justifies that classification.
+    - Produce dependency lanes from evidence-backed package groups or mark them unknown.
+    - Produce model weight actions as ownership/auth/evidence tasks, not implicit Modly downloads.
+    - For creation plans, include install/setup/runtime/release contract tasks from the Functional Modly Extension Contract.
 
 6. **Block unsupported claims**
    - Put unsafe or unevidenced statements into `blocked_claims` instead of stating them as facts.
@@ -142,6 +225,19 @@ Lookup order:
 5. When building `dependency_lanes`, summarize `entry.dependency_groups[]` first and use `upstream_requirements.stack_lanes[]` only as labeled exact-stack examples.
 
 If evidence is unavailable, absent, stale, incomplete, private, or not specific to the requested platform, do not fetch, install, download, probe, or guess. Record a fallback review task and keep `not_a_compatibility_guarantee: true`.
+
+## Reference Extension Patterns
+
+Use entries in `docs/extension-dependency-library/library.json` as pattern references, not as copy-paste guarantees.
+
+| Pattern | Reference entries | What to learn | What not to claim |
+| --- | --- | --- | --- |
+| Release-backed CUDA model extension | `drhepa-pixal3d` | `model-managed-setup`, exact-stack torch/CUDA lanes, checksum wheelhouse, native import probes, model assets below `models/pixal3d`, runtime GLB validation | Do not generalize its wheelhouse to other GPUs/CUDA lanes; candidate Blackwell lanes stay opt-in until validated |
+| Heavy native CUDA family with unknown lanes | TRELLIS, TripoSG, Hunyuan3D entries | native ABI risk, torch lane coupling, model-weight ownership, unknown platform states | Do not infer Windows/Linux/AMD support from family similarity |
+| Process/animation/rig extension | `drhepa-kimodo`, `drhepa-unirig` | process-extension/runtime ownership, external tool or rig pipeline risk, experimental platform status | Do not convert process contracts into model-simple contracts |
+| Upstream model candidate | `sd15`, `sdxl-base`, `flux-schnell` | model weight/auth/gating planning without extension install claims | Do not treat upstream model presence as a Modly extension |
+
+When the user asks "what extensions exist?", list entry ids, repo identities, relationship, platform statuses, dependency summary, and the contract pattern above. If a user asks to build a new extension similar to one entry, extract the pattern and validation ladder, but keep exact pins and support states evidence-specific.
 
 ## Fallback Public-Source Review Checklist
 

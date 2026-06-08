@@ -141,6 +141,74 @@ test('modly extension planner preserves v1 ext-dev and architecture boundaries',
   ]);
 });
 
+test('modly extension planner documents the functional GitHub install and setup seam', () => {
+  assertSkillMentionsAll('functional install/setup seam', [
+    /^## Functional Modly Extension Contract$/m,
+    /modly ext stage github.*preflight|stage github.*preflight/iu,
+    /modly ext apply.*live install seam|apply.*live install seam/iu,
+    /modly ext repair.*reapplies|repair.*prepared stage/iu,
+    /modly ext setup.*not a universal installer|setup.*explicit, limited setup contract/iu,
+    /modly ext setup-status.*observes local setup state|setup-status.*observer/iu,
+    /applied_degraded/iu,
+    /separate Modly seam success from extension setup\/runtime failure/iu,
+  ]);
+});
+
+test('modly extension planner gives creation guidance for root manifest generator setup assets and runtime contracts', () => {
+  assertSkillMentionsAll('functional extension artifact contract', [
+    /root-level artifacts/iu,
+    /`manifest\.json`.*required identity|required identity.*`manifest\.json`/iu,
+    /`generator\.py`.*`generator_class`|`generator_class`.*`generator\.py`/iu,
+    /process entrypoints.*`manifest\.process`|`manifest\.process`.*process entrypoints/iu,
+    /`setup\.py`.*manifest\.setup|manifest\.setup.*`setup\.py`/iu,
+    /Modly-injected JSON context/iu,
+    /Modly packaged-app `cp311` on Windows/iu,
+    /release-backed wheelhouse/iu,
+    /checksum verification/iu,
+    /--no-index --find-links/u,
+    /no silent PyPI fallback/iu,
+    /pip check/iu,
+    /import probes/iu,
+    /Windows reserved segments.*`AUX`.*`CON`.*`NUL`.*`PRN`/isu,
+    /root `generator\.py` exposes the manifest `generator_class`/iu,
+    /is_downloaded\(\).*sentinel files|sentinel files.*is_downloaded\(\)/iu,
+    /final artifact path/iu,
+    /diagnostic checkpoints/iu,
+    /GLB.*nonzero geometry|nonzero geometry.*GLB/iu,
+    /For process-extension plans/iu,
+    /inputs, outputs, logs, progress, cancellation expectations, and artifact validation/iu,
+  ]);
+});
+
+test('modly extension planner encodes a release validation ladder and candidate lane policy', () => {
+  assertSkillMentionsAll('release validation ladder', [
+    /Release and validation ladder/iu,
+    /static contract checks/iu,
+    /full setup on target lane/iu,
+    /model asset download\/readiness checks/iu,
+    /first real generation smoke test/iu,
+    /artifact validation and workspace fetch/iu,
+    /candidate\/pre-release lanes remain opt-in and outside the stable manifest/iu,
+    /community-provided.*platform\/GPU\/driver\/VRAM/iu,
+  ]);
+});
+
+test('modly extension planner uses library entries as reference extension patterns without overclaiming', () => {
+  assertSkillMentionsAll('reference extension patterns', [
+    /^## Reference Extension Patterns$/m,
+    /drhepa-pixal3d/u,
+    /Release-backed CUDA model extension/iu,
+    /model-managed-setup/iu,
+    /candidate Blackwell lanes stay opt-in until validated/iu,
+    /TRELLIS, TripoSG, Hunyuan3D entries/iu,
+    /drhepa-kimodo.*drhepa-unirig|drhepa-unirig.*drhepa-kimodo/isu,
+    /sd15.*sdxl-base.*flux-schnell|flux-schnell.*sd15.*sdxl-base/isu,
+    /what extensions exist/iu,
+    /list entry ids, repo identities, relationship, platform statuses, dependency summary/iu,
+    /do not infer Windows\/Linux\/AMD support from family similarity/iu,
+  ]);
+});
+
 test('dependency library remains outside published package files', () => {
   assert.ok(!packageJson.files.includes('docs/extension-dependency-library/**'));
   assert.ok(!packageJson.files.some((entry) => entry.startsWith('docs/extension-dependency-library')));
